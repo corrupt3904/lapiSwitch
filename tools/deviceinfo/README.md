@@ -51,5 +51,11 @@ The Rust port passed host policy/fault-injection tests and Android ARM64
 compilation. On TB520FU TWRP 3.7.1_16, active slot a, two independent Rust
 reads matched the former C helper across all 4096 bytes; the on-device
 self-test and dry run passed, and a final baseline read was unchanged.
-This migration check issued no 0x203 write. Physical writes and slot-b
-hardware behavior were not exercised by that check.
+That initial migration check was read-only and issued no 0x203 write.
+
+The project maintainer subsequently reported hardware validation of the
+prerelease on Windows x64 with a real TB520FU, covering the main region
+conversion, DeviceInfo update/readback verification, firmware installation
+and original-configuration restore workflows. This report applies to the
+scenarios actually exercised; it does not assert exhaustive coverage of
+every slot, firmware version or interruption/failure combination.

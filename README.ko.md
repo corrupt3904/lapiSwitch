@@ -17,7 +17,9 @@
 
 lapiSwitch는 **Lenovo TB520FU**(코드네임 `lapis`, Yoga Tab Plus)의 **PRC(중국 내수) ↔ ROW(글로벌)** 리전 변환을 연구·실험하기 위해 개발한 비공식 Windows 도구입니다.
 
-[LTBox](https://github.com/miner7222/LTBox)를 기반으로, TWRP에서 DeviceInfo를 백업·변경·검증한 뒤 원본 GPT·Recovery를 복원하고 선택한 리전의 공식 펌웨어를 설치합니다.
+lapiSwitch는 **[@miner7222](https://github.com/miner7222)님의 [LTBox](https://github.com/miner7222/LTBox)를 기반으로 만든 독립 도구**이며, **[@wnduddld0513](https://github.com/wnduddld0513)님이 배포한 [TB520FU용 TWRP](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014)**를 사용합니다.
+
+TWRP에서 DeviceInfo를 백업·변경·검증한 뒤 원본 GPT·Recovery를 복원하고 선택한 리전의 공식 펌웨어를 설치합니다.
 
 > [!WARNING]
 > **사용 전 반드시 확인하세요**

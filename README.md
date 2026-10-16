@@ -17,7 +17,9 @@
 
 lapiSwitch is an unofficial Windows tool developed for researching and experimenting with **PRC (China) ↔ ROW (global)** region conversion on the **Lenovo TB520FU**, also known as Yoga Tab Plus.
 
-Built on [LTBox](https://github.com/miner7222/LTBox), it uses TWRP to back up, update and verify DeviceInfo, restores the original GPT and Recovery, and installs official firmware for the selected region.
+lapiSwitch is an **independent tool based on [LTBox](https://github.com/miner7222/LTBox) by [@miner7222](https://github.com/miner7222)**. It uses the **[TB520FU TWRP build](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014) published by [@wnduddld0513](https://github.com/wnduddld0513)**.
+
+It backs up, updates and verifies DeviceInfo in TWRP, restores the original GPT and Recovery, and installs official firmware for the selected region.
 
 > [!WARNING]
 > **Read before use**
