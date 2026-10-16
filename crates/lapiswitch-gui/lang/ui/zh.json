@@ -225,5 +225,11 @@
   "Verifying backup…": "正在检查备份…",
   "Wait for the current operation to finish.": "请等待当前操作完成。",
   "Weighted by expected work; firmware installation follows actual total transfer.": "按各阶段所需时间加权，固件安装部分按实际传输总量计算。",
-  "macOS uses Userspace USB mode.": "macOS 使用 Userspace USB 模式。"
+  "macOS uses Userspace USB mode.": "macOS 使用 Userspace USB 模式。",
+  "No matching components.": "未找到匹配的组件。",
+  "Open-source licenses": "开源许可证",
+  "Read license and copyright notices for included components.": "查看所包含组件的许可证和版权声明。",
+  "Search components or licenses": "搜索组件或许可证",
+  "Select a component to read its original license and copyright notices. No internet connection is required.": "选择组件以阅读许可证和版权声明原文。无需连接互联网。",
+  "View licenses": "查看许可证"
 }

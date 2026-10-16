@@ -10,3 +10,5 @@
 - `branding/lapiswitch.png`, `branding/lapiswitch.ico`: resized/packaged derivatives of that source for the GUI/window and Windows executable. Regenerate with `cargo run -p lapiswitch-tools -- icons`; no recoloring, redrawing or external assets are involved.
 
 - `settings.svg`: locally drawn gear for the settings button, GPL-3.0-or-later.
+
+- `licenses.json`: offline inventory and verbatim license/copyright texts for GUI normal/build dependencies and bundled assets. Identical texts are stored once and referenced by each component; settings exposes every document, including the project's GPL and third-party notices. Refresh this inventory when dependency versions or bundled assets change.

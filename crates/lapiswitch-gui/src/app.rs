@@ -2,6 +2,7 @@ mod archive;
 mod conflicts;
 mod country_view;
 mod dashboard_view;
+mod licenses_view;
 mod settings_view;
 mod view;
 mod wait_ui;
@@ -69,6 +70,10 @@ enum Message {
     Country(String),
     Rollback(lapiswitch_core::deviceinfo::RollbackMode),
     CountryOpen,
+    LicenseOpen,
+    LicenseClose,
+    LicenseSearch(String),
+    LicenseSelect(usize),
     CountrySearch(String),
     CountryCancel,
     CountryApply,
@@ -117,6 +122,9 @@ struct App {
     recovery_transition: Option<lapiswitch_core::recovery_flow::Transition>,
     recovery_detail: Option<String>,
     country_open: bool,
+    license_open: bool,
+    license_search: String,
+    license_selection: usize,
     country_search: String,
     country_draft: Option<String>,
     agreed: bool,
@@ -189,6 +197,9 @@ impl App {
             recovery_transition: None,
             recovery_detail: None,
             country_open: false,
+            license_open: false,
+            license_search: String::new(),
+            license_selection: 0,
             country_search: String::new(),
             country_draft: None,
             agreed: false,
@@ -663,6 +674,19 @@ impl App {
             Message::CloseFix if self.can_close_software_fix() => self.fix.confirm = true,
             Message::ConfirmCloseFix => return self.confirm_close_software_fix(),
             Message::CancelCloseFix => self.fix.confirm = false,
+            Message::LicenseOpen if self.page == Page::Settings => {
+                self.license_open = true;
+                self.license_search.clear();
+                self.license_selection = 0;
+            }
+            Message::LicenseClose => self.license_open = false,
+            Message::LicenseSearch(query) if self.license_open => self.license_search = query,
+            Message::LicenseSelect(index)
+                if self.license_open && index < crate::licenses::catalog().components.len() =>
+            {
+                self.license_selection = index;
+            }
+            _ if self.license_open => {}
             _ if self.country_open
                 && !matches!(
                     message,
@@ -1230,6 +1254,18 @@ impl App {
                 });
             }
             "settings" => self.page = Page::Settings,
+            "licenses" | "licenses-search" => {
+                self.page = Page::Settings;
+                self.license_open = true;
+                if screen == "licenses-search" {
+                    self.license_search = "flag-icons".into();
+                    self.license_selection = crate::licenses::catalog()
+                        .components
+                        .iter()
+                        .position(|c| c.name == "flag-icons")
+                        .unwrap();
+                }
+            }
             "progress" | "progress-short" | "progress-long" => {
                 self.page = Page::Progress;
                 self.activity = Some(Activity::Run);
@@ -1918,6 +1954,8 @@ mod tests {
                 "result",
                 "recovery",
                 "settings",
+                "licenses",
+                "licenses-search",
                 "dashboard",
                 "drivers",
                 "disconnected",

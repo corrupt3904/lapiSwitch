@@ -225,5 +225,11 @@
   "Verifying backup…": "Проверка резервной копии…",
   "Wait for the current operation to finish.": "Дождитесь завершения текущей операции.",
   "Weighted by expected work; firmware installation follows actual total transfer.": "Учитывается длительность этапов; установка прошивки отражает фактический объём передачи.",
-  "macOS uses Userspace USB mode.": "В macOS используется режим Userspace USB."
+  "macOS uses Userspace USB mode.": "В macOS используется режим Userspace USB.",
+  "No matching components.": "Подходящие компоненты не найдены.",
+  "Open-source licenses": "Лицензии открытого ПО",
+  "Read license and copyright notices for included components.": "Лицензии и уведомления об авторских правах включённых компонентов.",
+  "Search components or licenses": "Поиск компонентов или лицензий",
+  "Select a component to read its original license and copyright notices. No internet connection is required.": "Выберите компонент для чтения исходного текста лицензии и уведомлений об авторских правах. Подключение к интернету не требуется.",
+  "View licenses": "Просмотреть лицензии"
 }

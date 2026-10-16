@@ -225,5 +225,11 @@
   "Verifying backup…": "バックアップを検査しています…",
   "Wait for the current operation to finish.": "実行中の作業が終わるまでお待ちください。",
   "Weighted by expected work; firmware installation follows actual total transfer.": "各段階の所要時間を考慮し、ファームウェアのインストールは実際の総転送量を反映します。",
-  "macOS uses Userspace USB mode.": "macOS では Userspace USB モードを使用します。"
+  "macOS uses Userspace USB mode.": "macOS では Userspace USB モードを使用します。",
+  "No matching components.": "該当するコンポーネントはありません。",
+  "Open-source licenses": "オープンソースライセンス",
+  "Read license and copyright notices for included components.": "使用しているコンポーネントのライセンスと著作権表示を確認します。",
+  "Search components or licenses": "コンポーネント・ライセンスを検索",
+  "Select a component to read its original license and copyright notices. No internet connection is required.": "コンポーネントを選ぶと、ライセンスと著作権表示の原文を読めます。インターネット接続は不要です。",
+  "View licenses": "ライセンスを表示"
 }

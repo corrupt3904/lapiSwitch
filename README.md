@@ -56,5 +56,5 @@ cargo run -p lapiswitch-tools -- gpt-reference INPUT --slot a --output OUTPUT
 프로젝트 라이선스는 **GPL-3.0-or-later**입니다. [LICENSE](LICENSE)를 확인하세요.
 
 [LTBox](https://github.com/miner7222/LTBox)의 코드와 자산을 재사용합니다.
-qdl·국기·글꼴 등 제3자 구성요소의 출처와 라이선스는 각 구성요소의 LICENSE 및 문서를 확인하세요.
+앱의 **설정 → 오픈소스 라이선스 → 라이선스 보기**에서 qdl·국기·글꼴·Rust 의존성의 저작권 고지와 라이선스 원문을 오프라인으로 읽을 수 있습니다. 배포 ZIP에는 실행 파일·안내문·프로젝트 LICENSE를 포함하며, ZIP 옆의 `.zip.sha256` 파일로 무결성을 확인할 수 있습니다.
 GUI 자산의 출처는 [자산 안내](crates/lapiswitch-gui/assets/README.md)에 정리되어 있습니다.

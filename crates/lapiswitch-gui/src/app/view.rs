@@ -436,6 +436,8 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Some(conflicts::modal(app))
     } else if app.country_open {
         Some(country_view::modal(app))
+    } else if app.license_open {
+        Some(licenses_view::modal(app))
     } else {
         None
     };

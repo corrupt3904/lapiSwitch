@@ -7,6 +7,7 @@ mod app;
 mod brand;
 mod countries;
 mod device;
+mod licenses;
 mod platform_installers;
 mod progress;
 mod settings;

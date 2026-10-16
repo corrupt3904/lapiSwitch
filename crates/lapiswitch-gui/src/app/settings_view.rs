@@ -241,7 +241,23 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
             "핵심 작업 오류와 일부 상세 로그는 한국어로 표시될 수 있습니다.",
             "Core operation errors and some detailed logs may appear in Korean."
         )),
-        small("flag-icons · MIT License\nLTBox v3.3.4 (730b30d) · GPL-3.0-or-later\nNoto Sans KR · SIL Open Font License 1.1"),
+        section(
+            app.t("오픈소스 라이선스", "Open-source licenses"),
+            app.t(
+                "사용한 구성요소의 라이선스와 저작권 고지를 확인합니다.",
+                "Read license and copyright notices for included components.",
+            ),
+            Some(
+                action(
+                    app.t("라이선스 보기", "View licenses"),
+                    Message::LicenseOpen,
+                    true
+                )
+                .style(soft_style)
+                .into()
+            ),
+            vec![],
+        ),
     ]
     .spacing(16);
     (content.into(), footer(app, None))
