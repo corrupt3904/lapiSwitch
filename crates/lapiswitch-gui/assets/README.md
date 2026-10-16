@@ -12,3 +12,5 @@
 - `settings.svg`: locally drawn gear for the settings button, GPL-3.0-or-later.
 
 - `licenses.json`: offline inventory and verbatim license/copyright texts for GUI normal/build dependencies and bundled assets. Identical texts are stored once and referenced by each component; settings exposes every document, including the project's GPL and third-party notices. Refresh this inventory when dependency versions or bundled assets change.
+
+- The TWRP / TeamWin catalog entry identifies the separately downloaded lapis release `v3.7.1_16-20261014`, image SHA-256, release/device-tree/source references and credits. It preserves the recovery source's copyright/GPL NOTICE and Apache-2.0 notices for marked device-tree files. Other components of the upstream recovery image retain their respective licenses; the entry does not relabel the complete image as GPL-only.

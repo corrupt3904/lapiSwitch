@@ -1254,15 +1254,20 @@ impl App {
                 });
             }
             "settings" => self.page = Page::Settings,
-            "licenses" | "licenses-search" => {
+            "licenses" | "licenses-search" | "licenses-twrp" => {
                 self.page = Page::Settings;
                 self.license_open = true;
-                if screen == "licenses-search" {
-                    self.license_search = "flag-icons".into();
+                if screen == "licenses-search" || screen == "licenses-twrp" {
+                    let name = if screen == "licenses-twrp" {
+                        "TWRP / TeamWin"
+                    } else {
+                        "flag-icons"
+                    };
+                    self.license_search = name.into();
                     self.license_selection = crate::licenses::catalog()
                         .components
                         .iter()
-                        .position(|c| c.name == "flag-icons")
+                        .position(|c| c.name == self.license_search)
                         .unwrap();
                 }
             }
@@ -1956,6 +1961,7 @@ mod tests {
                 "settings",
                 "licenses",
                 "licenses-search",
+                "licenses-twrp",
                 "dashboard",
                 "drivers",
                 "disconnected",

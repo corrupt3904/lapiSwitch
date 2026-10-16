@@ -66,6 +66,32 @@ mod tests {
             }
         }
         assert_eq!(referenced.len(), catalog.texts.len());
+        let twrp = catalog
+            .components
+            .iter()
+            .find(|c| c.name == "TWRP / TeamWin")
+            .unwrap();
+        assert!(twrp.version.contains(lapiswitch_core::recovery_asset::TAG));
+        let notices = twrp
+            .notices
+            .iter()
+            .map(|n| catalog.texts[n.text].as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for expected in [
+            lapiswitch_core::recovery_asset::NAME,
+            lapiswitch_core::recovery_asset::SHA256,
+            lapiswitch_core::recovery_asset::URL,
+            "Copyright (c) 2011-2016, Dees_Troy, bigbiff, Team Win",
+            "GNU GENERAL PUBLIC LICENSE",
+            "SPDX-License-Identifier: Apache-2.0",
+            "https://github.com/TWRP-Test/platform_manifest_twrp_aosp/tree/twrp-16.0",
+        ] {
+            assert!(
+                notices.contains(expected),
+                "missing TWRP notice: {expected}"
+            );
+        }
         for (name, original) in [
             ("lapiSwitch", include_str!("../../../LICENSE")),
             ("flag-icons", include_str!("../assets/flags/LICENSE")),

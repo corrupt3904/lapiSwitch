@@ -43,7 +43,9 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
     let mut documents = column![
         label(&selected.name).size(22),
         small(format!("{} · {}", selected.version, selected.license)),
-        small(&selected.source),
+        small(&selected.source)
+            .width(Fill)
+            .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
     ]
     .spacing(12);
     for notice in &selected.notices {
@@ -54,11 +56,13 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
                 text(catalog.texts[notice.text].as_str())
                     .shaping(iced::widget::text::Shaping::Advanced)
                     .size(13)
+                    .width(Fill)
+                    .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
                     .color(INK),
             );
     }
     let reader = container(
-        scrollable(documents)
+        scrollable(container(documents).width(Fill).padding([0, 12]))
             .id(format!("license-document-{}", app.license_selection))
             .width(Fill)
             .height(Fill),
