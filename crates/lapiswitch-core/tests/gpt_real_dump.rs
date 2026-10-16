@@ -1,7 +1,7 @@
-//! Current GPT rule, byte-for-byte against tools/gpt_Modify_fixed.py on a local
-//! device dump. These GUID-bearing files are ignored and never committed:
-//! gpt_main4.bin and gpt_main4_modify_fixed{,_b}.py.bin. Generate with
-//! python tools/gpt_Modify_fixed.py <dump> --slot <a|b> -o <reference>.
+//! Current GPT rule, byte-for-byte against recorded known-good local fixtures.
+//! These GUID-bearing files are ignored and never committed. Generate additional
+//! references with cargo run -p lapiswitch-tools -- gpt-reference INPUT
+//! --slot a|b --output OUTPUT; keep originals unchanged.
 use lapiswitch_core::gpt::{PrimaryGpt, SECTOR_SIZE};
 use std::path::PathBuf;
 fn fixture(name: &str) -> PathBuf {
@@ -10,7 +10,7 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 #[test]
-fn matches_current_python_rule_on_the_real_dump() {
+fn matches_known_good_reference_on_the_real_dump() {
     let Ok(dump) = std::fs::read(fixture("gpt_main4.bin")) else {
         eprintln!("skipped: tests/fixtures/local/gpt_main4.bin not present");
         return;
@@ -21,19 +21,13 @@ fn matches_current_python_rule_on_the_real_dump() {
     assert_eq!(gpt.header().primary_gpt_len(), 6 * SECTOR_SIZE);
     assert_eq!(dump.len(), gpt.header().primary_gpt_len());
     for (slot, reference) in [
-        (
-            lapiswitch_core::slot::Slot::A,
-            "gpt_main4_modify_fixed.py.bin",
-        ),
-        (
-            lapiswitch_core::slot::Slot::B,
-            "gpt_main4_modify_fixed_b.py.bin",
-        ),
+        (lapiswitch_core::slot::Slot::A, "gpt_main4_expected_a.bin"),
+        (lapiswitch_core::slot::Slot::B, "gpt_main4_expected_b.bin"),
     ] {
         let expected = std::fs::read(fixture(reference))
-            .expect("generate current reference using tools/gpt_Modify_fixed.py --slot a|b");
+            .expect("generate a reference using cargo run -p lapiswitch-tools -- gpt-reference INPUT --slot a|b --output OUTPUT");
         let actual = gpt.remove_region_vbmeta(slot).unwrap();
-        assert!(actual == expected, "current Python reference differs");
+        assert!(actual == expected, "known-good GPT reference differs");
         let modified = PrimaryGpt::parse(&actual).unwrap();
         assert!(modified.find("vbmeta_a").is_none());
         assert!(modified.find("vbmeta").is_none());

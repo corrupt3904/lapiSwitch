@@ -3,6 +3,8 @@ members = [
     "crates/lapiswitch-core",
     "crates/lapiswitch-cli",
     "crates/lapiswitch-gui",
+    "tools/deviceinfo",
+    "tools/xtask",
     # Vendored from LTBox v3.3.4 (730b30d), unmodified. They read their
     # version/edition/license and dependency versions from this workspace.
     "vendor/ltbox-core",

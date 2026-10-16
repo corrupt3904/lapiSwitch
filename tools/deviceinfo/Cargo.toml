@@ -1,0 +1,16 @@
+[package]
+name = "lapiswitch-deviceinfo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "lapiswitch_deviceinfo"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "android")'.dependencies]
+libc = "0.2.190"
+
+[dev-dependencies]
+tempfile = "3"

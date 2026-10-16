@@ -1,9 +1,9 @@
 //! Primary GPT of UFS LUN 4 (`gpt_main4.bin`): validate and remove `vbmeta_a`
 //! (required), `vbmeta` and the active slot's `pvmfw_X` (if present).
 //!
-//! Packing/CRC handling derives from the original `tools/gpt_Modify.py`.
-//! The current policy matches `tools/gpt_Modify_fixed.py`. All remaining raw
-//! entries, including the other slot's pvmfw, bare pvmfw and vbmeta_b, are preserved.
+//! All retained raw entries, including the other slot's pvmfw, bare pvmfw
+//! and vbmeta_b, are preserved. A separate Rust reference converter lives
+//! in tools/xtask for byte-for-byte fixture verification.
 
 use crate::slot::Slot;
 
@@ -179,7 +179,7 @@ pub fn active_slot_from_attributes(a: u64, b: u64) -> Result<Slot, String> {
     Ok(slot)
 }
 
-/// `gpt_Modify.py` `entry_used`: a zero type GUID or a zero LBA range is a hole.
+/// A zero type GUID or a zero LBA range is an unused entry.
 fn entry_used(entry: &[u8]) -> bool {
     entry[..16].iter().any(|&b| b != 0) && !(u64_at(entry, 32) == 0 && u64_at(entry, 40) == 0)
 }

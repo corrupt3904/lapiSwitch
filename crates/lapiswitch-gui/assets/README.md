@@ -7,6 +7,6 @@
 - The country list is limited to LTBox’s canonical patcher codes. This prevents the GUI offering a country that the backend cannot accept.
 
 - `branding/lapiswitch-source.png`: original AI-generated lapiSwitch icon (light gray rounded tile, red upper / blue lower S-arrow).
-- `branding/lapiswitch.png`, `branding/lapiswitch.ico`: resized/packaged derivatives of that source for the GUI/window and Windows executable. Regenerate with `tools/build-app-icon.ps1`; no recoloring, redrawing or external assets are involved.
+- `branding/lapiswitch.png`, `branding/lapiswitch.ico`: resized/packaged derivatives of that source for the GUI/window and Windows executable. Regenerate with `cargo run -p lapiswitch-tools -- icons`; no recoloring, redrawing or external assets are involved.
 
 - `settings.svg`: locally drawn gear for the settings button, GPL-3.0-or-later.

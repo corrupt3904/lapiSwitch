@@ -38,11 +38,17 @@ cargo run -p lapiswitch-gui -- --demo
 - `crates/lapiswitch-cli`: 개발용 CLI
 - `assets/lapiswitch_deviceinfo`: 앱에 내장되는 Android helper
 - `tools/deviceinfo`: helper 소스와 빌드 안내
-- `tools/gpt_Modify*.py`: GPT 검증용 참조 스크립트
+- `tools/xtask`: Rust 개발 도구(GPT 참조 검증·helper 빌드·아이콘 생성)
 - `vendor`: 빌드에 사용하는 LTBox 및 qdl 소스
 - `misc/udev`: Linux USB 접근 규칙
 
-테스트 코드와 helper·아이콘 재생성 도구를 함께 포함합니다.
+테스트 코드와 Rust로 작성한 helper·개발 도구를 함께 포함합니다.
+
+```text
+cargo run -p lapiswitch-tools -- icons
+cargo run -p lapiswitch-tools -- gpt-reference INPUT --slot a --output OUTPUT
+```
+
 빌드 결과물, 기기 덤프, 개인 백업·로그, 로컬 작업 기록은 저장소에서 제외합니다.
 
 ## 라이선스 및 출처

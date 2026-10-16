@@ -11,7 +11,7 @@ use adb_client::{ADBDeviceExt, usb::ADBUSBDevice};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 const HELPER: &[u8] = include_bytes!("../../../../assets/lapiswitch_deviceinfo");
-const HELPER_SHA: &str = "ace64f2ef43cd9beee35267a1d54fe2250935dd895b80c48726c90cf47b96411";
+const HELPER_SHA: &str = "36b023482fb67e5d2b5f751b08a1d51eadff5a770095fbfbcbb4831838443b4d";
 const EXIT: &str = "__LAPISWITCH_EXIT__:";
 
 struct Output {
