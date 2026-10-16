@@ -1,0 +1,29 @@
+[package]
+name = "lapiswitch-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "lapiSwitch"
+path = "src/main.rs"
+
+[dependencies]
+lapiswitch-core = { workspace = true }
+ltbox-core = { workspace = true }
+ltbox-device = { workspace = true }
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "svg", "image-without-codecs", "tokio", "x11", "wayland"] }
+nusb = { workspace = true }
+tokio = { version = "1", features = ["rt"] }
+rfd = "0.17"
+serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = { workspace = true }
+regex = "1"
+png = "0.18"
+
+[build-dependencies]
+find-msvc-tools = "0.1.14"
+
+[dev-dependencies]
+tempfile = "3"

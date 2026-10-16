@@ -1,0 +1,59 @@
+# LTBox udev rules — grant the logged-in desktop user access to the
+# USB devices LTBox needs without requiring root or a sudo helper.
+#
+# Install manually, or let the GUI invoke `pkexec ltbox --install-udev`
+# from its Linux driver flow:
+#
+#   sudo cp misc/udev/51-ltbox-qcom.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload
+#   sudo udevadm trigger
+#
+# Then replug the device. `TAG+="uaccess"` is the modern systemd
+# mechanism that grants ACL access to the active console user; the
+# `GROUP="plugdev", MODE="0660"` fallback covers older or non-systemd
+# distros where the user has been added to `plugdev` (Debian/Ubuntu
+# default) — Arch users may need to substitute `uucp` for serial.
+#
+# Filename starts with `51-` so it sorts after distro-shipped 50-*
+# rules (gives LTBox the last word on the matching device).
+#
+# VID/PID list: confirmed-needed entries only; expand once hardware
+# testing surfaces additional Lenovo Fastboot or recovery VIDs.
+
+# ---- Qualcomm 9008 EDL (qdl + `serialport` crate) -----------------
+# USB endpoint — needed for the libusb open path qdl uses for
+# Sahara/Firehose framing. `ID_MM_DEVICE_IGNORE=1` is the modem-manager
+# opt-out flag: without it, NetworkManager's ModemManager probes
+# `/dev/ttyUSB*` with AT commands on hot-plug (5-30 s window) which
+# either blocks qdl's serial open with `EBUSY` or corrupts the Sahara
+# HELLO handshake by injecting `AT` bytes. The flag is honoured by
+# both ModemManager and udisks/systemd-udevd.
+SUBSYSTEM=="usb", ATTR{idVendor}=="05c6", ATTR{idProduct}=="9008", \
+    ENV{ID_MM_DEVICE_IGNORE}="1", \
+    TAG+="uaccess", MODE="0660", GROUP="plugdev"
+# Serial node — the `qcserial` in-tree kernel driver exposes
+# `/dev/ttyUSB*` for the same device; `serialport::available_ports()`
+# walks tty. Same ModemManager opt-out applies to the tty subsystem
+# entry — ModemManager actually attaches at the tty level, so the flag
+# on the USB parent alone isn't always enough on older systemd.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="05c6", ATTRS{idProduct}=="9008", \
+    ENV{ID_MM_DEVICE_IGNORE}="1", \
+    TAG+="uaccess", MODE="0660", GROUP="plugdev"
+
+# ---- Google Android composite (ADB Recovery / sideload) -----------
+# Covers AOSP-stock recovery devices that report Google's vendor ID
+# rather than the OEM's. Custom recoveries (TWRP / OrangeFox) may
+# also enumerate under 18d1. Also covers the production ADB endpoint
+# when `adb_client`'s `usb` feature claims the interface directly via
+# `rusb` — without this rule the desktop user can't open the bulk-in
+# / bulk-out endpoints `ADBUSBDevice` needs.
+SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", \
+    TAG+="uaccess", MODE="0660", GROUP="plugdev"
+
+# ---- Lenovo USB (ADB + Fastboot on Lenovo tablets) ----------------
+# Vendor ID 17ef covers the production device states (ADB normal /
+# recovery, Fastboot bootloader) that Lenovo tablet boot stages
+# enumerate as. Same `adb_client::usb` libusb-claim grant rationale
+# applies as for 18d1 above.
+SUBSYSTEM=="usb", ATTR{idVendor}=="17ef", \
+    TAG+="uaccess", MODE="0660", GROUP="plugdev"

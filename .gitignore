@@ -1,0 +1,22 @@
+/target
+/dist
+*.log
+backups/
+backup/
+.claude/
+desktop.ini
+.DS_Store
+
+# Device dumps (contain device-specific GUIDs); see crates/tb520-core/tests/gpt_real_dump.rs
+crates/*/tests/fixtures/local/
+
+# Python reference-script bytecode
+__pycache__/
+*.pyc
+
+# Local handoff and planning notes; keep them outside the published source.
+/HANDOFF.md
+/PLAN.md
+/PLAN_DEVICEINFO_RECOVERY.md
+/PLAN_DEVICEINFO_V2.md
+/crates/lapiswitch-gui/README.md

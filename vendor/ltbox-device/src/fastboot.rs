@@ -1,0 +1,730 @@
+//! Minimal Fastboot over nusb — only the commands LTBox uses
+//! (getvar, reboot, reboot-bootloader, detect). Protocol:
+//! ASCII command → bulk write → read OKAY/FAIL/DATA/INFO.
+
+use nusb::Endpoint;
+use nusb::transfer::{Buffer, Bulk, In, Out};
+use std::time::Duration;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum FastbootError {
+    #[error("USB error: {0}")]
+    Usb(String),
+    #[error("Device not found")]
+    DeviceNotFound,
+    #[error("Multiple fastboot devices found; disconnect all other devices and try again")]
+    MultipleDevices,
+    #[error("Command failed: {0}")]
+    CommandFailed(String),
+}
+
+type Result<T> = std::result::Result<T, FastbootError>;
+
+const FASTBOOT_USB_CLASS: u8 = 0xFF;
+const FASTBOOT_USB_SUBCLASS: u8 = 0x42;
+const FASTBOOT_USB_PROTOCOL: u8 = 0x03;
+
+const WAIT_SLEEP: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Default, Clone)]
+pub struct FastbootVars {
+    pub model: Option<String>,
+    pub product: Option<String>,
+    pub serialno: Option<String>,
+    pub current_slot: Option<String>,
+    pub build_display_id: Option<String>,
+    pub ram_gb: Option<String>,
+    pub storage_gb: Option<String>,
+    pub rollback_indices: std::collections::HashMap<u32, u64>,
+    /// Raw `getvar:all` dump (the INFO lines joined), with a `serialno:` line
+    /// guaranteed at the top. Saved as `getvar.txt` in the Flash critical
+    /// backup — revives + supersedes LTBox v2's `sn.txt`.
+    pub raw_getvar_all: String,
+}
+
+pub struct FastbootDevice {
+    // Kept alive so the endpoints below stay bound to the claim.
+    _interface: nusb::Interface,
+    ep_in: Endpoint<Bulk, In>,
+    ep_out: Endpoint<Bulk, Out>,
+}
+
+struct FastbootCandidate {
+    device_info: nusb::DeviceInfo,
+    interface_numbers: Vec<u8>,
+}
+
+impl FastbootDevice {
+    pub fn open() -> Result<Self> {
+        use nusb::MaybeFuture;
+
+        crate::selection::ensure_single_usb_target().map_err(map_target_selection_error)?;
+
+        let devices = nusb::list_devices()
+            .wait()
+            .map_err(|e| FastbootError::Usb(e.to_string()))?;
+        let mut candidates = Vec::new();
+        for device_info in devices {
+            // Windows whole-device WinUSB bindings have no interface summary.
+            // Descriptor reads may open a handle, but no interface is claimed
+            // until every physical candidate has been identified.
+            let mut interface_numbers = device_info
+                .interfaces()
+                .filter(|iface| {
+                    is_fastboot_interface(iface.class(), iface.subclass(), iface.protocol())
+                })
+                .map(|iface| iface.interface_number())
+                .collect::<Vec<_>>();
+            if interface_numbers.is_empty() {
+                if let Ok(device) = device_info.open().wait() {
+                    for config in device.configurations() {
+                        for iface in config.interfaces() {
+                            if iface.alt_settings().any(|alt| {
+                                is_fastboot_interface(alt.class(), alt.subclass(), alt.protocol())
+                            }) {
+                                interface_numbers.push(iface.interface_number());
+                            }
+                        }
+                    }
+                } else if is_fastboot_interface(
+                    device_info.class(),
+                    device_info.subclass(),
+                    device_info.protocol(),
+                ) {
+                    // Known but inaccessible candidates must still count.
+                    interface_numbers.push(0);
+                }
+            }
+            if !interface_numbers.is_empty() {
+                candidates.push(FastbootCandidate {
+                    device_info,
+                    interface_numbers,
+                });
+            }
+        }
+
+        claim_unique_candidate(
+            candidates,
+            |candidate| candidate.device_info.id(),
+            Self::open_candidate,
+        )
+        .map(|device| device.ok_or(FastbootError::DeviceNotFound))?
+    }
+
+    fn open_candidate(candidate: FastbootCandidate) -> Result<Self> {
+        use nusb::MaybeFuture;
+
+        let device = candidate
+            .device_info
+            .open()
+            .wait()
+            .map_err(|e| FastbootError::Usb(e.to_string()))?;
+
+        for config in device.configurations() {
+            for iface in config.interfaces() {
+                if !candidate
+                    .interface_numbers
+                    .contains(&iface.interface_number())
+                {
+                    continue;
+                }
+                for alt in iface.alt_settings() {
+                    if !is_fastboot_interface(alt.class(), alt.subclass(), alt.protocol()) {
+                        continue;
+                    }
+                    let mut in_addr: u8 = 0;
+                    let mut out_addr: u8 = 0;
+                    for ep in alt.endpoints() {
+                        match ep.direction() {
+                            nusb::transfer::Direction::In => in_addr = ep.address(),
+                            nusb::transfer::Direction::Out => out_addr = ep.address(),
+                        }
+                    }
+                    if in_addr == 0 || out_addr == 0 {
+                        continue;
+                    }
+                    let interface_number = iface.interface_number();
+                    let interface = device
+                        .claim_interface(interface_number)
+                        .wait()
+                        .map_err(|e| FastbootError::Usb(e.to_string()))?;
+                    let ep_in = interface
+                        .endpoint::<Bulk, In>(in_addr)
+                        .map_err(|e| FastbootError::Usb(e.to_string()))?;
+                    let ep_out = interface
+                        .endpoint::<Bulk, Out>(out_addr)
+                        .map_err(|e| FastbootError::Usb(e.to_string()))?;
+                    return Ok(Self {
+                        _interface: interface,
+                        ep_in,
+                        ep_out,
+                    });
+                }
+            }
+        }
+
+        Err(FastbootError::DeviceNotFound)
+    }
+
+    pub fn check_device() -> bool {
+        Self::open().is_ok()
+    }
+
+    pub fn wait_for_device() -> Result<Self> {
+        loop {
+            match Self::open() {
+                Ok(dev) => return Ok(dev),
+                Err(FastbootError::DeviceNotFound) => {
+                    std::thread::sleep(WAIT_SLEEP);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// Submit `buf` on the OUT endpoint and block for completion.
+    fn bulk_write(&mut self, buf: Vec<u8>) -> Result<()> {
+        self.ep_out.submit(Buffer::from(buf));
+        let completion = pollster::block_on(self.ep_out.next_complete());
+        completion
+            .status
+            .map_err(|e| FastbootError::Usb(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Submit a 4 KiB read on the IN endpoint and block for completion.
+    /// Returns the initialized prefix of the filled buffer.
+    fn bulk_read(&mut self) -> Result<Vec<u8>> {
+        self.ep_in.submit(Buffer::new(4096));
+        let completion = pollster::block_on(self.ep_in.next_complete());
+        completion
+            .status
+            .map_err(|e| FastbootError::Usb(e.to_string()))?;
+        let len = completion.actual_len;
+        let mut out = completion.buffer.into_vec();
+        out.truncate(len);
+        Ok(out)
+    }
+
+    /// Send command and read until OKAY/FAIL.
+    fn command(&mut self, cmd: &str) -> Result<String> {
+        self.bulk_write(cmd.as_bytes().to_vec())?;
+
+        loop {
+            let data = self.bulk_read()?;
+
+            if data.len() < 4 {
+                return Err(FastbootError::CommandFailed("Short response".into()));
+            }
+
+            let status = std::str::from_utf8(&data[..4]).unwrap_or("");
+            let payload = std::str::from_utf8(&data[4..]).unwrap_or("").trim();
+
+            match status {
+                "OKAY" => return Ok(payload.to_string()),
+                "FAIL" => return Err(FastbootError::CommandFailed(payload.to_string())),
+                "INFO" => continue,
+                "DATA" => return Ok(payload.to_string()),
+                _ => return Err(FastbootError::CommandFailed(format!("Unknown: {status}"))),
+            }
+        }
+    }
+
+    /// Send command, collect all INFO lines.
+    fn command_all(&mut self, cmd: &str) -> Result<Vec<String>> {
+        self.bulk_write(cmd.as_bytes().to_vec())?;
+
+        let mut lines = Vec::new();
+        loop {
+            let data = self.bulk_read()?;
+            if data.len() < 4 {
+                break;
+            }
+            let status = std::str::from_utf8(&data[..4]).unwrap_or("");
+            let payload = std::str::from_utf8(&data[4..])
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            match status {
+                "INFO" => lines.push(payload),
+                "OKAY" => break,
+                "FAIL" => return Err(FastbootError::CommandFailed(payload)),
+                _ => break,
+            }
+        }
+        Ok(lines)
+    }
+
+    pub fn getvar(&mut self, variable: &str) -> Result<String> {
+        self.command(&format!("getvar:{variable}"))
+    }
+
+    pub fn get_model(&mut self) -> Result<Option<String>> {
+        match self.getvar("product") {
+            Ok(v) if !v.is_empty() => Ok(Some(v)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Active slot suffix (`_a` / `_b`).
+    ///
+    /// Whitelisted against `["a", "b", "_a", "_b"]` to match the ADB
+    /// path's [`adb::AdbManager::get_slot_suffix`] contract. Some
+    /// bootloaders return an empty or garbage `current-slot` on
+    /// non-A/B devices; feeding that into downstream
+    /// `vendor_boot{suffix}` partition lookups produced e.g.
+    /// `vendor_bootxyz` lookups that failed with misleading errors.
+    pub fn get_slot_suffix(&mut self) -> Result<Option<String>> {
+        match self.getvar("current-slot") {
+            Ok(slot) => Ok(normalize_slot_suffix(&slot)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Parse vars from `getvar:all` INFO lines.
+    pub fn get_all_vars(&mut self) -> Result<FastbootVars> {
+        let mut vars = FastbootVars::default();
+        // Standalone current-slot is best-effort only. A transient USB
+        // failure here must not discard model/RAM/storage/build from
+        // getvar:all (PollDevice maps Err → default empty fields).
+        if let Ok(slot) = self.get_slot_suffix() {
+            vars.current_slot = slot;
+        }
+        if let Ok(sn) = self.getvar("serialno")
+            && !sn.is_empty()
+        {
+            vars.serialno = Some(sn);
+        }
+        if let Ok(lines) = self.command_all("getvar:all") {
+            for line in &lines {
+                apply_getvar_all_line(&mut vars, line);
+            }
+            // Preserve the raw dump for `getvar.txt`. Guarantee a `serialno:`
+            // line at the top (some bootloaders omit it from `getvar:all`, but
+            // it is fetched separately above) so the backup always records it.
+            let mut raw = lines.join("\n");
+            if let Some(sn) = &vars.serialno
+                && !lines.iter().any(|l| l.starts_with("serialno:"))
+            {
+                raw = format!("serialno:{sn}\n{raw}");
+            }
+            vars.raw_getvar_all = raw;
+        }
+        // product = market_name in GUI
+        if let Ok(p) = self.get_model() {
+            vars.product = p;
+        }
+        Ok(vars)
+    }
+
+    pub fn reboot(&mut self) -> Result<()> {
+        self.command("reboot").map(|_| ())
+    }
+
+    pub fn reboot_bootloader(&mut self) -> Result<()> {
+        self.command("reboot-bootloader").map(|_| ())
+    }
+
+    /// Reboot into userspace fastboot. Bootloaders that predate fastbootd
+    /// answer this with FAIL, which surfaces as a command error.
+    pub fn reboot_fastboot(&mut self) -> Result<()> {
+        self.command("reboot-fastboot").map(|_| ())
+    }
+
+    /// Whether this endpoint is fastbootd rather than the bootloader's
+    /// own fastboot. Both enumerate identically, so only `is-userspace`
+    /// separates them; a bootloader that predates fastbootd does not know
+    /// the variable and fails the getvar, which reads as `false`.
+    pub fn is_userspace(&mut self) -> bool {
+        self.getvar("is-userspace")
+            .map(|v| v.trim().eq_ignore_ascii_case("yes"))
+            .unwrap_or(false)
+    }
+}
+
+fn is_fastboot_interface(class: u8, subclass: u8, protocol: u8) -> bool {
+    class == FASTBOOT_USB_CLASS
+        && subclass == FASTBOOT_USB_SUBCLASS
+        && protocol == FASTBOOT_USB_PROTOCOL
+}
+
+fn map_target_selection_error(error: crate::selection::UsbSelectionError) -> FastbootError {
+    match error {
+        crate::selection::UsbSelectionError::MultipleDevices => FastbootError::MultipleDevices,
+        crate::selection::UsbSelectionError::Enumeration(error) => FastbootError::Usb(error),
+    }
+}
+
+fn select_unique_candidate<T, K, I, Key>(candidates: I, key: Key) -> Result<Option<T>>
+where
+    I: IntoIterator<Item = T>,
+    Key: Fn(&T) -> K,
+    K: Eq,
+{
+    let mut selected: Option<(K, T)> = None;
+    for candidate in candidates {
+        let candidate_key = key(&candidate);
+        if let Some((selected_key, _)) = selected.as_ref() {
+            if selected_key == &candidate_key {
+                continue;
+            }
+            return Err(FastbootError::MultipleDevices);
+        }
+        selected = Some((candidate_key, candidate));
+    }
+    Ok(selected.map(|(_, candidate)| candidate))
+}
+
+fn claim_unique_candidate<T, K, I, Key, Claim, R>(
+    candidates: I,
+    key: Key,
+    claim: Claim,
+) -> Result<Option<R>>
+where
+    I: IntoIterator<Item = T>,
+    Key: Fn(&T) -> K,
+    K: Eq,
+    Claim: FnOnce(T) -> Result<R>,
+{
+    let Some(candidate) = select_unique_candidate(candidates, key)? else {
+        return Ok(None);
+    };
+    claim(candidate).map(Some)
+}
+
+/// Normalize a fastboot `current-slot` payload to `_a` / `_b`.
+fn normalize_slot_suffix(slot: &str) -> Option<String> {
+    match slot.trim() {
+        "a" | "_a" => Some("_a".to_string()),
+        "b" | "_b" => Some("_b".to_string()),
+        _ => None,
+    }
+}
+
+/// Apply one `getvar:all` INFO line into `vars`.
+///
+/// Extracted so unit tests can cover TB322FC (and similar) dumps without
+/// opening real USB hardware. Does not fetch product/serialno — those are
+/// still separate getvar queries in [`FastbootDevice::get_all_vars`].
+pub(crate) fn apply_getvar_all_line(vars: &mut FastbootVars, line: &str) {
+    // Spec lives in some `_`-separated segment of `hwboardid`
+    // (varies per SKU + sometimes has a trailing suffix); the
+    // helper walks every segment and picks the first
+    // `<digits>+<digits>` block, so layout drift in newer
+    // bootloaders doesn't silently drop RAM/storage.
+    // Model comes from the dedicated `modelname:` line below —
+    // the leading hwboardid token is the SoC name on stripped
+    // SKUs and not a reliable model source.
+    if let Some(val) = line.strip_prefix("hwboardid:")
+        && let Some((ram, storage)) = parse_hwboardid_ram_storage(val.trim())
+    {
+        vars.ram_gb = Some(ram);
+        vars.storage_gb = Some(storage);
+    }
+    // `modelname:TB322FC` — the bootloader-published model
+    // identifier. Stable across SKUs that strip the model
+    // token from `hwboardid`.
+    if let Some(val) = line.strip_prefix("modelname:") {
+        let val = val.trim();
+        if !val.is_empty() {
+            vars.model = Some(val.to_string());
+        }
+    }
+    // Prefer an explicit current-slot from the dump when present so a
+    // failed standalone slot query still leaves the dashboard filled.
+    if vars.current_slot.is_none()
+        && let Some(val) = line.strip_prefix("current-slot:")
+    {
+        vars.current_slot = normalize_slot_suffix(val);
+    }
+    if let Some((slot, val)) = parse_stored_rollback_line(line) {
+        vars.rollback_indices.insert(slot, val);
+    }
+    if let Some(val) = line.strip_prefix("build-display-id:") {
+        let v = val.trim();
+        if !v.is_empty() {
+            vars.build_display_id = Some(v.to_string());
+        }
+    } else if let Some(val) = line.strip_prefix("build.display.id:") {
+        let v = val.trim();
+        if !v.is_empty() {
+            vars.build_display_id = Some(v.to_string());
+        }
+    }
+}
+
+/// Parse `stored_rollback_index:N = HEX`. Value is always base-16.
+/// Tolerates `(N)`/`N)` slot wrapping and optional `0x` prefix.
+pub(crate) fn parse_stored_rollback_line(line: &str) -> Option<(u32, u64)> {
+    let rest = line.strip_prefix("stored_rollback_index:")?;
+    let (slot_str, val_str) = rest.split_once('=')?;
+    let slot_str = slot_str
+        .trim()
+        .trim_start_matches('(')
+        .trim_end_matches(')');
+    let val_str = val_str.trim();
+    let slot: u32 = slot_str.parse().ok()?;
+    let hex = val_str.strip_prefix("0x").unwrap_or(val_str);
+    let val = u64::from_str_radix(hex, 16).ok()?;
+    Some((slot, val))
+}
+
+/// Pull RAM + storage out of a Lenovo `hwboardid` getvar value.
+///
+/// Walks every `_`-separated segment and returns the first
+/// `<digits>+<digits>` block as `("<ram> GB", "<storage> GB")`. Covers
+/// every shape we've seen on Lenovo bootloaders:
+///
+/// * `TB322FC_SM8750P_16+512` — model + SoC + spec
+/// * `SM8750P_16+512`         — SoC + spec only
+/// * `SM8650P_12+256_12`      — SoC + spec + trailing suffix
+///
+/// Returns `None` when no segment matches.
+pub(crate) fn parse_hwboardid_ram_storage(val: &str) -> Option<(String, String)> {
+    for part in val.split('_') {
+        if let Some((ram, storage)) = part.split_once('+')
+            && !ram.is_empty()
+            && !storage.is_empty()
+            && ram.chars().all(|c| c.is_ascii_digit())
+            && storage.chars().all(|c| c.is_ascii_digit())
+        {
+            return Some((format!("{ram} GB"), format!("{storage} GB")));
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct TestCandidate {
+        device: u8,
+        fastboot: bool,
+    }
+
+    #[test]
+    fn unique_selector_does_not_claim_when_no_device_is_present() {
+        let mut claims = 0;
+        let result = claim_unique_candidate(
+            Vec::<u8>::new(),
+            |device| *device,
+            |_| {
+                claims += 1;
+                Ok(())
+            },
+        );
+
+        assert_eq!(result.unwrap(), None);
+        assert_eq!(claims, 0);
+    }
+
+    #[test]
+    fn unique_selector_claims_the_only_device_once() {
+        let mut claimed = Vec::new();
+        let result = claim_unique_candidate(
+            [7_u8],
+            |device| *device,
+            |device| {
+                claimed.push(device);
+                Ok(device + 1)
+            },
+        );
+
+        assert_eq!(result.unwrap(), Some(8));
+        assert_eq!(claimed, [7]);
+    }
+
+    #[test]
+    fn unique_selector_rejects_multiple_devices_before_claim_in_either_order() {
+        for candidates in [[1_u8, 2_u8], [2_u8, 1_u8]] {
+            let mut claimed = Vec::new();
+            let result = claim_unique_candidate(
+                candidates,
+                |device| *device,
+                |device| {
+                    claimed.push(device);
+                    Ok(device)
+                },
+            );
+
+            assert!(matches!(result, Err(FastbootError::MultipleDevices)));
+            assert!(claimed.is_empty());
+        }
+    }
+
+    #[test]
+    fn unrelated_usb_devices_are_filtered_before_selection() {
+        let result = select_unique_candidate(
+            [
+                TestCandidate {
+                    device: 1,
+                    fastboot: false,
+                },
+                TestCandidate {
+                    device: 2,
+                    fastboot: true,
+                },
+            ]
+            .into_iter()
+            .filter(|candidate| candidate.fastboot),
+            |candidate| candidate.device,
+        );
+
+        assert_eq!(result.unwrap().map(|candidate| candidate.device), Some(2));
+    }
+
+    #[test]
+    fn alternate_settings_on_one_physical_device_are_not_multiple_devices() {
+        let result = select_unique_candidate(
+            [
+                TestCandidate {
+                    device: 9,
+                    fastboot: true,
+                },
+                TestCandidate {
+                    device: 9,
+                    fastboot: true,
+                },
+            ],
+            |candidate| candidate.device,
+        );
+
+        assert_eq!(result.unwrap().map(|candidate| candidate.device), Some(9));
+    }
+
+    #[test]
+    fn inaccessible_unique_candidate_returns_claim_error_without_fallback() {
+        let result = claim_unique_candidate(
+            [TestCandidate {
+                device: 4,
+                fastboot: true,
+            }],
+            |candidate| candidate.device,
+            |_| Err::<(), _>(FastbootError::Usb("access denied".into())),
+        );
+
+        assert!(matches!(
+            result,
+            Err(FastbootError::Usb(message)) if message == "access denied"
+        ));
+    }
+
+    #[test]
+    fn bare_hex_parses_as_base16() {
+        // Bare hex with no `0x` prefix must still parse as base-16, not fall through to 0.
+        let out = parse_stored_rollback_line("stored_rollback_index:0 = 41B7A200");
+        assert_eq!(out, Some((0, 0x41B7A200)));
+    }
+
+    #[test]
+    fn prefixed_hex_still_parses() {
+        let out = parse_stored_rollback_line("stored_rollback_index:1 = 0xDEADBEEF");
+        assert_eq!(out, Some((1, 0xDEADBEEF)));
+    }
+
+    #[test]
+    fn small_decimal_digits_parse_as_hex() {
+        // Contract: always base-16 (v2 `int(_, 16)`). "100" → 0x100.
+        let out = parse_stored_rollback_line("stored_rollback_index:0 = 100");
+        assert_eq!(out, Some((0, 0x100)));
+    }
+
+    #[test]
+    fn malformed_line_returns_none() {
+        assert!(parse_stored_rollback_line("unrelated:0 = ff").is_none());
+        assert!(parse_stored_rollback_line("stored_rollback_index:not_a_slot = ff").is_none());
+        assert!(parse_stored_rollback_line("stored_rollback_index:0 = not_hex_ghi").is_none());
+        assert!(parse_stored_rollback_line("stored_rollback_index:0").is_none());
+    }
+
+    #[test]
+    fn trailing_paren_on_slot_is_stripped() {
+        let out = parse_stored_rollback_line("stored_rollback_index:0) = 41B7A200");
+        assert_eq!(out, Some((0, 0x41B7A200)));
+    }
+
+    #[test]
+    fn both_parens_on_slot_are_stripped() {
+        // `(0)` with both parens must still parse instead of silently skipping ARB.
+        let out = parse_stored_rollback_line("stored_rollback_index:(0) = 41B7A200");
+        assert_eq!(out, Some((0, 0x41B7A200)));
+    }
+
+    #[test]
+    fn hwboardid_three_segment_soc_spec() {
+        assert_eq!(
+            parse_hwboardid_ram_storage("TB322FC_SM8750P_16+512"),
+            Some(("16 GB".into(), "512 GB".into()))
+        );
+    }
+
+    #[test]
+    fn hwboardid_two_segment_soc_spec() {
+        assert_eq!(
+            parse_hwboardid_ram_storage("SM8750P_16+512"),
+            Some(("16 GB".into(), "512 GB".into()))
+        );
+    }
+
+    #[test]
+    fn hwboardid_trailing_suffix_after_spec() {
+        // Regression for `rsplit_once('_')` shape that took the trailing
+        // numeric suffix as the tail instead of the spec.
+        assert_eq!(
+            parse_hwboardid_ram_storage("SM8650P_12+256_12"),
+            Some(("12 GB".into(), "256 GB".into()))
+        );
+    }
+
+    #[test]
+    fn hwboardid_no_spec_returns_none() {
+        assert_eq!(parse_hwboardid_ram_storage("SM8750P_only"), None);
+    }
+
+    #[test]
+    fn tb322fc_getvar_all_populates_dashboard_fields() {
+        // Observed live TB322FC dump. Standalone current-slot may fail
+        // transiently; the INFO lines alone must still fill model/RAM/
+        // storage/slot/firmware so the dashboard is not blank until the
+        // next 3s poll.
+        let lines = [
+            "modelname:TB322FC",
+            "hwboardid:TB322FC_SM8750P_16+512",
+            "current-slot:a",
+            "build.display.id:TB322FC_CN_OPEN_USER_Q00041.1_W_ZUXOS_1.5.10.259_ST_2606119",
+            "product:elden_prc_wifi",
+            "serialno:HA289EBP",
+        ];
+        let mut vars = FastbootVars::default();
+        for line in lines {
+            apply_getvar_all_line(&mut vars, line);
+        }
+        assert_eq!(vars.model.as_deref(), Some("TB322FC"));
+        assert_eq!(vars.ram_gb.as_deref(), Some("16 GB"));
+        assert_eq!(vars.storage_gb.as_deref(), Some("512 GB"));
+        assert_eq!(vars.current_slot.as_deref(), Some("_a"));
+        assert_eq!(
+            vars.build_display_id.as_deref(),
+            Some("TB322FC_CN_OPEN_USER_Q00041.1_W_ZUXOS_1.5.10.259_ST_2606119")
+        );
+        // No stored_rollback_index on this dump — GUI ARB falls back to
+        // model classification (TB322FC => no protection) once model is set.
+        assert!(vars.rollback_indices.is_empty());
+        // product/serialno remain separate getvar queries in get_all_vars.
+        assert!(vars.product.is_none());
+        assert!(vars.serialno.is_none());
+    }
+
+    #[test]
+    fn getvar_all_line_does_not_overwrite_existing_slot() {
+        let mut vars = FastbootVars {
+            current_slot: Some("_b".into()),
+            ..FastbootVars::default()
+        };
+        apply_getvar_all_line(&mut vars, "current-slot:a");
+        assert_eq!(vars.current_slot.as_deref(), Some("_b"));
+    }
+}

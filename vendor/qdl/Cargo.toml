@@ -1,0 +1,32 @@
+# Vendored from qualcomm/qdlrs main @75fe2f7, BSD-3-Clause.
+# See VENDORING.md for provenance + local patches.
+[package]
+name = "qdl"
+version = "0.1.0"
+edition = "2024"
+authors = ["Konrad Dybcio <konrad.dybcio@oss.qualcomm.com>"]
+license = "BSD-3-Clause"
+repository = "https://github.com/qualcomm/qdlrs"
+categories = ["embedded"]
+publish = false
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[lib]
+name = "qdl"
+path = "src/lib.rs"
+
+[dependencies]
+anstream = "0.6.15"
+anyhow = "1.0"
+indexmap = "2.5.0"
+nusb = { version = "0.2.1", optional = true }
+owo-colors = "4.1.0"
+pbr = "1.1.1"
+serial2 = { version = "0.2.28", optional = true }
+xmltree = { version = "0.12", features = ["attribute-order"] }
+
+[features]
+serial = ["dep:serial2"]
+usb = ["dep:nusb"]

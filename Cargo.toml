@@ -1,0 +1,61 @@
+[workspace]
+members = [
+    "crates/lapiswitch-core",
+    "crates/lapiswitch-cli",
+    "crates/lapiswitch-gui",
+    # Vendored from LTBox v3.3.4 (730b30d), unmodified. They read their
+    # version/edition/license and dependency versions from this workspace.
+    "vendor/ltbox-core",
+    "vendor/ltbox-device",
+]
+# Vendored third-party crate (qualcomm/qdlrs + LTBox fixes) — built as a path
+# dependency, not a member, so it keeps its own edition and lints.
+exclude = ["vendor/qdl"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+# Versions match LTBox's workspace so the vendored crates build as they do there.
+[workspace.dependencies]
+thiserror = "2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+aes = "0.9"
+cbc = "0.2"
+sha2 = "0.11"
+crc32fast = "1"
+digest = "0.11"
+
+ureq = { version = "3", features = ["json"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
+roxmltree = "0.21"
+moka = { version = "0.12", features = ["sync"] }
+tracing = "0.1"
+dirs = "7"
+semver = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+adb_client = { version = "3", features = ["usb"] }
+rsa = "0.9"
+nusb = "0.2"
+pollster = "1"
+serialport = "4"
+gptman = "3"
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_Threading"] }
+
+qdl = { path = "vendor/qdl", features = ["serial", "usb"] }
+avbtool-rs = { git = "https://github.com/miner7222/avbtool-rs", tag = "v0.2.0" }
+
+ltbox-core = { path = "vendor/ltbox-core" }
+ltbox-device = { path = "vendor/ltbox-device" }
+lapiswitch-core = { path = "crates/lapiswitch-core" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

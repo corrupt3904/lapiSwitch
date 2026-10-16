@@ -1,0 +1,21 @@
+[package]
+name = "lapiswitch-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ltbox-core = { workspace = true }
+ltbox-device = { workspace = true }
+avbtool-rs = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+crc32fast = { workspace = true }
+chrono = { workspace = true }
+roxmltree = { workspace = true }
+tempfile = "3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = { workspace = true }
+
+adb_client = { workspace = true }

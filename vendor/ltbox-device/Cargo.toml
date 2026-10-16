@@ -1,0 +1,35 @@
+[package]
+name = "ltbox-device"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tempfile = "3"
+ltbox-core = { path = "../ltbox-core" }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+qdl = { workspace = true }
+gptman = { workspace = true }
+adb_client = { workspace = true }
+rsa = { workspace = true }
+nusb = { workspace = true }
+pollster = { workspace = true }
+serialport = { workspace = true }
+ureq = { workspace = true }
+roxmltree = { workspace = true }
+serde = { workspace = true }
+zip = { workspace = true }
+
+# Windows-only: native SetupAPI + registry enumeration to resolve the EDL
+# 9008 serial COM port by hardware ID. The WDF kernel driver exposes
+# non-standard USB metadata that `serialport` can't classify, so the plain
+# VID/PID scan misses it (see `find_edl_port`).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Diagnostics_ToolHelp",
+] }

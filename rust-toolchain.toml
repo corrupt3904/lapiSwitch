@@ -1,0 +1,5 @@
+# Same toolchain as LTBox v3.3.4, so the vendored crates build identically.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
