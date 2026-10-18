@@ -1093,14 +1093,14 @@ impl lapiswitch_core::workflow::Clock for WaitClock {
 }
 
 #[test]
-fn edl_wait_survives_long_absence_and_a_port_lost_between_probe_and_open() {
+fn edl_wait_recovers_a_port_lost_between_probe_and_open_before_the_deadline() {
     let mut s = Setup::new(Slot::A, RollbackMode::Reset);
     s.transact().unwrap();
     recovery_flow::checkpoint(&mut s.state, &s.store, Phase::EdlWaiting).unwrap();
     let state = std::fs::read(s.store.path()).unwrap();
     let mut d = Finish {
         edl: EdlScript {
-            ports: std::iter::repeat_n(None, 600)
+            ports: std::iter::repeat_n(None, 35)
                 .chain([Some("stale"), None, None, Some("reconnected")])
                 .collect(),
             opens: [Ok(false), Ok(true)].into(),
@@ -1122,13 +1122,13 @@ fn edl_wait_survives_long_absence_and_a_port_lost_between_probe_and_open() {
         &mut log,
     )
     .unwrap();
-    assert!(clock.0 >= 603);
+    assert_eq!(clock.0, 38);
     assert_eq!(d.edl.attempts, 2);
     assert_eq!(
         log.iter()
             .filter(|line| line.contains("EDL 연결이 늦어지고"))
             .count(),
-        1
+        0
     );
     assert!(!log.iter().any(|line| line.contains("작업 중지")));
     assert!(d.inner.writes.is_empty());
@@ -1142,7 +1142,7 @@ fn edl_wait_repeats_unstable_port_attempts_but_never_retries_fatal_handshake_err
     for fatal in [false, true] {
         let s = Setup::new(Slot::B, RollbackMode::Reset);
         let mut opens =
-            std::iter::repeat_n(Ok(false), 200).collect::<std::collections::VecDeque<_>>();
+            std::iter::repeat_n(Ok(false), 40).collect::<std::collections::VecDeque<_>>();
         opens.push_back(if fatal {
             Err("Firehose configuration failed".into())
         } else {
@@ -1171,8 +1171,8 @@ fn edl_wait_repeats_unstable_port_attempts_but_never_retries_fatal_handshake_err
         if fatal {
             assert!(result.unwrap_err().contains("Firehose"));
         }
-        assert_eq!(d.edl.attempts, 201);
-        assert_eq!(clock.0, 200);
+        assert_eq!(d.edl.attempts, 41);
+        assert_eq!(clock.0, 40);
         assert!(d.inner.writes.is_empty());
         assert_eq!(d.flashed, 0);
     }
@@ -1819,6 +1819,149 @@ fn edl_backups_bind_the_gpt_slot_and_do_not_require_fastboot_getvar() {
                 assert_eq!(backup.manifest().slot, slot);
                 assert!(backup.file_path("getvar.txt").is_err());
                 backup.verify().unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn edl_three_minute_timeout_preserves_evidence_and_never_restores_or_flashes() {
+    for unstable in [false, true] {
+        let mut s = Setup::new(Slot::B, RollbackMode::Reset);
+        s.transact().unwrap();
+        recovery_flow::checkpoint(&mut s.state, &s.store, Phase::EdlWaiting).unwrap();
+        let state_before = std::fs::read(s.store.path()).unwrap();
+        let mut d = Finish {
+            edl: EdlScript {
+                ports: if unstable {
+                    Default::default()
+                } else {
+                    std::iter::repeat_n(None, 181).collect()
+                },
+                opens: std::iter::repeat_n(Ok(false), 181).collect(),
+                ..Default::default()
+            },
+            inner: s.disk,
+            flashed: 0,
+            active: 0,
+            reboots: 0,
+            slot: Slot::B,
+        };
+        let mut clock = WaitClock::default();
+        let error = recovery_flow::wait_for_edl(
+            &mut d,
+            &s.firmware.loader,
+            &mut clock,
+            &mut Ui::default(),
+            &mut vec![],
+        )
+        .unwrap_err();
+        assert!(error.contains("EDL") && error.contains("180초"));
+        assert_eq!(clock.0, 180);
+        assert_eq!(d.edl.attempts, if unstable { 180 } else { 0 });
+        assert!(d.inner.writes.is_empty());
+        assert_eq!((d.flashed, d.active, d.reboots), (0, 0, 0));
+        assert_eq!(std::fs::read(s.store.path()).unwrap(), state_before);
+        s.backup.verify().unwrap();
+    }
+}
+
+#[test]
+fn a_connection_that_returns_after_the_deadline_cannot_hand_off_to_writes() {
+    struct LateClock(std::cell::Cell<u32>);
+    impl lapiswitch_core::workflow::Clock for LateClock {
+        fn seconds(&self) -> u64 {
+            let n = self.0.get();
+            self.0.set(n + 1);
+            if n < 2 { 0 } else { 180 }
+        }
+        fn sleep_one_second(&mut self) {
+            panic!("late connection must stop immediately");
+        }
+    }
+    let s = Setup::new(Slot::A, RollbackMode::Reset);
+    let mut d = Finish {
+        edl: EdlScript::default(),
+        inner: s.disk,
+        flashed: 0,
+        active: 0,
+        reboots: 0,
+        slot: Slot::A,
+    };
+    assert!(
+        recovery_flow::wait_for_edl(
+            &mut d,
+            &s.firmware.loader,
+            &mut LateClock(std::cell::Cell::new(0)),
+            &mut Ui::default(),
+            &mut vec![]
+        )
+        .unwrap_err()
+        .contains("180초")
+    );
+    assert_eq!(d.edl.attempts, 1);
+    assert!(d.inner.writes.is_empty());
+    for transition in [Transition::Twrp, Transition::Edl] {
+        assert!(recovery_flow::check_connection_timeout(transition, 179).is_ok());
+        assert!(recovery_flow::check_connection_timeout(transition, 180).is_err());
+    }
+}
+
+#[test]
+fn s3_system_ext_version_and_custom_rom_consent_are_separate_from_stock_ceiling() {
+    for slot in [Slot::A, Slot::B] {
+        for (incremental, answer, expected, prompts) in [
+            ("ZUI_18.5.10.037_260929_ROW", false, true, 0),
+            ("ZUI_18.5.10.038_260929_ROW", true, false, 0),
+            ("ZUXOS_1.5.10.187_260929_PRC", true, false, 0),
+            ("GSI_TEST", false, false, 1),
+            ("GSI_TEST", true, true, 1),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut d = Fake::new(600, true);
+            d.snapshot.extend([
+                part("recovery_a", 4, 1600, 2),
+                part("recovery_b", 4, 1602, 2),
+                part("misc", 0, 70, 2),
+                part("vendor_boot_a", 4, 1700, 4),
+                part("vendor_boot_b", 4, 1710, 4),
+            ]);
+            d.original_gpt = gpt(&d.snapshot);
+            d.disk[4][..d.original_gpt.len()].copy_from_slice(&d.original_gpt);
+            let name = format!("vbmeta_system{}", slot.suffix());
+            d.fingerprints.insert(
+                name.clone(),
+                "qti/TB520FU/TB520FU:17/CQ2A.260712.001/37:user/release-keys".into(),
+            );
+            let ext =
+                format!("qti/TB520FU/TB520FU:17/CQ2A.260712.001/{incremental}:user/release-keys");
+            d.system_ext_fingerprints.insert(name, ext.clone());
+            let builder = BackupBuilder::create(dir.path()).unwrap().for_recovery();
+            let folder = builder.partition_dir().to_owned();
+            let mut called = 0;
+            let result = stage1::take_backup_with_confirmation(
+                &mut d,
+                &prepared(slot, lapiswitch_core::prepare::Connection::Fastboot),
+                &firmware(),
+                builder,
+                &mut || {
+                    called += 1;
+                    Ok(answer)
+                },
+                &mut vec![],
+            );
+            assert_eq!(called, prompts);
+            assert_eq!(
+                result.is_ok(),
+                expected,
+                "{incremental} {answer}: {:?}",
+                result.as_ref().err()
+            );
+            assert!(d.writes.is_empty());
+            if let Ok(backup) = result {
+                assert_eq!(backup.manifest().fingerprint, ext);
+            } else {
+                assert_eq!(std::fs::read_dir(folder).unwrap().count(), 0);
             }
         }
     }

@@ -119,9 +119,9 @@ impl Recovery {
             true,
         );
         let started = std::time::Instant::now();
-        let mut warned = false;
         loop {
             super::stopped(ui)?;
+            super::check_connection_timeout(super::Transition::Twrp, started.elapsed().as_secs())?;
             ltbox_device::selection::ensure_single_usb_target().map_err(|e| e.to_string())?;
             let key = ltbox_core::app_paths::adb_key_path();
             if !key.is_file() {
@@ -147,6 +147,11 @@ impl Recovery {
                 // An authorized ADB connection is not necessarily recovery.
                 let twrp = recovery.shell("getprop ro.twrp.version", false)?;
                 if !twrp.is_empty() {
+                    super::stopped(ui)?;
+                    super::check_connection_timeout(
+                        super::Transition::Twrp,
+                        started.elapsed().as_secs(),
+                    )?;
                     // Atomically retire the timed stop before identity/helper
                     // preparation and DeviceInfo work can start.
                     if !ui.finish_wait() {
@@ -164,13 +169,7 @@ impl Recovery {
                     return Ok(recovery);
                 }
             }
-            if !warned && started.elapsed().as_secs() >= 180 {
-                warned = true;
-                ltbox_core::live!(
-                    log,
-                    "TWRP 연결이 늦어지고 있습니다. 기기 화면과 USB 케이블을 확인해 주세요."
-                );
-            }
+            super::check_connection_timeout(super::Transition::Twrp, started.elapsed().as_secs())?;
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     }

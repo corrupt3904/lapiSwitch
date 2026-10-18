@@ -104,6 +104,7 @@ pub(crate) struct Fake {
     pub(crate) fail_absent: bool,
     pub(crate) bad_model: bool,
     pub(crate) fingerprints: std::collections::HashMap<String, String>,
+    pub(crate) system_ext_fingerprints: std::collections::HashMap<String, String>,
     pub(crate) moved: bool,
     pub(crate) resets: Vec<ResetMode>,
     pub(crate) fail_reset: bool,
@@ -143,6 +144,7 @@ impl Fake {
             fail_absent: false,
             bad_model: false,
             fingerprints: Default::default(),
+            system_ext_fingerprints: Default::default(),
             moved: false,
             resets: vec![],
             fail_reset: false,
@@ -209,7 +211,15 @@ impl StageIo for Fake {
                         )
                     })
                     .into_bytes(),
-            )],
+            )]
+            .into_iter()
+            .chain(self.system_ext_fingerprints.get(partition).map(|fp| {
+                (
+                    "com.android.build.system_ext.fingerprint".into(),
+                    fp.as_bytes().to_vec(),
+                )
+            }))
+            .collect(),
         }))
     }
     fn scan(&mut self, _: &mut Vec<String>) -> Result<Vec<Partition>, String> {

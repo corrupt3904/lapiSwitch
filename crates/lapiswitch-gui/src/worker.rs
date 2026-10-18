@@ -59,6 +59,7 @@ pub enum Event {
     Validated(Result<FirmwareReport, String>),
     FirmwareRegionMismatch { firmware: Region, target: Region },
     ConfirmEdlStart(Sender<bool>),
+    ConfirmUnrecognizedFirmware(Sender<bool>),
     BackupChecked(Result<String, String>),
     Device(u64, Result<crate::device::Snapshot, String>),
     Drivers(Result<ltbox_device::driver::DriverStatus, String>),
@@ -156,6 +157,14 @@ pub struct ChannelUi {
     phase: lapiswitch_core::recovery_flow::Phase,
 }
 impl ChannelUi {
+    fn confirm_unrecognized_firmware(&mut self) -> Result<bool, String> {
+        let (tx, rx) = mpsc::channel();
+        self.tx
+            .send(Event::ConfirmUnrecognizedFirmware(tx))
+            .map_err(|_| "순정롬 확인 불가 안내를 표시할 수 없습니다.")?;
+        rx.recv()
+            .map_err(|_| "순정롬 확인 불가 안내가 닫혀 작업을 취소했습니다.".into())
+    }
     fn confirm_edl_start(&mut self) -> Result<(), String> {
         let (tx, rx) = mpsc::channel();
         self.tx
@@ -283,11 +292,12 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 let _ = tx.send(Event::RecoveryStatus(
                     "원본 GPT·활성 슬롯 Recovery·misc와 고유 파티션을 백업합니다.".into(),
                 ));
-                let backup = stage1::take_backup(
+                let backup = stage1::take_backup_with_confirmation(
                     &mut stage,
                     &prepared.report,
                     &firmware,
                     builder,
+                    &mut || ui.confirm_unrecognized_firmware(),
                     &mut log,
                 )?;
                 state.bind_backup(&backup)?;
@@ -536,7 +546,7 @@ mod tests {
             Ui::phase(&mut ui, phase);
             Ui::status(&mut ui, "waiting", true);
             let ticket = control
-                .begin_at(phase, std::time::Instant::now() - Duration::from_secs(181))
+                .begin_at(phase, std::time::Instant::now() - Duration::from_secs(31))
                 .unwrap();
             assert!(control.request_stop(ticket));
             assert!(Ui::cancelled(&ui));
@@ -627,6 +637,26 @@ mod edl_start_tests {
         assert_eq!(old.action, ResumeAction::Recovery);
         assert_eq!(std::fs::read(store.path()).unwrap(), before);
         assert_eq!(std::fs::read(journal).unwrap(), journal_before);
+    }
+    #[test]
+    fn custom_firmware_confirmation_blocks_until_answered_and_closing_is_not_consent() {
+        for response in [None, Some(false), Some(true)] {
+            let (tx, events) = mpsc::channel();
+            let join = std::thread::spawn(move || {
+                ChannelUi::new(tx, WaitControl::default()).confirm_unrecognized_firmware()
+            });
+            let Event::ConfirmUnrecognizedFirmware(tx) =
+                events.recv_timeout(Duration::from_secs(2)).unwrap()
+            else {
+                panic!("confirmation missing")
+            };
+            assert!(!join.is_finished());
+            if let Some(answer) = response {
+                tx.send(answer).unwrap();
+            }
+            drop(tx);
+            assert_eq!(join.join().unwrap().ok(), response);
+        }
     }
     #[test]
     fn edl_start_never_proceeds_without_a_positive_response() {

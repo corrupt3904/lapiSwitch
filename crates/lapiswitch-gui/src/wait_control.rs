@@ -3,7 +3,7 @@ use lapiswitch_core::recovery_flow::Phase;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const STOP_AFTER: Duration = Duration::from_secs(180);
+const STOP_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WaitTicket {

@@ -90,10 +90,11 @@ fn identify<D: StageIo>(
     let b = device.read_avb("vbmeta_system_b", log)?;
     let active = if slot == Slot::A { a } else { b };
     let active = active.ok_or("활성 슬롯의 vbmeta_system 정보를 읽을 수 없습니다.")?;
-    let fingerprint = active
+    active
         .build_fingerprint()
         .filter(|fp| ltbox_core::model::fingerprint_model_match(fp, MODEL))
         .ok_or("EDL 활성 슬롯의 기기 모델이 TB520FU로 확인되지 않았습니다.")?;
+    let fingerprint = active.version_fingerprint().unwrap_or_default();
     Ok((fingerprint, format!("{:?}", active.key_class())))
 }
 
@@ -119,7 +120,21 @@ pub fn take_backup<D: StageIo>(
     device: &mut D,
     prepared: &PrepareReport,
     firmware: &FirmwareReport,
+    builder: BackupBuilder,
+    log: &mut Vec<String>,
+) -> Result<VerifiedBackup, String> {
+    take_backup_with_confirmation(device, prepared, firmware, builder, &mut || Ok(false), log)
+}
+
+/// Only unrecognized ROM metadata is overridable, with an explicit answer
+/// before partition backup/staging. Known stock versions above the ceiling
+/// and model/transport failures never reach this confirmation.
+pub fn take_backup_with_confirmation<D: StageIo>(
+    device: &mut D,
+    prepared: &PrepareReport,
+    firmware: &FirmwareReport,
     mut builder: BackupBuilder,
+    confirm_unrecognized: &mut dyn FnMut() -> Result<bool, String>,
     log: &mut Vec<String>,
 ) -> Result<VerifiedBackup, String> {
     device.ensure_single_target()?;
@@ -127,12 +142,28 @@ pub fn take_backup<D: StageIo>(
     let (fingerprint, key) = identify(device, prepared.slot, log)?;
     live!(log, "S3: 기기 서명 키 {key} (표시·기록용)");
     if builder.is_recovery() {
-        let version = crate::device_version::check(&fingerprint)?;
-        live!(
-            log,
-            "S3: 활성 슬롯 {} 기기 펌웨어 {version}, 버전 제한 검사 통과",
-            prepared.slot.suffix()
-        );
+        match crate::device_version::check(&fingerprint) {
+            Ok(version) => live!(
+                log,
+                "S3: 활성 슬롯 {} 기기 펌웨어 {version}, 버전 제한 검사 통과",
+                prepared.slot.suffix()
+            ),
+            Err(crate::device_version::VersionError::Unrecognized) => {
+                live!(log, "S3: 순정롬 식별 불가 (system_ext 우선): {fingerprint}");
+                if !confirm_unrecognized()? {
+                    return Err(
+                        "순정롬 확인 불가 경고에서 작업을 취소했습니다. 기기에는 쓰지 않았습니다."
+                            .into(),
+                    );
+                }
+                live!(
+                    log,
+                    "S3: 사용자가 순정롬 확인 불가 경고를 확인하고 계속 진행을 선택했습니다."
+                );
+                device.ensure_single_target()?;
+            }
+            Err(error) => return Err(error.to_string()),
+        }
     }
     let snapshot = device.scan(log)?;
     let boot_name = format!("boot{}", prepared.slot.suffix());

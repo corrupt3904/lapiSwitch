@@ -65,6 +65,23 @@ pub enum Transition {
     Twrp,
     Edl,
 }
+
+pub const CONNECTION_WAIT_SECONDS: u64 = 180;
+
+/// Shared by TWRP and EDL waits, including the check immediately before
+/// handing a newly connected session to any partition/DeviceInfo operation.
+pub fn check_connection_timeout(transition: Transition, elapsed: u64) -> Result<(), String> {
+    if elapsed < CONNECTION_WAIT_SECONDS {
+        return Ok(());
+    }
+    let connection = match transition {
+        Transition::Twrp => "ADB(TWRP)",
+        Transition::Edl => "EDL",
+    };
+    Err(format!(
+        "{connection} 연결 대기 시간 초과: 3분(180초) 안에 연결이 확인되지 않았습니다. 백업과 작업 기록을 보존했습니다. 연결 후 이어하기 또는 EDL에서 원본 복구를 진행하세요."
+    ))
+}
 pub trait Ui {
     /// Presentation only: does not change the durable write/resume checkpoints.
     fn phase(&mut self, _phase: Phase) {}
@@ -815,21 +832,16 @@ pub fn wait_for_edl(
         true,
     );
     let started = clock.seconds();
-    let mut warned = false;
     loop {
         stopped(ui)?;
+        check_connection_timeout(Transition::Edl, clock.seconds().saturating_sub(started))?;
         device.ensure_single_target()?;
         if device.probe_edl()?.is_some() && device.try_open_edl(loader, log)? {
             stopped(ui)?;
+            check_connection_timeout(Transition::Edl, clock.seconds().saturating_sub(started))?;
             return Ok(());
         }
-        if !warned && clock.seconds().saturating_sub(started) >= 180 {
-            warned = true;
-            live!(
-                log,
-                "EDL 연결이 늦어지고 있습니다. 케이블·드라이버와 기기 모드를 확인해 주세요. 연결 감시는 계속됩니다."
-            );
-        }
+        check_connection_timeout(Transition::Edl, clock.seconds().saturating_sub(started))?;
         clock.sleep_one_second();
     }
 }

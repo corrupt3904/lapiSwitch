@@ -383,6 +383,24 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             label(if app.activity == Some(Activity::Install) { app.t("드라이버 설치 프로그램이 실행 중입니다. 설치가 끝날 때까지 기다려 주세요.", "The driver installer is running. Please wait for it to finish.") } else { app.t("쓰기 도중 종료하면 기기가 부팅되지 않을 수 있습니다. 저장된 단계와 백업으로 이어하기 또는 복구가 필요할 수 있습니다.", "Closing during writes can leave the device unable to boot. Resume or restore may be required using the saved state and backup.") }),
             row![space().width(Fill), action(app.t("계속 진행", "Keep running"), Message::Stay, true), action(app.t("앱 종료", "Close app"), Message::Exit, true).style(button::danger)].spacing(12),
         ].spacing(20)).max_width(560))
+    } else if app.firmware_confirmation.is_some() {
+        Some(panel(column![
+            label(app.t("순정롬 확인 불가", "Stock firmware could not be verified")).size(25).color(DANGER),
+            label(app.t(
+                "기기의 펌웨어가 순정롬 버전 검사를 통과하지 못했습니다. 커스텀롬, GSI 또는 테스트 빌드일 가능성이 높습니다. 계속 작업을 진행하시겠습니까?",
+                "The device firmware could not pass the stock firmware version check. It may be a custom ROM, GSI or test build. Do you want to continue?"
+            )).color(DANGER),
+            row![
+                space().width(Fill),
+                action(app.t("취소", "Cancel"), Message::ConfirmUnrecognizedFirmware(false), true).style(soft_style),
+                action(app.t("계속 진행", "Continue"), Message::ConfirmUnrecognizedFirmware(true), true),
+            ].spacing(12),
+        ].spacing(20)).style(|_| container::Style {
+            background: Some(Color::from_rgb8(255, 247, 228).into()),
+            text_color: Some(DANGER),
+            border: Border { color: DANGER, width: 2.0, radius: 16.0.into() },
+            ..Default::default()
+        }).max_width(620))
     } else if app.edl_confirmation.is_some() {
         Some(
             panel(

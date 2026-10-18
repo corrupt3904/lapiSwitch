@@ -111,13 +111,13 @@ mod tests {
         (app, ticket)
     }
     #[test]
-    fn timeout_only_enables_the_button_and_cancel_never_stops_monitoring() {
+    fn thirty_seconds_only_enables_the_button_and_cancel_never_stops_monitoring() {
         for phase in [Phase::RecoveryWaiting, Phase::EdlWaiting] {
-            let (mut early, ticket) = ready(phase, 179);
+            let (mut early, ticket) = ready(phase, 29);
             let _ = early.update(Message::StopWait(ticket));
             assert!(early.stop_confirmation.is_none());
             assert!(button(&early).is_none());
-            let (mut app, ticket) = ready(phase, 181);
+            let (mut app, ticket) = ready(phase, 30);
             let _ = app.update(Message::Tick);
             assert!(app.stop_confirmation.is_none());
             assert!(button(&app).is_some());
@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn confirmed_stop_preserves_the_result_instead_of_starting_the_next_stage() {
         for phase in [Phase::RecoveryWaiting, Phase::EdlWaiting] {
-            let (mut app, ticket) = ready(phase, 181);
+            let (mut app, ticket) = ready(phase, 30);
             let _ = app.update(Message::StopWait(ticket));
             let _ = app.update(Message::ConfirmStopWait(ticket));
             assert!(app.wait_control.stopped());
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn a_connection_closes_the_old_dialog_and_stale_confirmations_cannot_stop_writes_or_new_waits()
     {
-        let (mut app, old) = ready(Phase::RecoveryWaiting, 181);
+        let (mut app, old) = ready(Phase::RecoveryWaiting, 31);
         let _ = app.update(Message::StopWait(old));
         assert!(app.wait_control.finish_wait());
         app.event(Event::RecoveryWait(None));
@@ -153,7 +153,7 @@ mod tests {
         assert!(!app.wait_control.stopped());
         let next = app
             .wait_control
-            .begin_at(Phase::EdlWaiting, Instant::now() - Duration::from_secs(181))
+            .begin_at(Phase::EdlWaiting, Instant::now() - Duration::from_secs(31))
             .unwrap();
         app.event(Event::RecoveryWait(Some(next)));
         let _ = app.update(Message::StopWait(next));

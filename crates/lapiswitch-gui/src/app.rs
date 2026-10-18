@@ -102,6 +102,7 @@ enum Message {
     ConfirmStopWait(worker::WaitTicket),
     ConfirmRecoveryReboot,
     ConfirmEdlStart(bool),
+    ConfirmUnrecognizedFirmware(bool),
     Close,
     Stay,
     Exit,
@@ -157,6 +158,7 @@ struct App {
     close_warning: bool,
     reboot_confirmation: Option<Sender<()>>,
     edl_confirmation: Option<Sender<bool>>,
+    firmware_confirmation: Option<Sender<bool>>,
     logs: VecDeque<String>,
     log_path: Option<PathBuf>,
     backup_path: Option<PathBuf>,
@@ -232,6 +234,7 @@ impl App {
             close_warning: false,
             reboot_confirmation: None,
             edl_confirmation: None,
+            firmware_confirmation: None,
             logs: VecDeque::new(),
             log_path: None,
             backup_path: None,
@@ -469,6 +472,7 @@ impl App {
         self.close_warning = false;
         self.reboot_confirmation = None;
         self.edl_confirmation = None;
+        self.firmware_confirmation = None;
         self.recovery_transition = None;
         self.recovery_detail = None;
         self.logs.clear();
@@ -621,6 +625,11 @@ impl App {
             Message::ConfirmStopWait(ticket) => self.confirm_wait_stop(ticket),
             Message::ConfirmEdlStart(proceed) => {
                 if let Some(tx) = self.edl_confirmation.take() {
+                    let _ = tx.send(proceed);
+                }
+            }
+            Message::ConfirmUnrecognizedFirmware(proceed) => {
+                if let Some(tx) = self.firmware_confirmation.take() {
                     let _ = tx.send(proceed);
                 }
             }
@@ -952,6 +961,11 @@ impl App {
     }
     fn event(&mut self, event: Event) {
         match event {
+            Event::ConfirmUnrecognizedFirmware(tx) => {
+                if self.activity == Some(Activity::Run) && self.run_kind == RunKind::Convert {
+                    self.firmware_confirmation = Some(tx);
+                }
+            }
             Event::ConfirmEdlStart(tx) => {
                 if self.activity == Some(Activity::Run) && self.run_kind != RunKind::Restore {
                     self.edl_confirmation = Some(tx);
@@ -1063,6 +1077,7 @@ impl App {
                 self.progress.finish(result.is_ok());
                 self.reboot_confirmation = None;
                 self.edl_confirmation = None;
+                self.firmware_confirmation = None;
                 self.recovery_transition = None;
                 self.activity = None;
                 self.wait_ticket = None;
@@ -1305,6 +1320,12 @@ impl App {
                     target: Region::Row,
                 });
             }
+            "custom-firmware-warning" => {
+                self.reset_progress(RunKind::Convert);
+                self.progress.step(Step::Backup);
+                let (tx, _) = mpsc::channel();
+                self.firmware_confirmation = Some(tx);
+            }
             "edl-start-warning" => {
                 self.page = Page::Progress;
                 self.activity = Some(Activity::Run);
@@ -1386,7 +1407,7 @@ impl App {
                     .wait_control
                     .begin_at(
                         phase,
-                        std::time::Instant::now() - std::time::Duration::from_secs(181),
+                        std::time::Instant::now() - std::time::Duration::from_secs(31),
                     )
                     .unwrap();
                 self.wait_ticket = Some(ticket);
@@ -2044,6 +2065,34 @@ mod tests {
             old.rollback_mode,
             lapiswitch_core::deviceinfo::RollbackMode::Keep
         );
+    }
+    #[test]
+    fn custom_rom_confirmation_requires_an_explicit_answer_and_is_cleared_on_finish() {
+        for answer in [false, true] {
+            let mut app = App::base(true);
+            app.reset_progress(RunKind::Convert);
+            let (tx, rx) = mpsc::channel();
+            app.event(Event::ConfirmUnrecognizedFirmware(tx));
+            let _ = app.update(Message::Tick);
+            assert!(app.firmware_confirmation.is_some());
+            assert!(rx.try_recv().is_err());
+            let _ = app.update(Message::ConfirmUnrecognizedFirmware(answer));
+            assert_eq!(rx.try_recv(), Ok(answer));
+            assert!(app.firmware_confirmation.is_none());
+            let (tx, rx) = mpsc::channel();
+            app.event(Event::ConfirmUnrecognizedFirmware(tx));
+            app.event(Event::Finished(Err("aborted".into())));
+            assert!(app.firmware_confirmation.is_none());
+            assert!(rx.recv().is_err());
+        }
+        for kind in [RunKind::Resume, RunKind::Restore] {
+            let mut app = App::base(true);
+            app.reset_progress(kind);
+            let (tx, rx) = mpsc::channel();
+            app.event(Event::ConfirmUnrecognizedFirmware(tx));
+            assert!(app.firmware_confirmation.is_none());
+            assert!(rx.recv().is_err());
+        }
     }
     #[test]
     fn recovery_wait_and_write_keep_explicit_reboot_confirmation() {

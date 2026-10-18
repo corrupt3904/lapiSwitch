@@ -92,11 +92,18 @@ impl AvbSummary {
         classify_pubkey(self.public_key_sha1.as_deref())
     }
 
-    /// LTBox `build_fingerprint`: prefer `com.android.build.system.fingerprint`
+    /// Model/display selection prefers system_ext, then the legacy LTBox
+    /// `build_fingerprint`: prefer `com.android.build.system.fingerprint`
     /// when it names a known model, else the first `*.fingerprint` that does,
     /// else the system one, else the first one.
     pub fn build_fingerprint(&self) -> Option<String> {
         let known = ltbox_core::model::fingerprint_names_known_model;
+        let system_ext = self.property("com.android.build.system_ext.fingerprint");
+        if let Some(fp) = &system_ext
+            && known(fp)
+        {
+            return Some(fp.clone());
+        }
         let system = self
             .props
             .iter()
@@ -119,7 +126,26 @@ impl AvbSummary {
             }
             first.get_or_insert(value);
         }
-        system.or(first)
+        system_ext.or(system).or(first)
+    }
+
+    fn property(&self, name: &str) -> Option<String> {
+        self.props
+            .iter()
+            .filter(|(key, _)| key == name)
+            .find_map(|(_, value)| property_text(value))
+    }
+
+    /// Admission must inspect system_ext itself, including a custom/GSI
+    /// value. Never hide it behind a stock fingerprint from another partition.
+    /// Old images without this property retain their system fallback.
+    pub fn version_fingerprint(&self) -> Option<String> {
+        let key = "com.android.build.system_ext.fingerprint";
+        if self.props.iter().any(|(name, _)| name == key) {
+            self.property(key)
+        } else {
+            self.property("com.android.build.system.fingerprint")
+        }
     }
 }
 
@@ -184,5 +210,50 @@ mod tests {
         ]);
         assert_eq!(s.build_fingerprint().as_deref(), Some(fp));
         assert_eq!(summary(&[]).build_fingerprint(), None);
+    }
+
+    #[test]
+    fn system_ext_carries_the_current_rom_version_when_system_only_has_a_number() {
+        let system = "qti/TB520FU/TB520FU:17/CQ2A.260712.001/37:user/release-keys";
+        let ext =
+            "qti/TB520FU/TB520FU:17/CQ2A.260712.001/ZUI_18.5.10.037_260929_ROW:user/release-keys";
+        let s = summary(&[
+            ("com.android.build.system.fingerprint", system),
+            ("com.android.build.system_ext.fingerprint", ext),
+        ]);
+        assert_eq!(s.build_fingerprint().as_deref(), Some(ext));
+        assert_eq!(s.version_fingerprint().as_deref(), Some(ext));
+        assert_eq!(
+            crate::device_version::check(ext).unwrap(),
+            "ROW ZUI_18.5.10.037"
+        );
+    }
+
+    #[test]
+    fn custom_system_ext_is_not_replaced_by_a_stock_system_for_admission() {
+        let system = "qti/TB520FU/TB520FU:16/BUILD/ZUI_17.5.10.309_260528_ROW:user/release-keys";
+        let custom = "generic/gsi/arm64:17/BUILD/custom:userdebug/test-keys";
+        let s = summary(&[
+            ("com.android.build.system.fingerprint", system),
+            ("com.android.build.system_ext.fingerprint", custom),
+        ]);
+        // Model evidence remains independent from ROM-version admission.
+        assert_eq!(s.build_fingerprint().as_deref(), Some(system));
+        assert_eq!(s.version_fingerprint().as_deref(), Some(custom));
+        assert!(crate::device_version::check(custom).is_err());
+        assert_eq!(
+            summary(&[("com.android.build.system.fingerprint", system)])
+                .version_fingerprint()
+                .as_deref(),
+            Some(system)
+        );
+        assert_eq!(
+            summary(&[
+                ("com.android.build.system.fingerprint", system),
+                ("com.android.build.system_ext.fingerprint", "")
+            ])
+            .version_fingerprint(),
+            None
+        );
     }
 }

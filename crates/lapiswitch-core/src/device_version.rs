@@ -2,10 +2,21 @@
 //! This does not restrict the selected installation package or original restore.
 use crate::region::Region;
 
-pub fn check(fingerprint: &str) -> Result<String, String> {
-    let unknown = || {
-        "활성 슬롯의 vbmeta_system에서 기기 펌웨어 버전·리전을 확정할 수 없습니다. 작업을 시작하지 않습니다.".to_owned()
-    };
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum VersionError {
+    #[error("활성 슬롯의 vbmeta_system에서 기기 펌웨어 버전·리전을 순정롬으로 확인할 수 없습니다.")]
+    Unrecognized,
+    #[error(
+        "현재 기기 펌웨어 {display}는 지원 상한 {limit}을 초과합니다. 해당 버전에서는 리전 변환을 시작할 수 없습니다."
+    )]
+    AboveLimit {
+        display: String,
+        limit: &'static str,
+    },
+}
+
+pub fn check(fingerprint: &str) -> Result<String, VersionError> {
+    let unknown = || VersionError::Unrecognized;
     // Android fingerprints: brand/product/device:release/build/incremental:type/tags.
     // Never mistake the Android release, build ID or build date for ROM version.
     let mut fields = fingerprint.split(':');
@@ -56,9 +67,10 @@ pub fn check(fingerprint: &str) -> Result<String, String> {
     if let Some((ceiling, label)) = limit
         && version > ceiling
     {
-        return Err(format!(
-            "현재 기기 펌웨어 {display}는 지원 상한 {label}을 초과합니다. 해당 버전에서는 리전 변환을 시작할 수 없습니다."
-        ));
+        return Err(VersionError::AboveLimit {
+            display,
+            limit: label,
+        });
     }
     Ok(display)
 }
@@ -92,7 +104,10 @@ mod tests {
             "ZUI_18.5.10.038_260408_ROW",
             "ZUI_19.1.0.0_260408_ROW",
         ] {
-            assert!(check(&fp(v)).unwrap_err().contains("초과"), "{v}");
+            assert!(
+                matches!(check(&fp(v)), Err(VersionError::AboveLimit { .. })),
+                "{v}"
+            );
         }
     }
     #[test]

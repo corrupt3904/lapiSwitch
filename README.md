@@ -53,7 +53,7 @@ Interface languages: 한국어, English, 简体中文, 日本語 and Русск�
 | Installation package | Unpacked official firmware matching the **target region** |
 | Connection | Reliable USB cable, adequate battery charge and internet access for required downloads |
 
-The version limits above apply to firmware **already installed on the tablet**. The app checks the selected installation package separately. Newer or unidentifiable device firmware blocks conversion. Check the [release notes](https://github.com/corrupt3904/lapiSwitch/releases) for the validation scope and limitations of each prerelease.
+The version limits above apply to firmware **already installed on the tablet**. The app checks the selected installation package separately. Identified stock firmware above these limits blocks conversion. If the stock version or region cannot be identified, the app warns about a possible custom ROM, GSI or test build and requires an explicit choice to continue. Connection waits in STEP 5 and STEP 7 allow stopping after 30 seconds and time out after 3 minutes, preserving the saved state. Check the [release notes](https://github.com/corrupt3904/lapiSwitch/releases) for the validation scope and limitations of each prerelease.
 
 ## Getting started
 
