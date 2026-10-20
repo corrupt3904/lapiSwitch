@@ -3,6 +3,7 @@ use crate::{
     backup::{self, TransactionStage, VerifiedBackup},
     deviceinfo::{self, RollbackMode},
     firmware::FirmwareReport,
+    rollback::{self, Downgrade, RollbackIndices},
     stage1::StageIo,
     state::{ResumeAction, RunState, Stage, StateStore},
     storage::{self, Partition},
@@ -86,6 +87,11 @@ pub trait Ui {
     /// Presentation only: does not change the durable write/resume checkpoints.
     fn phase(&mut self, _phase: Phase) {}
     fn confirm(&mut self, transition: Transition) -> Result<(), String>;
+    /// Keep mode found firmware rollback indices below those stored in
+    /// DeviceInfo. `Ok(true)` resets all 32 indices and continues; `Ok(false)`
+    /// cancels the conversion and restores the originals. An error (the prompt
+    /// was closed) stops without any write and keeps the run for resume/restore.
+    fn confirm_rollback_reset(&mut self, downgrades: &[Downgrade]) -> Result<bool, String>;
     fn status(&mut self, text: &str, stoppable: bool);
     fn cancelled(&self) -> bool;
     fn finish_wait(&mut self) -> bool;
@@ -165,6 +171,18 @@ pub fn checkpoint(state: &mut RunState, store: &StateStore, phase: Phase) -> Res
         state.recovery.as_ref().expect("checked"),
     )
 }
+/// Result of a DeviceInfo transaction that did not fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// The target region/rollback plan is written and independently re-read.
+    Verified,
+    /// The user cancelled at the rollback prompt; DeviceInfo was not written.
+    Cancelled,
+}
+pub const ROLLBACK_LOWER_MESSAGE: &str =
+    "설치할 펌웨어의 롤백인덱스가 기기 DeviceInfo에 저장된 값보다 낮습니다.";
+pub const ROLLBACK_CANCELLED_MESSAGE: &str =
+    "롤백인덱스 경고에서 작업을 취소했습니다. DeviceInfo는 변경하지 않았습니다.";
 pub const NOT_APPLIED_MESSAGE: &str = "DeviceInfo를 두 번 다시 읽어 최초 원본과 같음을 확인했습니다. 쓰기는 적용되지 않았으며 작업 기록을 쓰기 전 단계로 되돌렸습니다. 이어하기를 누르면 쓰기를 한 번 다시 요청하며, 원본 복구도 선택할 수 있습니다.";
 
 /// Only two fresh reads equal to the PC original prove that a failed write
@@ -657,7 +675,7 @@ pub fn transact(
     store: &StateStore,
     ui: &mut impl Ui,
     log: &mut Vec<String>,
-) -> Result<(), String> {
+) -> Result<Outcome, String> {
     backup.verify()?;
     restore::ensure_conversion_allowed(backup)?;
     state.verify_binding(backup, firmware)?;
@@ -696,7 +714,7 @@ pub fn transact(
         }
         checkpoint(state, store, Phase::RegionVerified)?;
         prune_intermediates(&dir, state, log);
-        return Ok(());
+        return Ok(Outcome::Verified);
     }
     ui.status(
         "DeviceInfo 원본을 읽어 백업하고 변경 범위를 비교합니다.",
@@ -740,18 +758,40 @@ pub fn transact(
     if before != second {
         return Err("DeviceInfo 독립 읽기 두 개가 일치하지 않습니다. 쓰지 않았습니다.".into());
     }
-    let mode = state.options.rollback_mode;
+    let mut mode = state.options.rollback_mode;
     if mode == RollbackMode::Keep {
-        let indices = deviceinfo::indices(&before)?;
-        crate::prepare::check_rollback(
-            firmware,
-            crate::rollback::DeviceFloors::PerLocation(crate::rollback::RollbackIndices {
-                boot: indices[3],
-                vbmeta_system: indices[2],
-            }),
-            log,
-        )
-        .map_err(|e| e.to_string())?;
+        // The only rollback comparison: the values actually stored on the device.
+        let stored = deviceinfo::indices(&before)?;
+        let device = RollbackIndices {
+            boot: stored[3],
+            vbmeta_system: stored[2],
+        };
+        for (partition, image, floor) in [
+            ("boot", firmware.indices.boot, device.boot),
+            (
+                "vbmeta_system",
+                firmware.indices.vbmeta_system,
+                device.vbmeta_system,
+            ),
+        ] {
+            live!(log, "롤백 비교 {partition}: 펌웨어 {image}, 기기 {floor}");
+        }
+        if let Err(downgrades) = rollback::check(firmware.indices, device) {
+            let details = rollback::describe(&downgrades);
+            live!(log, "{ROLLBACK_LOWER_MESSAGE} {details}");
+            if !ui.confirm_rollback_reset(&downgrades)? {
+                live!(log, "{ROLLBACK_CANCELLED_MESSAGE}");
+                return Ok(Outcome::Cancelled);
+            }
+            // Durable before the plan: the write intent and resume both use it.
+            state.options.rollback_mode = RollbackMode::Reset;
+            state.warnings.push(format!(
+                "{ROLLBACK_LOWER_MESSAGE} 사용자 확인 후 32개 롤백인덱스를 0으로 초기화했습니다. {details}"
+            ));
+            store.save(state)?;
+            mode = RollbackMode::Reset;
+            live!(log, "사용자가 롤백인덱스 0 초기화 후 계속을 선택했습니다.");
+        }
     }
     let planned = deviceinfo::plan(&before, state.target_region, mode)?;
     let changed = before.iter().zip(&planned).filter(|(a, b)| a != b).count();
@@ -816,7 +856,76 @@ pub fn transact(
         log,
         "DeviceInfo 목표 리전·롤백 및 전체 4096바이트 재읽기 검증 완료."
     );
-    Ok(())
+    Ok(Outcome::Verified)
+}
+
+/// The user cancelled at the rollback prompt while TWRP is running and
+/// DeviceInfo is unwritten. Reboot to EDL and run the verified original
+/// restore (GPT, Recovery, vendor_boot), then archive the restored run.
+#[allow(clippy::too_many_arguments)] // Explicit transport, recovery and clock seams for fault tests.
+pub fn cancel_to_original(
+    device: &mut impl FinishIo,
+    recovery: &mut impl restore::Session,
+    backup: &VerifiedBackup,
+    loader: &Path,
+    store: &StateStore,
+    clock: &mut impl workflow::Clock,
+    ui: &mut impl Ui,
+    log: &mut Vec<String>,
+) -> Result<Vec<String>, String> {
+    ui.status(
+        "작업을 취소하고 원본 구성으로 복구합니다. EDL로 전환합니다.",
+        false,
+    );
+    recovery.verify_identity(backup)?;
+    if let Err(e) = recovery.reboot_edl() {
+        live!(log, "원본 복구 EDL 재부팅 응답: {e}. 연결을 확인합니다.");
+    }
+    wait_for_edl(device, loader, clock, ui, log)?;
+    if !ui.finish_wait() {
+        return Err("연결 대기를 중지했습니다. 백업과 작업 기록을 보존했습니다. EDL에서 원본 복구를 진행하세요.".into());
+    }
+    let mut warnings = restore::run(
+        device,
+        backup,
+        loader,
+        None,
+        &mut restore::NoConnector,
+        clock,
+        ui,
+        log,
+    )?;
+    match store.archive_restored(backup) {
+        Ok(Some(path)) => live!(
+            log,
+            "복구 완료된 작업 기록을 보관했습니다: {}",
+            path.display()
+        ),
+        Ok(None) => {}
+        Err(error) => warnings.push(format!(
+            "원본 복구는 완료했지만 이전 작업 기록 정리를 마치지 못했습니다: {error}"
+        )),
+    }
+    Ok(warnings)
+}
+
+/// The run ends as an error either way: the conversion did not happen.
+pub fn cancelled(restore: Result<Vec<String>, String>) -> String {
+    match restore {
+        Ok(warnings) => {
+            let mut text = format!(
+                "{ROLLBACK_CANCELLED_MESSAGE} 원본 GPT·Recovery·vendor_boot를 자동으로 복구·검증했습니다."
+            );
+            for warning in warnings {
+                text.push('\n');
+                text.push_str(&warning);
+            }
+            text
+        }
+        Err(error) => format!(
+            "{ROLLBACK_CANCELLED_MESSAGE}\n원본 구성 자동 복구를 완료하지 못했습니다: {error}\n백업과 작업 기록을 보존했습니다. 기기를 EDL로 연결해 원본 복구를 진행하세요."
+        ),
+    }
 }
 
 /// Recovery STEP 7: keep watching through missing or unstable EDL ports.
@@ -898,12 +1007,29 @@ pub fn finish(
         ui.phase(Phase::RecoveryWaiting);
         let mut recovery = native::Recovery::wait(backup, ui, log)?;
         ui.phase(Phase::Planned);
-        transact(&mut recovery, backup, firmware, state, store, ui, log)?;
+        if transact(&mut recovery, backup, firmware, state, store, ui, log)? == Outcome::Cancelled {
+            return Err(cancelled(cancel_to_original(
+                device,
+                &mut recovery,
+                backup,
+                &firmware.loader,
+                store,
+                &mut workflow::native::SystemClock::default(),
+                ui,
+                log,
+            )));
+        }
         ui.phase(Phase::EdlRequested);
         ui.confirm(Transition::Edl)?;
         stopped(ui)?;
         // Confirmation can be open for minutes. Re-read, never assume old bytes.
-        transact(&mut recovery, backup, firmware, state, store, ui, log)?;
+        // Only the verified-result path is reachable here, so no new prompt.
+        if transact(&mut recovery, backup, firmware, state, store, ui, log)? == Outcome::Cancelled {
+            return Err(
+                "DeviceInfo 검증 후 예상하지 않은 취소 결과입니다. 작업 기록을 보존했습니다."
+                    .into(),
+            );
+        }
         recovery.verify_identity(backup)?;
         checkpoint(state, store, Phase::EdlRequested)?;
         if let Err(e) = recovery.reboot_edl() {

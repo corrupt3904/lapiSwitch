@@ -103,6 +103,7 @@ enum Message {
     ConfirmRecoveryReboot,
     ConfirmEdlStart(bool),
     ConfirmUnrecognizedFirmware(bool),
+    ConfirmRollbackReset(bool),
     Close,
     Stay,
     Exit,
@@ -159,6 +160,8 @@ struct App {
     reboot_confirmation: Option<Sender<()>>,
     edl_confirmation: Option<Sender<bool>>,
     firmware_confirmation: Option<Sender<bool>>,
+    /// Keep-mode rollback prompt: comparison details and the worker's answer.
+    rollback_confirmation: Option<(String, Sender<bool>)>,
     logs: VecDeque<String>,
     log_path: Option<PathBuf>,
     backup_path: Option<PathBuf>,
@@ -235,6 +238,7 @@ impl App {
             reboot_confirmation: None,
             edl_confirmation: None,
             firmware_confirmation: None,
+            rollback_confirmation: None,
             logs: VecDeque::new(),
             log_path: None,
             backup_path: None,
@@ -481,6 +485,7 @@ impl App {
         self.reboot_confirmation = None;
         self.edl_confirmation = None;
         self.firmware_confirmation = None;
+        self.rollback_confirmation = None;
         self.recovery_transition = None;
         self.recovery_detail = None;
         self.logs.clear();
@@ -578,6 +583,7 @@ impl App {
                     && self.demo_ticks > 0
                     && self.reboot_confirmation.is_none()
                     && self.edl_confirmation.is_none()
+                    && self.rollback_confirmation.is_none()
                 {
                     self.demo_tick();
                 }
@@ -639,6 +645,11 @@ impl App {
             Message::ConfirmUnrecognizedFirmware(proceed) => {
                 if let Some(tx) = self.firmware_confirmation.take() {
                     let _ = tx.send(proceed);
+                }
+            }
+            Message::ConfirmRollbackReset(reset) => {
+                if let Some((_, tx)) = self.rollback_confirmation.take() {
+                    let _ = tx.send(reset);
                 }
             }
             Message::ConfirmRecoveryReboot => {
@@ -974,6 +985,11 @@ impl App {
                     self.firmware_confirmation = Some(tx);
                 }
             }
+            Event::ConfirmRollbackReset(details, tx) => {
+                if self.activity == Some(Activity::Run) && self.run_kind != RunKind::Restore {
+                    self.rollback_confirmation = Some((details, tx));
+                }
+            }
             Event::ConfirmEdlStart(tx) => {
                 if self.activity == Some(Activity::Run) && self.run_kind != RunKind::Restore {
                     self.edl_confirmation = Some(tx);
@@ -1086,6 +1102,7 @@ impl App {
                 self.reboot_confirmation = None;
                 self.edl_confirmation = None;
                 self.firmware_confirmation = None;
+                self.rollback_confirmation = None;
                 self.recovery_transition = None;
                 self.activity = None;
                 self.wait_ticket = None;
@@ -1423,15 +1440,16 @@ impl App {
                     self.stop_confirmation = Some(ticket);
                 }
             }
-            "rollback-error" => {
-                self.page = Page::Result;
-                let error = format!(
-                    "{} boot: 펌웨어 1730764800 < 기기 1736035200 / vbmeta_system: 펌웨어 1730764800 < 기기 1736035200",
-                    lapiswitch_core::prepare::ROLLBACK_REJECTED_MESSAGE
-                );
-                self.add_log(format!("작업 중단: {error}"));
-                self.result = Some(Err(error));
-                self.backup_path = Some("Demo/backup/region_change/TB520FU".into());
+            "rollback-confirm" => {
+                self.page = Page::Progress;
+                self.activity = Some(Activity::Run);
+                self.progress = RunProgress::new(Flow::Recovery);
+                self.progress.step(Step::DeviceInfo);
+                let (tx, _) = mpsc::channel();
+                self.rollback_confirmation = Some((
+                    "boot: 펌웨어 1730764800 < 기기 1736035200 / vbmeta_system: 펌웨어 1730764800 < 기기 1736035200".into(),
+                    tx,
+                ));
             }
             "result" => {
                 self.page = Page::Result;
@@ -1784,16 +1802,41 @@ mod tests {
         demo_saved_state(stage)
     }
     #[test]
-    fn rollback_alert_separates_guidance_from_details_without_changing_log_text() {
-        let heading = lapiswitch_core::prepare::ROLLBACK_REJECTED_MESSAGE;
-        let details = "boot: 펌웨어 1730764800 < 기기 1736035200 / vbmeta_system: 펌웨어 1730764800 < 기기 1736035200";
-        let log_error = format!("{heading} {details}");
-        assert!(!log_error.contains('\n'));
-        assert_eq!(
-            view::result_error_text(&log_error),
-            format!("{heading}\n{details}")
-        );
-        assert_eq!(view::result_error_text("other error"), "other error");
+    fn rollback_prompt_needs_an_explicit_answer_and_is_cleared_on_finish() {
+        for reset in [false, true] {
+            for kind in [RunKind::Convert, RunKind::Resume] {
+                let mut app = App::base(true);
+                app.reset_progress(kind);
+                app.activity = Some(Activity::Run);
+                let (tx, rx) = mpsc::channel();
+                app.event(Event::ConfirmRollbackReset(
+                    "boot: 펌웨어 1 < 기기 2".into(),
+                    tx,
+                ));
+                for _ in 0..3 {
+                    let _ = app.update(Message::Tick);
+                }
+                assert!(rx.try_recv().is_err());
+                assert!(app.rollback_confirmation.is_some());
+                drop(app.view());
+                let _ = app.update(Message::ConfirmRollbackReset(reset));
+                assert_eq!(rx.try_recv(), Ok(reset));
+                assert!(app.rollback_confirmation.is_none());
+                let (tx, rx) = mpsc::channel();
+                app.event(Event::ConfirmRollbackReset("details".into(), tx));
+                app.event(Event::Finished(Err("aborted".into())));
+                assert!(app.rollback_confirmation.is_none());
+                assert!(rx.recv().is_err());
+            }
+        }
+        // Original restore never compares rollback indices.
+        let mut app = App::base(true);
+        app.reset_progress(RunKind::Restore);
+        app.activity = Some(Activity::Run);
+        let (tx, rx) = mpsc::channel();
+        app.event(Event::ConfirmRollbackReset("details".into(), tx));
+        assert!(app.rollback_confirmation.is_none());
+        assert!(rx.recv().is_err());
     }
     #[test]
     fn conversion_steps_follow_conversion_flow_and_settings_origin() {
@@ -2000,7 +2043,7 @@ mod tests {
                 "adb-conflict",
                 "software-fix",
                 "software-fix-confirm",
-                "rollback-error",
+                "rollback-confirm",
                 "preflight",
                 "firmware-mismatch",
                 "edl-start-warning",

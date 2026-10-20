@@ -8,13 +8,9 @@ use ltbox_core::live;
 
 use crate::avb_info::{AvbSummary, KeyClass};
 use crate::firmware::{FirmwareReport, MODEL};
-use crate::rollback::{self, DeviceFloors, Downgrade};
 use crate::slot::Slot;
 
 pub mod native;
-
-pub const ROLLBACK_REJECTED_MESSAGE: &str =
-    "이 펌웨어는 기기보다 롤백인덱스가 낮습니다. 롤백인덱스가 같거나 더 높은 펌웨어를 선택하세요.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Connection {
@@ -32,7 +28,8 @@ pub struct AdbIdentity {
 
 /// No flash/erase API is available during preparation. Only a missing
 /// partition or invalid AVB may yield `Ok(None)` from `read_avb`; transport
-/// and disk errors must yield `Err` so they cannot lower a rollback estimate.
+/// and disk errors must yield `Err` so they cannot pass as a missing image.
+/// Rollback indices are not read here: Keep mode compares them in TWRP.
 pub trait DeviceIo {
     type Session;
 
@@ -84,13 +81,6 @@ pub enum PrepareError {
     MissingSerial,
     #[error("adb_identity.txt 저장 실패: {0}")]
     SaveIdentity(String),
-    #[error("EDL에서 boot/vbmeta_system AVB 정보를 읽을 수 없습니다.")]
-    InvalidEdlAvb,
-    #[error("{} {details}", ROLLBACK_REJECTED_MESSAGE)]
-    Downgrade {
-        images: Vec<Downgrade>,
-        details: String,
-    },
 }
 
 #[derive(Debug, Clone)]
@@ -98,7 +88,6 @@ pub struct PrepareReport {
     pub started_in: Connection,
     pub slot: Slot,
     pub slot_estimated: bool,
-    pub floors: DeviceFloors,
     pub device_key: Option<KeyClass>,
     /// None on EDL start; otherwise the ADB identity record saved before S2.
     pub identity: Option<String>,
@@ -138,54 +127,6 @@ pub fn identity_record(slot: Slot, serial: &str) -> String {
     )
 }
 
-pub(crate) fn check_rollback(
-    firmware: &FirmwareReport,
-    floors: DeviceFloors,
-    log: &mut Vec<String>,
-) -> Result<(), PrepareError> {
-    let device = match floors {
-        DeviceFloors::PerLocation(indices) => Some(indices),
-        DeviceFloors::Aggregate(index) => Some(rollback::RollbackIndices {
-            boot: index,
-            vbmeta_system: index,
-        }),
-        DeviceFloors::None => None,
-    };
-    for (partition, firmware_index, device_index) in [
-        (
-            "boot",
-            firmware.indices.boot,
-            device.map(|indices| indices.boot),
-        ),
-        (
-            "vbmeta_system",
-            firmware.indices.vbmeta_system,
-            device.map(|indices| indices.vbmeta_system),
-        ),
-    ] {
-        let floor = device_index
-            .map(|index| index.to_string())
-            .unwrap_or_else(|| "없음 (0/1)".into());
-        live!(
-            log,
-            "롤백 비교 {partition}: 펌웨어 {firmware_index}, 기기 {floor}"
-        );
-    }
-    rollback::check(firmware.indices, floors).map_err(|images| {
-        let details = images
-            .iter()
-            .map(|image| {
-                format!(
-                    "{}: 펌웨어 {} < 기기 {}",
-                    image.partition, image.firmware, image.floor
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" / ");
-        PrepareError::Downgrade { images, details }
-    })
-}
-
 /// `save_identity` must durably save the ADB identity record before the EDL
 /// reboot. If saving fails, the device stays in Android. The caller chooses the
 /// eventual backup location; no device identifiers enter the source tree.
@@ -195,30 +136,7 @@ pub fn prepare<D: DeviceIo>(
     save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
-    prepare_with_mode(
-        device,
-        firmware,
-        save_identity,
-        crate::deviceinfo::RollbackMode::Keep,
-        log,
-    )
-}
-
-pub fn prepare_with_mode<D: DeviceIo>(
-    device: &mut D,
-    firmware: &FirmwareReport,
-    save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
-    rollback_mode: crate::deviceinfo::RollbackMode,
-    log: &mut Vec<String>,
-) -> Result<PreparedDevice<D::Session>, PrepareError> {
-    prepare_with_confirmation(
-        device,
-        firmware,
-        save_identity,
-        rollback_mode,
-        &mut || Ok(()),
-        log,
-    )
+    prepare_with_confirmation(device, firmware, save_identity, &mut || Ok(()), log)
 }
 
 /// The GUI must obtain an explicit answer before opening an EDL-start session.
@@ -226,7 +144,6 @@ pub fn prepare_with_confirmation<D: DeviceIo>(
     device: &mut D,
     firmware: &FirmwareReport,
     save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
-    rollback_mode: crate::deviceinfo::RollbackMode,
     confirm_edl: &mut dyn FnMut() -> Result<(), String>,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
@@ -243,9 +160,9 @@ pub fn prepare_with_confirmation<D: DeviceIo>(
                 "EDL 연결 (파티션 쓰기 전)",
                 device.open_edl(&firmware.loader, log),
             )?;
-            probe_or_reset(device, session, firmware, rollback_mode, None, log)
+            probe_or_reset(device, session, None, log)
         }
-        Connection::Adb => prepare_adb(device, firmware, save_identity, rollback_mode, log),
+        Connection::Adb => prepare_adb(device, firmware, save_identity, log),
     }
 }
 
@@ -253,7 +170,6 @@ fn prepare_adb<D: DeviceIo>(
     device: &mut D,
     firmware: &FirmwareReport,
     save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
-    rollback_mode: crate::deviceinfo::RollbackMode,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
     let identity = operation("ADB 모델·슬롯 확인", device.adb_identity())?;
@@ -282,7 +198,7 @@ fn prepare_adb<D: DeviceIo>(
         "EDL 연결 (파티션 쓰기 전)",
         device.open_edl(&firmware.loader, log),
     )?;
-    let mut prepared = probe_or_reset(device, session, firmware, rollback_mode, Some(slot), log)?;
+    let mut prepared = probe_or_reset(device, session, Some(slot), log)?;
     prepared.report.started_in = Connection::Adb;
     prepared.report.identity = Some(raw);
     Ok(prepared)
@@ -292,19 +208,10 @@ fn prepare_adb<D: DeviceIo>(
 fn probe_or_reset<D: DeviceIo>(
     device: &mut D,
     mut session: D::Session,
-    firmware: &FirmwareReport,
-    rollback_mode: crate::deviceinfo::RollbackMode,
     expected_slot: Option<Slot>,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
-    match probe_edl(
-        device,
-        &mut session,
-        firmware,
-        rollback_mode,
-        expected_slot,
-        log,
-    ) {
+    match probe_edl(device, &mut session, expected_slot, log) {
         Ok(report) => Ok(PreparedDevice { report, session }),
         Err(error) => {
             if let Err(reset) = device.reset_to_edl(&mut session, log) {
@@ -315,11 +222,11 @@ fn probe_or_reset<D: DeviceIo>(
     }
 }
 
+/// Slot and model only. Rollback indices are compared later in TWRP from the
+/// values actually stored in DeviceInfo, never estimated from AVB images.
 fn probe_edl<D: DeviceIo>(
     device: &mut D,
     session: &mut D::Session,
-    firmware: &FirmwareReport,
-    rollback_mode: crate::deviceinfo::RollbackMode,
     expected_slot: Option<Slot>,
     log: &mut Vec<String>,
 ) -> Result<PrepareReport, PrepareError> {
@@ -342,29 +249,6 @@ fn probe_edl<D: DeviceIo>(
     if !matches_model {
         return Err(PrepareError::WrongModel("EDL vbmeta_system_a/b".into()));
     }
-    let mut boot = [None, None];
-    for (i, slot) in [Slot::A, Slot::B].into_iter().enumerate() {
-        boot[i] = operation(
-            "EDL boot 읽기",
-            device.read_avb(session, &format!("boot{}", slot.suffix()), log),
-        )?
-        .map(|info| info.rollback_index);
-    }
-    let indices = [
-        vbs[0].as_ref().map(|info| info.rollback_index),
-        vbs[1].as_ref().map(|info| info.rollback_index),
-    ];
-    let floors = DeviceFloors::PerLocation(
-        rollback::floors_from_edl(boot, indices).ok_or(PrepareError::InvalidEdlAvb)?,
-    );
-    if rollback_mode == crate::deviceinfo::RollbackMode::Keep {
-        check_rollback(firmware, floors, log)?;
-    } else {
-        live!(
-            log,
-            "롤백 초기화 선택: 펌웨어의 낮은 index를 허용합니다. TWRP에서 32개 index를 0으로 초기화·검증해야 플래시할 수 있습니다."
-        );
-    }
     let active = usize::from(slot == Slot::B);
     if !vbs[active]
         .as_ref()
@@ -377,14 +261,13 @@ fn probe_edl<D: DeviceIo>(
     }
     live!(
         log,
-        "S1-E: GPT 슬롯 속성 확인 완료. 활성 슬롯 {} (롤백 크기와 무관).",
+        "S1-E: GPT 슬롯 속성 확인 완료. 활성 슬롯 {}",
         slot.suffix()
     );
     Ok(PrepareReport {
         started_in: Connection::Edl,
         slot,
         slot_estimated: false,
-        floors,
         device_key: vbs[active].as_ref().map(AvbSummary::key_class),
         identity: None,
     })

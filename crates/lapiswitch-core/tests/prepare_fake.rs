@@ -4,13 +4,12 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use lapiswitch_core::avb_info::{AvbSummary, KeyClass};
-use lapiswitch_core::deviceinfo::RollbackMode;
 use lapiswitch_core::firmware::FirmwareReport;
 use lapiswitch_core::prepare::{
     self, AdbIdentity, Connection, DeviceIo, PrepareError, PreparedDevice,
 };
 use lapiswitch_core::region::Region;
-use lapiswitch_core::rollback::{DeviceFloors, RollbackIndices};
+use lapiswitch_core::rollback::RollbackIndices;
 use lapiswitch_core::slot::Slot;
 
 fn firmware() -> FirmwareReport {
@@ -68,8 +67,6 @@ impl Fake {
             images: HashMap::from([
                 ("vbmeta_system_a".into(), Some(avb(10, "TB520FU"))),
                 ("vbmeta_system_b".into(), Some(avb(9, "TB520FU"))),
-                ("boot_a".into(), Some(avb(10, "TB520FU"))),
-                ("boot_b".into(), Some(avb(9, "TB520FU"))),
             ]),
             fail: vec![],
             calls: vec![],
@@ -200,8 +197,6 @@ fn adb_flow_saves_the_identity_then_reboots_straight_to_edl() {
             "gpt_slot",
             "vbmeta_system_a",
             "vbmeta_system_b",
-            "boot_a",
-            "boot_b",
         ]
     );
 }
@@ -217,7 +212,6 @@ fn fastboot_start_is_refused_before_any_device_command() {
             saved = true;
             Ok(())
         },
-        RollbackMode::Reset,
         &mut || panic!("only EDL starts ask"),
         &mut vec![],
     );
@@ -396,37 +390,28 @@ fn no_device_or_ambiguous_usb_never_reboots() {
 }
 
 #[test]
-fn edl_start_reuses_the_session_and_takes_component_maximum() {
+fn edl_start_reuses_the_session_without_an_identity_record() {
     let mut device = Fake::new(Connection::Edl);
     device.gpt_slot = Some(Slot::B);
     device
         .images
         .insert("vbmeta_system_b".into(), Some(avb(19, "TB520FU")));
-    device
-        .images
-        .insert("boot_a".into(), Some(avb(20, "TB520FU")));
     let prepared = device.run().unwrap();
     assert_eq!(prepared.report.started_in, Connection::Edl);
     assert_eq!(prepared.report.slot, Slot::B);
     assert!(!prepared.report.slot_estimated);
-    assert_eq!(
-        prepared.report.floors,
-        DeviceFloors::PerLocation(RollbackIndices {
-            boot: 20,
-            vbmeta_system: 19
-        })
-    );
+    assert!(prepared.report.device_key.is_some());
     assert!(prepared.report.identity.is_none());
     assert_eq!(
-        device
-            .calls
-            .iter()
-            .filter(|name| name.as_str() == "open_edl")
-            .count(),
-        1
+        device.important(),
+        [
+            "detect",
+            "open_edl",
+            "gpt_slot",
+            "vbmeta_system_a",
+            "vbmeta_system_b"
+        ]
     );
-    assert!(!device.contains("adb_identity"));
-    assert!(!device.contains("wait_edl"));
 }
 
 #[test]
@@ -453,24 +438,37 @@ fn edl_slot_uses_gpt_even_if_rollback_indices_suggest_the_other_slot() {
 }
 
 #[test]
-fn edl_missing_images_can_be_valid_on_different_slots() {
+fn inactive_slot_vbmeta_system_may_be_missing() {
     let mut device = Fake::new(Connection::Edl);
     device.gpt_slot = Some(Slot::B);
     device.images.insert("vbmeta_system_a".into(), None);
-    device.images.insert("boot_b".into(), None);
     assert!(device.run().is_ok());
+}
+
+#[test]
+fn s1_never_reads_boot_or_compares_rollback_indices() {
+    // vbmeta_system images far above the firmware's indices used to block
+    // Keep at S1; the stored DeviceInfo values decide in TWRP now.
+    for start in [Connection::Adb, Connection::Edl] {
+        let mut device = Fake::new(start);
+        for name in ["vbmeta_system_a", "vbmeta_system_b"] {
+            device
+                .images
+                .insert(name.into(), Some(avb(u64::MAX, "TB520FU")));
+        }
+        let mut log = vec![];
+        let prepared = prepare::prepare(&mut device, &firmware(), &mut |_| Ok(()), &mut log);
+        assert!(prepared.is_ok(), "{start:?}");
+        assert!(!device.contains("boot_a"));
+        assert!(!device.contains("boot_b"));
+        assert!(!log.iter().any(|line| line.contains("롤백")), "{log:?}");
+    }
 }
 
 #[test]
 fn edl_transport_error_is_never_treated_as_an_absent_or_invalid_slot() {
     for start in [Connection::Edl, Connection::Adb] {
-        for failed in [
-            "gpt_slot",
-            "vbmeta_system_a",
-            "vbmeta_system_b",
-            "boot_a",
-            "boot_b",
-        ] {
+        for failed in ["gpt_slot", "vbmeta_system_a", "vbmeta_system_b"] {
             let mut device = Fake::new(start);
             device.fail.push(failed);
             assert!(device.run().is_err());
@@ -480,74 +478,16 @@ fn edl_transport_error_is_never_treated_as_an_absent_or_invalid_slot() {
 }
 
 #[test]
-fn edl_mismatch_missing_boot_and_downgrade_reset_back_to_edl() {
-    for failure in ["model", "boot", "downgrade"] {
-        let mut device = Fake::new(Connection::Edl);
-        match failure {
-            "model" => {
-                device
-                    .images
-                    .insert("vbmeta_system_a".into(), Some(avb(10, "TB323FU")));
-                device.images.insert("vbmeta_system_b".into(), None);
-            }
-            "boot" => {
-                device.images.insert("boot_a".into(), None);
-                device.images.insert("boot_b".into(), None);
-            }
-            _ => {
-                device
-                    .images
-                    .insert("boot_b".into(), Some(avb(21, "TB520FU")));
-            }
-        }
-        assert!(device.run().is_err(), "{failure}");
+fn edl_model_mismatch_resets_back_to_edl() {
+    for start in [Connection::Edl, Connection::Adb] {
+        let mut device = Fake::new(start);
+        device
+            .images
+            .insert("vbmeta_system_a".into(), Some(avb(10, "TB323FU")));
+        device.images.insert("vbmeta_system_b".into(), None);
+        assert!(matches!(device.run(), Err(PrepareError::WrongModel(_))));
         assert!(device.contains("reset_edl"));
     }
-}
-
-#[test]
-fn reset_option_allows_lower_firmware_but_keep_still_blocks_it() {
-    for mode in [RollbackMode::Reset, RollbackMode::Keep] {
-        let mut device = Fake::new(Connection::Adb);
-        device
-            .images
-            .insert("boot_b".into(), Some(avb(100, "TB520FU")));
-        let result = prepare::prepare_with_mode(
-            &mut device,
-            &firmware(),
-            &mut |_| Ok(()),
-            mode,
-            &mut vec![],
-        );
-        assert_eq!(result.is_ok(), mode == RollbackMode::Reset);
-    }
-}
-
-#[test]
-fn downgrade_error_and_comparison_logs_use_exact_decimal_rollback_indices() {
-    let mut device = Fake::new(Connection::Edl);
-    for name in ["boot_a", "vbmeta_system_a"] {
-        device
-            .images
-            .insert(name.into(), Some(avb(1736035200, "TB520FU")));
-    }
-    let mut package = firmware();
-    package.indices = RollbackIndices {
-        boot: 1730764800,
-        vbmeta_system: 1730764800,
-    };
-    let mut log = vec![];
-    let error = prepare::prepare(&mut device, &package, &mut |_| Ok(()), &mut log)
-        .err()
-        .unwrap();
-    assert_eq!(
-        error.to_string(),
-        "이 펌웨어는 기기보다 롤백인덱스가 낮습니다. 롤백인덱스가 같거나 더 높은 펌웨어를 선택하세요. boot: 펌웨어 1730764800 < 기기 1736035200 / vbmeta_system: 펌웨어 1730764800 < 기기 1736035200"
-    );
-    assert!(
-        log.iter()
-            .any(|line| line == "롤백 비교 boot: 펌웨어 1730764800, 기기 1736035200")
-    );
 }
 
 #[test]
@@ -587,7 +527,6 @@ fn edl_start_confirmation_is_required_before_open_and_cancellation_does_not_rese
             &mut d,
             &firmware(),
             &mut |_| Ok(()),
-            RollbackMode::Reset,
             &mut || {
                 asked += 1;
                 if accept { Ok(()) } else { Err("취소".into()) }
@@ -604,7 +543,6 @@ fn edl_start_confirmation_is_required_before_open_and_cancellation_does_not_rese
         &mut d,
         &firmware(),
         &mut |_| Ok(()),
-        RollbackMode::Reset,
         &mut || panic!("only EDL starts ask"),
         &mut vec![],
     )

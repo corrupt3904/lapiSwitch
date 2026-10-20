@@ -122,7 +122,6 @@
   "Keep the current country code": "保留当前国家代码",
   "Keep the tablet connected to the PC by USB until the operation is complete. Do not unplug the cable or close this app.": "操作完成前，请保持平板与电脑的 USB 连接。请勿拔下数据线或关闭本程序。",
   "Keep · Preserve values": "不重置 · 保留现有值",
-  "Keep · lower firmware indices blocked": "不重置 · 禁止较低的固件索引",
   "LTBox default: Kernel / Qualcomm (saved choice is preserved)": "LTBox 默认：Kernel / Qualcomm（保留已保存的选择）",
   "Language, log and backup location, and USB connection mode.": "设置语言、日志与备份位置以及 USB 连接方式。",
   "Live logs are saved automatically. Keep the app open during writes.": "实时日志会自动保存。写入期间请勿关闭应用。",
@@ -166,7 +165,6 @@
   "Region conversion": "区域转换",
   "Region conversion always erases user data. Apps, photos and accounts will be deleted. Back up important files separately first.": "区域转换必定会清除用户数据。应用、照片和账户都会被删除，请先另行备份重要文件。",
   "Required drivers are present.": "所需驱动已安装。",
-  "Reset is the default. Keep enforces the existing rollback check.": "默认为重置。选择不重置时，将保持现有的禁止降级检查。",
   "Reset · 32 indices → 0": "重置 · 32 个索引 → 0",
   "Reset · 32 → 0": "重置 · 32 个 → 0",
   "Reset · 32 → 0 / lower firmware indices allowed": "重置 · 32 个 → 0 / 允许较低的固件索引",
@@ -234,5 +232,13 @@
   "Wait for the current operation to finish.": "请等待当前操作完成。",
   "Weighted by expected work; firmware installation follows actual total transfer.": "按各阶段所需时间加权，固件安装部分按实际传输总量计算。",
   "macOS uses Userspace USB mode.": "macOS 使用 Userspace USB 模式。",
-  "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.": "无法从 Fastboot 开始。请将平板启动到 Android，允许 USB 调试后通过 ADB 连接。"
+  "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.": "无法从 Fastboot 开始。请将平板启动到 Android，允许 USB 调试后通过 ADB 连接。",
+  "Rollback index warning": "回滚索引警告",
+  "The firmware's rollback indices are lower than those stored in the device's DeviceInfo. Installed as is, rollback protection would stop it from booting.": "要安装的固件回滚索引低于设备 DeviceInfo 中保存的值。直接安装会因回滚保护而无法启动。",
+  "Reset to 0 and continue: writes all 32 DeviceInfo rollback indices as 0 and continues the conversion.": "重置为 0 并继续：将 DeviceInfo 的 32 个回滚索引写为 0 并继续转换。",
+  "Cancel: leaves DeviceInfo unchanged, switches to EDL and automatically restores the original GPT, Recovery and vendor_boot.": "取消操作：不更改 DeviceInfo，切换到 EDL 并自动恢复原始 GPT、Recovery 和 vendor_boot。",
+  "Cancel · Restore originals": "取消 · 恢复原始配置",
+  "Reset to 0 and continue": "重置为 0 并继续",
+  "Reset is the default. Keep preserves the values; if the firmware indices are lower, TWRP asks whether to reset them or cancel.": "默认重置。保留时沿用现有值；若固件回滚索引更低，将在 TWRP 阶段询问是重置还是取消操作。",
+  "Keep · asked in TWRP if firmware indices are lower": "保留 · 若固件更低则在 TWRP 中确认"
 }

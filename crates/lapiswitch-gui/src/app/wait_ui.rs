@@ -8,6 +8,7 @@ impl App {
             && self.wait_ticket == Some(ticket)
             && self.reboot_confirmation.is_none()
             && self.edl_confirmation.is_none()
+            && self.rollback_confirmation.is_none()
             && !self.close_warning
             && self.wait_control.can_stop(ticket)
     }

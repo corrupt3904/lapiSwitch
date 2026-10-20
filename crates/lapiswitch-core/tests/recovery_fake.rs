@@ -123,7 +123,8 @@ use lapiswitch_core::{
     backup::{BackupBuilder, TransactionStage, VerifiedBackup},
     deviceinfo::{self, RollbackMode},
     firmware::FirmwareReport,
-    recovery_flow::{self, DeviceInfoIo, Phase, Transition},
+    recovery_flow::{self, DeviceInfoIo, Outcome, Phase, Transition},
+    rollback::Downgrade,
     slot::Slot,
     stage1::{self, ResetMode, StageIo},
     state::{FlashOptions, RunState, StateStore},
@@ -138,6 +139,9 @@ struct Ui {
     cancel: bool,
     deny_handoff: bool,
     phases: Vec<Phase>,
+    /// Answer to the Keep-mode rollback prompt; `None` closes it.
+    rollback: Option<bool>,
+    asked: Vec<Vec<Downgrade>>,
 }
 impl recovery_flow::Ui for Ui {
     fn phase(&mut self, phase: Phase) {
@@ -145,6 +149,10 @@ impl recovery_flow::Ui for Ui {
     }
     fn confirm(&mut self, _: Transition) -> Result<(), String> {
         Ok(())
+    }
+    fn confirm_rollback_reset(&mut self, downgrades: &[Downgrade]) -> Result<bool, String> {
+        self.asked.push(downgrades.to_vec());
+        self.rollback.ok_or_else(|| "rollback prompt closed".into())
     }
     fn status(&mut self, _: &str, _: bool) {}
     fn cancelled(&self) -> bool {
@@ -288,6 +296,9 @@ struct Setup {
     state: RunState,
     store: StateStore,
     info: Info,
+    /// Rollback prompt answer and every prompt shown across `transact` calls.
+    rollback: Option<bool>,
+    asked: Vec<Vec<Downgrade>>,
 }
 impl Setup {
     fn new(slot: Slot, mode: RollbackMode) -> Self {
@@ -392,18 +403,33 @@ impl Setup {
             state,
             store,
             info,
+            rollback: None,
+            asked: vec![],
         }
     }
-    fn transact(&mut self) -> Result<(), String> {
-        recovery_flow::transact(
+    fn outcome(&mut self) -> Result<Outcome, String> {
+        let mut ui = Ui {
+            rollback: self.rollback,
+            ..Ui::default()
+        };
+        let result = recovery_flow::transact(
             &mut self.info,
             &self.backup,
             &self.firmware,
             &mut self.state,
             &self.store,
-            &mut Ui::default(),
+            &mut ui,
             &mut vec![],
-        )
+        );
+        self.asked.extend(ui.asked);
+        result
+    }
+    /// A cancelled rollback prompt is not a verified transaction.
+    fn transact(&mut self) -> Result<(), String> {
+        match self.outcome()? {
+            Outcome::Verified => Ok(()),
+            Outcome::Cancelled => Err("CANCELLED".into()),
+        }
     }
 }
 #[test]
@@ -447,22 +473,128 @@ fn reset_backs_up_before_one_write_and_preserves_all_other_bytes() {
     s.transact().unwrap();
     assert_eq!(s.info.writes, 1);
 }
-#[test]
-fn keep_rejects_lower_firmware_using_live_deviceinfo() {
-    let mut s = Setup::new(Slot::A, RollbackMode::Keep);
-    assert!(
-        s.transact()
-            .unwrap_err()
-            .contains(lapiswitch_core::prepare::ROLLBACK_REJECTED_MESSAGE)
-    );
-    assert_eq!(s.info.writes, 0);
+/// boot = index 3, vbmeta_system = index 2, both little-endian u64 in DeviceInfo.
+fn store_indices(bytes: &mut [u8], boot: u64, vbmeta_system: u64) {
+    bytes[0x898 + 3 * 8..0x898 + 4 * 8].copy_from_slice(&boot.to_le_bytes());
+    bytes[0x898 + 2 * 8..0x898 + 3 * 8].copy_from_slice(&vbmeta_system.to_le_bytes());
+}
+fn saved_state(s: &Setup) -> RunState {
+    s.store.load().unwrap().unwrap()
 }
 #[test]
-fn keep_allows_valid_indices_and_never_changes_them() {
+fn keep_lower_firmware_cancel_writes_nothing_and_stays_before_write() {
+    use recovery_flow::restore::{self, Assessment};
     let mut s = Setup::new(Slot::A, RollbackMode::Keep);
-    s.info.bytes[0x898..0x998].fill(0);
+    s.rollback = Some(false);
+    assert_eq!(s.outcome().unwrap(), Outcome::Cancelled);
+    assert_eq!(s.asked.len(), 1);
+    // The sample stores 0x5A.. in every index, above the firmware's 20.
+    assert_eq!(
+        s.asked[0].iter().map(|d| d.partition).collect::<Vec<_>>(),
+        ["boot", "vbmeta_system"]
+    );
+    assert!(s.asked[0].iter().all(|d| d.firmware == 20));
+    assert_eq!(s.info.writes, 0);
+    assert!(!s.info.prepared);
+    let saved = saved_state(&s);
+    assert_eq!(saved.options.rollback_mode, RollbackMode::Keep);
+    let progress = saved.recovery.unwrap();
+    assert_eq!(progress.phase, Phase::RecoveryWaiting);
+    assert!(progress.attempt.is_none());
+    assert_eq!(restore::assess(&s.backup).unwrap(), Assessment::BeforeWrite);
+}
+#[test]
+fn keep_lower_firmware_reset_answer_persists_reset_and_zeroes_all_indices() {
+    use recovery_flow::restore::{self, Assessment};
+    let mut s = Setup::new(Slot::B, RollbackMode::Keep);
+    let before = s.info.bytes.clone();
+    s.rollback = Some(true);
     s.transact().unwrap();
+    assert_eq!(s.asked.len(), 1);
     assert_eq!(s.info.writes, 1);
+    assert_eq!(deviceinfo::indices(&s.info.bytes).unwrap(), [0; 32]);
+    deviceinfo::validate_plan(
+        &before,
+        &s.info.bytes,
+        s.state.target_region,
+        RollbackMode::Reset,
+    )
+    .unwrap();
+    let saved = saved_state(&s);
+    assert_eq!(saved.options.rollback_mode, RollbackMode::Reset);
+    assert_eq!(
+        saved
+            .recovery
+            .as_ref()
+            .unwrap()
+            .attempt
+            .as_ref()
+            .unwrap()
+            .mode,
+        RollbackMode::Reset
+    );
+    assert!(
+        saved
+            .warnings
+            .iter()
+            .any(|w| w.contains(recovery_flow::ROLLBACK_LOWER_MESSAGE))
+    );
+    // The confirmation re-read after the EDL prompt never asks again.
+    s.transact().unwrap();
+    assert_eq!(s.asked.len(), 1);
+    assert_eq!(s.info.writes, 1);
+    assert!(matches!(
+        restore::assess(&s.backup).unwrap(),
+        Assessment::Verified { .. }
+    ));
+}
+#[test]
+fn closing_the_rollback_prompt_stops_without_writes_or_mode_change() {
+    let mut s = Setup::new(Slot::A, RollbackMode::Keep);
+    assert_eq!(s.transact().unwrap_err(), "rollback prompt closed");
+    assert_eq!(s.asked.len(), 1);
+    assert_eq!(s.info.writes, 0);
+    let saved = saved_state(&s);
+    assert_eq!(saved.options.rollback_mode, RollbackMode::Keep);
+    assert_eq!(saved.recovery.unwrap().phase, Phase::RecoveryWaiting);
+    // A later resume asks again and may continue.
+    s.rollback = Some(true);
+    s.transact().unwrap();
+    assert_eq!(s.asked.len(), 2);
+    assert_eq!(s.info.writes, 1);
+}
+#[test]
+fn keep_with_equal_or_higher_firmware_never_prompts_and_preserves_indices() {
+    for (boot, vbmeta_system) in [(20, 20), (0, 0), (19, 0), (0, 19)] {
+        let mut s = Setup::new(Slot::A, RollbackMode::Keep);
+        // Unrelated locations are not compared, even when far above 20.
+        s.info.bytes[0x898..0x998].fill(0x5A);
+        store_indices(&mut s.info.bytes, boot, vbmeta_system);
+        let before = deviceinfo::indices(&s.info.bytes).unwrap();
+        s.transact().unwrap();
+        assert!(s.asked.is_empty(), "{boot}/{vbmeta_system}");
+        assert_eq!(s.info.writes, 1);
+        assert_eq!(deviceinfo::indices(&s.info.bytes).unwrap(), before);
+        assert_eq!(saved_state(&s).options.rollback_mode, RollbackMode::Keep);
+    }
+}
+#[test]
+fn one_lower_location_is_enough_to_prompt() {
+    for (boot, vbmeta_system, partition) in [(21, 0, "boot"), (0, 21, "vbmeta_system")] {
+        let mut s = Setup::new(Slot::A, RollbackMode::Keep);
+        store_indices(&mut s.info.bytes, boot, vbmeta_system);
+        s.rollback = Some(false);
+        assert_eq!(s.outcome().unwrap(), Outcome::Cancelled);
+        assert_eq!(s.asked[0].len(), 1);
+        assert_eq!(s.asked[0][0].partition, partition);
+        assert_eq!(s.asked[0][0].floor, 21);
+    }
+}
+#[test]
+fn reset_mode_never_compares_or_prompts() {
+    let mut s = Setup::new(Slot::A, RollbackMode::Reset);
+    s.transact().unwrap();
+    assert!(s.asked.is_empty());
     assert_eq!(deviceinfo::indices(&s.info.bytes).unwrap(), [0; 32]);
 }
 #[test]
@@ -1451,6 +1583,96 @@ fn prewrite_restoration_never_opens_twrp_and_unknown_never_writes_or_reboots() {
             );
         }
     }
+}
+
+fn twrp_session(s: &Setup) -> RestoreInfo {
+    RestoreInfo {
+        shared: std::rc::Rc::new(std::cell::RefCell::new((s.info.bytes.clone(), 0))),
+        fail: false,
+        journal: s.backup.path().join("unused.json"),
+    }
+}
+
+#[test]
+fn rollback_cancel_reboots_to_edl_restores_originals_and_archives_the_run() {
+    for slot in [Slot::A, Slot::B] {
+        let mut s = Setup::new(slot, RollbackMode::Keep);
+        s.rollback = Some(false);
+        assert_eq!(s.outcome().unwrap(), Outcome::Cancelled);
+        let mut twrp = twrp_session(&s);
+        let mut d = restore_disk(s.disk, slot);
+        let mut ui = Ui::default();
+        let warnings = recovery_flow::cancel_to_original(
+            &mut d,
+            &mut twrp,
+            &s.backup,
+            &s.firmware.loader,
+            &s.store,
+            &mut WaitClock::default(),
+            &mut ui,
+            &mut vec![],
+        )
+        .unwrap();
+        // Only verified originals are written; DeviceInfo was never touched.
+        let written: Vec<_> = d.0.inner.writes.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            written,
+            [recovery_flow::recovery_name(slot).as_str(), "gpt_main4"]
+        );
+        assert_eq!(d.0.inner.resets, vec![ResetMode::System]);
+        assert_eq!(twrp.shared.borrow().1, 0);
+        assert_eq!(
+            s.backup.transaction_stage().unwrap(),
+            TransactionStage::Restored
+        );
+        assert!(ui.phases.contains(&Phase::EdlWaiting));
+        assert!(ui.phases.contains(&Phase::Restoring));
+        // The active run is archived, so a new conversion can start.
+        assert!(s.store.load().unwrap().is_none());
+        assert!(
+            std::fs::read_dir(s.store.path().parent().unwrap().join("history"))
+                .unwrap()
+                .next()
+                .is_some()
+        );
+        let message = recovery_flow::cancelled(Ok(warnings));
+        assert!(message.starts_with(recovery_flow::ROLLBACK_CANCELLED_MESSAGE));
+        assert!(message.contains("복구·검증"));
+    }
+}
+
+#[test]
+fn stopping_the_edl_wait_after_a_rollback_cancel_writes_nothing_and_keeps_the_run() {
+    let mut s = Setup::new(Slot::A, RollbackMode::Keep);
+    s.rollback = Some(false);
+    assert_eq!(s.outcome().unwrap(), Outcome::Cancelled);
+    let mut twrp = twrp_session(&s);
+    let mut d = restore_disk(s.disk, Slot::A);
+    let error = recovery_flow::cancel_to_original(
+        &mut d,
+        &mut twrp,
+        &s.backup,
+        &s.firmware.loader,
+        &s.store,
+        &mut WaitClock::default(),
+        &mut Ui {
+            cancel: true,
+            ..Ui::default()
+        },
+        &mut vec![],
+    )
+    .unwrap_err();
+    assert!(d.0.inner.writes.is_empty());
+    assert!(d.0.inner.resets.is_empty());
+    assert!(s.store.load().unwrap().is_some());
+    let message = recovery_flow::cancelled(Err(error));
+    assert!(message.starts_with(recovery_flow::ROLLBACK_CANCELLED_MESSAGE));
+    assert!(message.contains("EDL로 연결해 원본 복구"));
+    // The manual restore remains available for the preserved backup.
+    assert_eq!(
+        recovery_flow::restore::preflight(&s.backup).unwrap(),
+        recovery_flow::restore::Assessment::BeforeWrite
+    );
 }
 
 #[test]

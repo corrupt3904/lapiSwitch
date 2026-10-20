@@ -57,9 +57,15 @@ pub enum Action {
 #[derive(Debug, Clone)]
 pub enum Event {
     Validated(Result<FirmwareReport, String>),
-    FirmwareRegionMismatch { firmware: Region, target: Region },
+    FirmwareRegionMismatch {
+        firmware: Region,
+        target: Region,
+    },
     ConfirmEdlStart(Sender<bool>),
     ConfirmUnrecognizedFirmware(Sender<bool>),
+    /// Keep mode in TWRP: firmware indices are below DeviceInfo. `true`
+    /// resets them to 0 and continues; `false` cancels and restores originals.
+    ConfirmRollbackReset(String, Sender<bool>),
     BackupChecked(Result<String, String>),
     Device(u64, Result<crate::device::Snapshot, String>),
     Drivers(Result<ltbox_device::driver::DriverStatus, String>),
@@ -190,6 +196,22 @@ impl lapiswitch_core::recovery_flow::Ui for ChannelUi {
         let _ = self.tx.send(Event::RecoveryWait(None));
         let _ = self.tx.send(Event::RecoveryPhase(phase));
     }
+    fn confirm_rollback_reset(
+        &mut self,
+        downgrades: &[lapiswitch_core::rollback::Downgrade],
+    ) -> Result<bool, String> {
+        let (tx, rx) = mpsc::channel();
+        self.tx
+            .send(Event::ConfirmRollbackReset(
+                lapiswitch_core::rollback::describe(downgrades),
+                tx,
+            ))
+            .map_err(|_| "롤백인덱스 경고를 표시할 수 없습니다.")?;
+        // Closing the prompt is neither consent to reset nor to restore.
+        rx.recv().map_err(|_| {
+            "롤백인덱스 경고가 닫혀 작업을 멈췄습니다. DeviceInfo는 변경하지 않았습니다. 이어하기 또는 원본 복구를 선택하세요.".into()
+        })
+    }
     fn confirm(
         &mut self,
         transition: lapiswitch_core::recovery_flow::Transition,
@@ -282,7 +304,6 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                     &mut device,
                     &firmware,
                     &mut |raw| builder.save_identity(raw),
-                    state.options.rollback_mode,
                     &mut || ui.confirm_edl_start(),
                     &mut log,
                 )

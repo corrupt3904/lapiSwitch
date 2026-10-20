@@ -122,7 +122,6 @@
   "Keep the current country code": "現在の国コードを維持",
   "Keep the tablet connected to the PC by USB until the operation is complete. Do not unplug the cable or close this app.": "作業が完了するまで、PC とタブレットの USB 接続を維持してください。ケーブルを抜いたりアプリを終了したりしないでください。",
   "Keep · Preserve values": "初期化しない · 既存の値を維持",
-  "Keep · lower firmware indices blocked": "初期化しない · 低いファームウェアのインデックスは不可",
   "LTBox default: Kernel / Qualcomm (saved choice is preserved)": "LTBox の既定：Kernel / Qualcomm（保存済みの選択は維持）",
   "Language, log and backup location, and USB connection mode.": "言語、ログとバックアップの保存先、USB 接続方式を設定します。",
   "Live logs are saved automatically. Keep the app open during writes.": "リアルタイムのログは自動で保存されます。書き込み中はアプリを終了しないでください。",
@@ -166,7 +165,6 @@
   "Region conversion": "リージョン変換",
   "Region conversion always erases user data. Apps, photos and accounts will be deleted. Back up important files separately first.": "リージョン変換ではユーザーデータが必ず消去されます。アプリ・写真・アカウントが削除されるため、大切なファイルは事前に別途バックアップしてください。",
   "Required drivers are present.": "必要なドライバーはインストール済みです。",
-  "Reset is the default. Keep enforces the existing rollback check.": "既定は初期化です。初期化しない場合は、既存のダウングレード防止チェックを維持します。",
   "Reset · 32 indices → 0": "初期化 · 32 個のインデックス → 0",
   "Reset · 32 → 0": "初期化 · 32 個 → 0",
   "Reset · 32 → 0 / lower firmware indices allowed": "初期化 · 32 個 → 0 / 低いファームウェアのインデックスを許可",
@@ -234,5 +232,13 @@
   "Wait for the current operation to finish.": "実行中の作業が終わるまでお待ちください。",
   "Weighted by expected work; firmware installation follows actual total transfer.": "各段階の所要時間を考慮し、ファームウェアのインストールは実際の総転送量を反映します。",
   "macOS uses Userspace USB mode.": "macOS では Userspace USB モードを使用します。",
-  "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.": "Fastboot からは開始できません。タブレットを Android で起動し、USB デバッグを許可して ADB で接続してください。"
+  "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.": "Fastboot からは開始できません。タブレットを Android で起動し、USB デバッグを許可して ADB で接続してください。",
+  "Rollback index warning": "ロールバックインデックスの警告",
+  "The firmware's rollback indices are lower than those stored in the device's DeviceInfo. Installed as is, rollback protection would stop it from booting.": "インストールするファームウェアのロールバックインデックスが、デバイスの DeviceInfo に保存された値より低くなっています。このままインストールすると、ロールバック保護により起動しません。",
+  "Reset to 0 and continue: writes all 32 DeviceInfo rollback indices as 0 and continues the conversion.": "0 に初期化して続行：DeviceInfo の 32 個のロールバックインデックスを 0 に書き込み、変換を続けます。",
+  "Cancel: leaves DeviceInfo unchanged, switches to EDL and automatically restores the original GPT, Recovery and vendor_boot.": "作業を取り消す：DeviceInfo は変更せず、EDL に切り替えて元の GPT・Recovery・vendor_boot を自動で復元します。",
+  "Cancel · Restore originals": "取り消し · 元の構成に復元",
+  "Reset to 0 and continue": "0 に初期化して続行",
+  "Reset is the default. Keep preserves the values; if the firmware indices are lower, TWRP asks whether to reset them or cancel.": "初期化が既定です。初期化しない場合は既存の値を保持し、ファームウェアのロールバックインデックスの方が低いときは TWRP の段階で初期化するか作業を取り消すかを確認します。",
+  "Keep · asked in TWRP if firmware indices are lower": "初期化しない · ファームウェアの方が低ければ TWRP で確認"
 }

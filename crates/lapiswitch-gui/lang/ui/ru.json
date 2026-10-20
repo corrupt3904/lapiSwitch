@@ -122,7 +122,6 @@
   "Keep the current country code": "Оставить текущий код страны",
   "Keep the tablet connected to the PC by USB until the operation is complete. Do not unplug the cable or close this app.": "Не отключайте планшет от ПК до завершения операции. Не вынимайте кабель и не закрывайте приложение.",
   "Keep · Preserve values": "Без сброса · сохранить значения",
-  "Keep · lower firmware indices blocked": "Без сброса · прошивка с меньшим индексом запрещена",
   "LTBox default: Kernel / Qualcomm (saved choice is preserved)": "По умолчанию в LTBox: Kernel / Qualcomm (сохранённый выбор не меняется)",
   "Language, log and backup location, and USB connection mode.": "Язык, расположение журналов и резервных копий, режим подключения USB.",
   "Live logs are saved automatically. Keep the app open during writes.": "Журнал сохраняется автоматически. Не закрывайте приложение во время записи.",
@@ -166,7 +165,6 @@
   "Region conversion": "Смена региона",
   "Region conversion always erases user data. Apps, photos and accounts will be deleted. Back up important files separately first.": "При смене региона пользовательские данные удаляются всегда: приложения, фото и аккаунты будут стёрты. Заранее сохраните важные файлы отдельно.",
   "Required drivers are present.": "Необходимые драйверы установлены.",
-  "Reset is the default. Keep enforces the existing rollback check.": "По умолчанию — сброс. Без сброса сохраняется обычная проверка на понижение версии.",
   "Reset · 32 indices → 0": "Сброс · 32 индекса → 0",
   "Reset · 32 → 0": "Сброс · 32 → 0",
   "Reset · 32 → 0 / lower firmware indices allowed": "Сброс · 32 → 0 / прошивка с меньшим индексом разрешена",
@@ -234,5 +232,13 @@
   "Wait for the current operation to finish.": "Дождитесь завершения текущей операции.",
   "Weighted by expected work; firmware installation follows actual total transfer.": "Учитывается длительность этапов; установка прошивки отражает фактический объём передачи.",
   "macOS uses Userspace USB mode.": "В macOS используется режим Userspace USB.",
-  "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.": "Начать с Fastboot нельзя. Загрузите планшет в Android, разрешите отладку по USB и подключитесь через ADB."
+  "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.": "Начать с Fastboot нельзя. Загрузите планшет в Android, разрешите отладку по USB и подключитесь через ADB.",
+  "Rollback index warning": "Предупреждение об индексах отката",
+  "The firmware's rollback indices are lower than those stored in the device's DeviceInfo. Installed as is, rollback protection would stop it from booting.": "Индексы отката прошивки ниже значений, сохранённых в DeviceInfo устройства. При такой установке защита от отката не даст устройству загрузиться.",
+  "Reset to 0 and continue: writes all 32 DeviceInfo rollback indices as 0 and continues the conversion.": "Сбросить в 0 и продолжить: все 32 индекса отката в DeviceInfo записываются как 0, конвертация продолжается.",
+  "Cancel: leaves DeviceInfo unchanged, switches to EDL and automatically restores the original GPT, Recovery and vendor_boot.": "Отмена: DeviceInfo не меняется, устройство переводится в EDL и исходные GPT, Recovery и vendor_boot восстанавливаются автоматически.",
+  "Cancel · Restore originals": "Отмена · Восстановить исходное",
+  "Reset to 0 and continue": "Сбросить в 0 и продолжить",
+  "Reset is the default. Keep preserves the values; if the firmware indices are lower, TWRP asks whether to reset them or cancel.": "По умолчанию выполняется сброс. При сохранении значения не меняются; если индексы прошивки ниже, на этапе TWRP будет предложено сбросить их или отменить работу.",
+  "Keep · asked in TWRP if firmware indices are lower": "Сохранить · при более низкой прошивке вопрос в TWRP"
 }

@@ -133,10 +133,7 @@ impl DeviceIo for NativeDevice {
         log: &mut Vec<String>,
     ) -> Result<Option<AvbSummary>, String> {
         // Only fixed internal names become filenames.
-        if !matches!(
-            partition,
-            "boot_a" | "boot_b" | "vbmeta_system_a" | "vbmeta_system_b"
-        ) {
+        if !matches!(partition, "vbmeta_system_a" | "vbmeta_system_b") {
             return Err(format!("지원하지 않는 AVB 파티션: {partition}"));
         }
         let lun = ltbox_core::partition_lun::lun_for_partition(partition)

@@ -232,7 +232,6 @@ fn prepare_device(args: &[String]) -> Result<(), String> {
                     ""
                 }
             );
-            println!("기기 롤백 기준값: {:?}", report.floors);
             println!("기록 폴더: {}", output.display());
             println!("준비 완료. GPT·boot·펌웨어는 쓰지 않았으며, 기기를 EDL로 돌려놓았습니다.");
             log_result

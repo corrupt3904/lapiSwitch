@@ -115,16 +115,8 @@ pub(super) fn field<'a>(key: impl Into<String>, value: impl Into<String>) -> Ele
         .spacing(12)
         .into()
 }
-pub(super) fn result_error_text(error: &str) -> String {
-    let heading = lapiswitch_core::prepare::ROLLBACK_REJECTED_MESSAGE;
-    if let Some(details) = error.strip_prefix(heading) {
-        format!("{heading}\n{}", details.trim_start())
-    } else {
-        error.into()
-    }
-}
 fn error_note<'a>(error: &str) -> Element<'a, Message> {
-    warning_note(result_error_text(error))
+    warning_note(error.to_owned())
 }
 fn warning_note<'a>(value: impl Into<String>) -> Element<'a, Message> {
     container(label(value).size(14).color(DANGER))
@@ -401,6 +393,33 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             border: Border { color: DANGER, width: 2.0, radius: 16.0.into() },
             ..Default::default()
         }).max_width(620))
+    } else if let Some((details, _)) = &app.rollback_confirmation {
+        Some(panel(column![
+            label(app.t("롤백인덱스 경고", "Rollback index warning")).size(25).color(DANGER),
+            label(app.t(
+                "설치할 펌웨어의 롤백인덱스가 기기 DeviceInfo에 저장된 값보다 낮습니다. 이대로 설치하면 롤백 방지로 부팅되지 않습니다.",
+                "The firmware's rollback indices are lower than those stored in the device's DeviceInfo. Installed as is, rollback protection would stop it from booting."
+            )).color(DANGER),
+            small(details.clone()),
+            label(app.t(
+                "0으로 초기화 후 계속: DeviceInfo의 32개 롤백인덱스를 0으로 기록하고 변환을 계속합니다.",
+                "Reset to 0 and continue: writes all 32 DeviceInfo rollback indices as 0 and continues the conversion."
+            )),
+            label(app.t(
+                "작업 취소: DeviceInfo를 바꾸지 않고 EDL로 전환해 원본 GPT·Recovery·vendor_boot를 자동으로 복구합니다.",
+                "Cancel: leaves DeviceInfo unchanged, switches to EDL and automatically restores the original GPT, Recovery and vendor_boot."
+            )),
+            row![
+                space().width(Fill),
+                action(app.t("작업 취소 · 원본 복구", "Cancel · Restore originals"), Message::ConfirmRollbackReset(false), true).style(soft_style),
+                action(app.t("0으로 초기화 후 계속", "Reset to 0 and continue"), Message::ConfirmRollbackReset(true), true).style(button::danger),
+            ].spacing(12),
+        ].spacing(20)).style(|_| container::Style {
+            background: Some(Color::from_rgb8(255, 247, 228).into()),
+            text_color: Some(DANGER),
+            border: Border { color: DANGER, width: 2.0, radius: 16.0.into() },
+            ..Default::default()
+        }).max_width(660))
     } else if app.edl_confirmation.is_some() {
         Some(
             panel(
@@ -617,7 +636,7 @@ fn options(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let mut content = column![title(app, "변환 설정", "Conversion options", "국가 코드를 선택하고 백업 위치를 확인하세요.", "Choose the country code and review the backup location."),
         row![small(app.t("사용자 데이터", "User data")).width(FIELD_KEY), label(app.t("초기화 필수", "Erasure required")).color(DANGER).width(Fill)].spacing(12),
         warning_note(app.t("리전 변환 시 사용자 데이터는 반드시 초기화됩니다. 앱·사진·계정이 삭제되므로 중요한 파일은 먼저 별도로 백업하세요.", "Region conversion always erases user data. Apps, photos and accounts will be deleted. Back up important files separately first.")),
-        field(app.t("롤백인덱스", "Rollback indices"), app.t("초기화가 기본값입니다. 미초기화는 기존 다운그레이드 차단을 유지합니다.", "Reset is the default. Keep enforces the existing rollback check.")),
+        field(app.t("롤백인덱스", "Rollback indices"), app.t("초기화가 기본값입니다. 미초기화는 기존 값을 유지하며, 펌웨어 롤백인덱스가 더 낮으면 TWRP 단계에서 초기화 또는 작업 취소를 묻습니다.", "Reset is the default. Keep preserves the values; if the firmware indices are lower, TWRP asks whether to reset them or cancel.")),
         row![
             button(label(app.t("초기화 · 32개 인덱스 → 0", "Reset · 32 indices → 0")).color(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {Color::WHITE}else{INK})).padding(14).on_press_maybe((!app.busy()).then_some(Message::Rollback(lapiswitch_core::deviceinfo::RollbackMode::Reset))).style(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {button::primary}else{soft_style}),
             button(label(app.t("미초기화 · 기존 값 유지", "Keep · Preserve values")).color(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Keep {Color::WHITE}else{INK})).padding(14).on_press_maybe((!app.busy()).then_some(Message::Rollback(lapiswitch_core::deviceinfo::RollbackMode::Keep))).style(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Keep {button::primary}else{soft_style}),
@@ -675,7 +694,7 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         dashboard_view::connection_note(app),
         summary(app, app.region, true, app.country.as_deref(), app.folder.as_ref().map(|p| p.display().to_string()).unwrap_or_default()),
         note(app.t("원본 GPT·활성 슬롯 Recovery·vendor_boot·misc 및 고유 파티션을 먼저 백업합니다. 변환이 시작되면 케이블을 빼거나 앱을 종료하지 마세요.", "Original GPT, active-slot Recovery and vendor_boot, misc and device-specific partitions are backed up first. Keep the cable connected and the app open throughout the conversion."), true),
-        field(app.t("롤백인덱스", "Rollback indices"), if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {app.t("초기화 · 32개 → 0 / 낮은 펌웨어 index 허용", "Reset · 32 → 0 / lower firmware indices allowed")} else {app.t("미초기화 · 낮은 펌웨어 index 차단", "Keep · lower firmware indices blocked")}),
+        field(app.t("롤백인덱스", "Rollback indices"), if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {app.t("초기화 · 32개 → 0 / 낮은 펌웨어 index 허용", "Reset · 32 → 0 / lower firmware indices allowed")} else {app.t("미초기화 · 펌웨어가 더 낮으면 TWRP에서 확인", "Keep · asked in TWRP if firmware indices are lower")}),
         checkbox(app.agreed).label(app.t("사용자 데이터가 반드시 초기화되는 것과 위 안내를 확인했습니다.", "I understand that user data will be erased and have read the instructions.")).on_toggle(Message::Agree),
     ].spacing(24);
     (

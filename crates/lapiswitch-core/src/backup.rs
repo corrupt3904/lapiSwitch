@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::firmware::{FirmwareReport, MODEL};
 use crate::prepare::{Connection, PrepareReport};
 use crate::region::Region;
-use crate::rollback::{DeviceFloors, RollbackIndices};
+use crate::rollback::RollbackIndices;
 use crate::slot::Slot;
 use crate::storage::{self, Partition};
 
@@ -76,7 +76,6 @@ pub struct BackupManifest {
     pub started_in_edl: bool,
     pub slot_estimated: bool,
     pub device_key: String,
-    pub device_floors: DeviceFloors,
     pub firmware_indices: RollbackIndices,
     pub tool_version: String,
     pub snapshot: Vec<Partition>,
@@ -351,7 +350,6 @@ impl BackupBuilder {
             started_in_edl: prepared.started_in == Connection::Edl,
             slot_estimated: prepared.slot_estimated,
             device_key,
-            device_floors: prepared.floors,
             firmware_indices: firmware.indices,
             tool_version: env!("CARGO_PKG_VERSION").into(),
             snapshot,

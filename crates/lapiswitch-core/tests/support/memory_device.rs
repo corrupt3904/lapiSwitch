@@ -11,7 +11,7 @@ use lapiswitch_core::firmware::FirmwareReport;
 use lapiswitch_core::gpt::SECTOR_SIZE;
 use lapiswitch_core::prepare::{Connection, PrepareReport};
 use lapiswitch_core::region::Region;
-use lapiswitch_core::rollback::{DeviceFloors, RollbackIndices};
+use lapiswitch_core::rollback::RollbackIndices;
 use lapiswitch_core::slot::Slot;
 use lapiswitch_core::stage1::{self, ResetMode, StageIo};
 use lapiswitch_core::storage::Partition;
@@ -86,7 +86,6 @@ pub(crate) fn prepared(slot: Slot, mode: Connection) -> PrepareReport {
         started_in: mode,
         slot,
         slot_estimated: false,
-        floors: DeviceFloors::None,
         device_key: None,
         identity: (mode != Connection::Edl)
             .then(|| lapiswitch_core::prepare::identity_record(slot, "FAKE0001")),

@@ -342,6 +342,19 @@ impl Connector for NativeConnector {
         super::native::Recovery::wait(b, u, l)
     }
 }
+/// For a restore whose DeviceInfo was never written: no TWRP session is needed.
+pub struct NoConnector;
+impl Connector for NoConnector {
+    type Recovery = super::native::Recovery;
+    fn connect(
+        &mut self,
+        _: &VerifiedBackup,
+        _: &mut impl Ui,
+        _: &mut Vec<String>,
+    ) -> Result<Self::Recovery, String> {
+        Err("DeviceInfo가 변경되지 않은 원본 복구에는 TWRP 연결이 필요하지 않습니다.".into())
+    }
+}
 impl Session for super::native::Recovery {
     fn verify_identity(&mut self, b: &VerifiedBackup) -> Result<(), String> {
         self.verify_identity(b)
