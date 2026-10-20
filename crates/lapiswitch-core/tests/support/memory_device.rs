@@ -85,7 +85,6 @@ pub(crate) fn prepared(slot: Slot, mode: Connection) -> PrepareReport {
     PrepareReport {
         started_in: mode,
         slot,
-        slot_estimated: false,
         device_key: None,
         identity: (mode != Connection::Edl)
             .then(|| lapiswitch_core::prepare::identity_record(slot, "FAKE0001")),
@@ -154,6 +153,23 @@ impl Fake {
         }
     }
 
+    /// The base layout plus the Recovery, misc and vendor_boot partitions
+    /// every backup records; free sectors remain after vendor_boot_b.
+    pub(crate) fn with_recovery(boot_sectors: u64, proinfo: bool) -> Self {
+        let mut device = Self::new(boot_sectors, proinfo);
+        device.snapshot.extend([
+            part("recovery_a", 4, 1600, 2),
+            part("recovery_b", 4, 1602, 2),
+            part("misc", 0, 70, 2),
+            part("vendor_boot_a", 4, 1700, 4),
+            part("vendor_boot_b", 4, 1710, 4),
+        ]);
+        device.original_gpt = gpt(&device.snapshot);
+        device.disk[4][..device.original_gpt.len()].copy_from_slice(&device.original_gpt);
+        device
+    }
+
+    /// Requires the Recovery partitions from `with_recovery`.
     pub(crate) fn backup(&mut self, output: &Path, slot: Slot) -> VerifiedBackup {
         let builder = BackupBuilder::create(output).unwrap();
         self.journal = Some(builder.path().to_path_buf());
@@ -171,18 +187,6 @@ impl Fake {
         let p = self.snapshot.iter().find(|part| part.name == name).unwrap();
         &self.disk[p.lun as usize][p.start_sector as usize * SECTOR_SIZE
             ..(p.start_sector + p.num_sectors) as usize * SECTOR_SIZE]
-    }
-
-    pub(crate) fn assert_original(&self, slot: Slot) {
-        assert_eq!(
-            &self.disk[4][..self.original_gpt.len()],
-            self.original_gpt.as_slice()
-        );
-        assert!(
-            self.bytes(&format!("boot{}", slot.suffix()))
-                .iter()
-                .all(|byte| *byte == 0x77)
-        );
     }
 }
 

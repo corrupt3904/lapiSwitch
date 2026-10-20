@@ -104,10 +104,8 @@ fn pinned_twrp_stages_only_active_recovery_and_rolls_back_a_failed_transfer() {
 }
 
 #[test]
-fn legacy_restore_rejects_new_backup_and_firmware_boundary_is_preserved() {
+fn firmware_boundary_blocks_original_restore() {
     let mut s = Setup::new(Slot::A, RollbackMode::Reset);
-    assert!(stage1::restore(&mut s.disk, &s.backup, &mut vec![]).is_err());
-    assert!(s.disk.writes.is_empty());
     recovery_flow::checkpoint(&mut s.state, &s.store, Phase::FirmwareWriting).unwrap();
     assert!(recovery_flow::restore_originals(&mut s.disk, &s.backup, &mut vec![]).is_err());
     assert!(s.disk.writes.is_empty());
@@ -196,7 +194,6 @@ impl Info {
             .unwrap()
             .unwrap()
             .recovery
-            .unwrap()
             .phase
     }
 }
@@ -243,7 +240,7 @@ impl DeviceInfoIo for Info {
         assert_eq!(self.phase(), Phase::WritePending);
         assert!(self.backup_dir.join("recovery_progress.json").is_file());
         let state = StateStore::new(self.state_file.clone()).load()?.unwrap();
-        let record = state.recovery.unwrap().attempt.unwrap();
+        let record = state.recovery.attempt.unwrap();
         let original = self
             .backup_dir
             .join("Partition")
@@ -320,14 +317,7 @@ impl Setup {
         let mut fw = firmware();
         fw.image_dir = fwdir.clone();
         fw.loader = fwdir.join("loader.melf");
-        let mut disk = Fake::new(600, true);
-        disk.snapshot.extend([
-            part("recovery_a", 4, 1600, 2),
-            part("recovery_b", 4, 1602, 2),
-            part("misc", 0, 70, 2),
-            part("vendor_boot_a", 4, 1700, 4),
-            part("vendor_boot_b", 4, 1710, 4),
-        ]);
+        let mut disk = Fake::with_recovery(600, true);
         if large {
             for p in &mut disk.snapshot {
                 if p.name == "recovery_a" {
@@ -361,12 +351,9 @@ impl Setup {
             refresh_header(&mut disk.original_gpt);
         }
         disk.disk[4][..disk.original_gpt.len()].copy_from_slice(&disk.original_gpt);
-        let builder = BackupBuilder::create(dir.path()).unwrap().for_recovery();
-        let mut options = FlashOptions::new(true, None).unwrap();
-        options.rollback_mode = mode;
+        let builder = BackupBuilder::create(dir.path()).unwrap();
+        let options = FlashOptions::new(None, mode).unwrap();
         let mut state = RunState::new(&fw, options, builder.path()).unwrap();
-        state.version = 2;
-        state.recovery = Some(Default::default());
         let store = StateStore::new(dir.path().join("state.json"));
         store.begin(&state).unwrap();
         let backup = stage1::take_backup(
@@ -433,10 +420,13 @@ impl Setup {
     }
 }
 #[test]
-fn backup_v5_records_active_recovery_vendor_boot_and_misc_without_boot() {
+fn backup_records_active_recovery_vendor_boot_and_misc_without_boot() {
     for slot in [Slot::A, Slot::B] {
         let s = Setup::new(slot, RollbackMode::Reset);
-        assert_eq!(s.backup.manifest().version, 5);
+        assert_eq!(
+            s.backup.manifest().version,
+            lapiswitch_core::backup::MANIFEST_VERSION
+        );
         assert!(s.backup.file_path("boot_a.img").is_err());
         assert!(s.backup.file_path("boot_b.img").is_err());
         assert!(!s.backup.path().join("Partition/boot_a.img").exists());
@@ -498,7 +488,7 @@ fn keep_lower_firmware_cancel_writes_nothing_and_stays_before_write() {
     assert!(!s.info.prepared);
     let saved = saved_state(&s);
     assert_eq!(saved.options.rollback_mode, RollbackMode::Keep);
-    let progress = saved.recovery.unwrap();
+    let progress = saved.recovery;
     assert_eq!(progress.phase, Phase::RecoveryWaiting);
     assert!(progress.attempt.is_none());
     assert_eq!(restore::assess(&s.backup).unwrap(), Assessment::BeforeWrite);
@@ -523,14 +513,7 @@ fn keep_lower_firmware_reset_answer_persists_reset_and_zeroes_all_indices() {
     let saved = saved_state(&s);
     assert_eq!(saved.options.rollback_mode, RollbackMode::Reset);
     assert_eq!(
-        saved
-            .recovery
-            .as_ref()
-            .unwrap()
-            .attempt
-            .as_ref()
-            .unwrap()
-            .mode,
+        saved.recovery.attempt.as_ref().unwrap().mode,
         RollbackMode::Reset
     );
     assert!(
@@ -556,7 +539,7 @@ fn closing_the_rollback_prompt_stops_without_writes_or_mode_change() {
     assert_eq!(s.info.writes, 0);
     let saved = saved_state(&s);
     assert_eq!(saved.options.rollback_mode, RollbackMode::Keep);
-    assert_eq!(saved.recovery.unwrap().phase, Phase::RecoveryWaiting);
+    assert_eq!(saved.recovery.phase, Phase::RecoveryWaiting);
     // A later resume asks again and may continue.
     s.rollback = Some(true);
     s.transact().unwrap();
@@ -614,17 +597,11 @@ fn usb_loss_after_write_recovers_by_reading_never_rewriting() {
     let mut s = Setup::new(Slot::A, RollbackMode::Reset);
     s.info.fail_after_apply = true;
     assert!(s.transact().is_err());
-    assert_eq!(
-        s.state.recovery.as_ref().unwrap().phase,
-        Phase::WritePending
-    );
+    assert_eq!(s.state.recovery.phase, Phase::WritePending);
     s.info.fail_after_apply = false;
     s.transact().unwrap();
     assert_eq!(s.info.writes, 1);
-    assert_eq!(
-        s.state.recovery.as_ref().unwrap().phase,
-        Phase::RegionVerified
-    );
+    assert_eq!(s.state.recovery.phase, Phase::RegionVerified);
 }
 #[test]
 fn unknown_or_corrupt_readback_stays_pending_without_auto_retry() {
@@ -634,10 +611,7 @@ fn unknown_or_corrupt_readback_stays_pending_without_auto_retry() {
     s.info.bytes[0xFFF] ^= 1;
     assert!(s.transact().is_err());
     assert_eq!(s.info.writes, 1);
-    assert_eq!(
-        s.state.recovery.as_ref().unwrap().phase,
-        Phase::WritePending
-    );
+    assert_eq!(s.state.recovery.phase, Phase::WritePending);
 }
 #[test]
 fn unstable_reads_and_disk_save_failure_prevent_write() {
@@ -654,28 +628,8 @@ fn unstable_reads_and_disk_save_failure_prevent_write() {
     std::fs::remove_dir(s.store.path()).unwrap();
     std::fs::write(s.store.path(), old).unwrap();
 }
-#[test]
-fn tampered_saved_plan_is_never_replayed() {
-    let mut s = Setup::new(Slot::A, RollbackMode::Reset);
-    s.info.fail_after_apply = true;
-    assert!(s.transact().is_err());
-    let a = s.state.recovery.as_ref().unwrap().attempt.as_ref().unwrap();
-    let p = s
-        .backup
-        .path()
-        .join("Partition")
-        .join(&a.directory)
-        .join("planned_shared.bin");
-    let before = std::fs::read(p.with_file_name("before_shared_1.bin")).unwrap();
-    let mut b = deviceinfo::plan(&before, s.state.target_region, a.mode).unwrap();
-    b[0x94] ^= 1;
-    std::fs::write(p, b).unwrap();
-    assert!(s.transact().is_err());
-    assert_eq!(s.info.writes, 1);
-}
-
 fn phase(s: &Setup) -> Phase {
-    let phase = s.state.recovery.as_ref().unwrap().phase;
+    let phase = s.state.recovery.phase;
     // The durable checkpoint matches the in-memory state.
     assert_eq!(s.info.phase(), phase);
     phase
@@ -897,7 +851,7 @@ fn firmware_requires_verified_deviceinfo_and_original_recovery_gpt_first() {
                 Phase::FinalReboot
             ]
         );
-        assert_eq!(s.state.recovery.unwrap().phase, Phase::Done);
+        assert_eq!(s.state.recovery.phase, Phase::Done);
         assert!(
             !d.inner
                 .writes
@@ -992,7 +946,7 @@ fn success_and_resume_keep_only_first_original_and_verified_final_read() {
     let mut s = Setup::new(Slot::B, RollbackMode::Reset);
     let original = s.info.bytes.clone();
     s.transact().unwrap();
-    let record = s.state.recovery.as_ref().unwrap().attempt.as_ref().unwrap();
+    let record = s.state.recovery.attempt.as_ref().unwrap();
     assert_eq!(record.directory, "DeviceInfo");
     let dir = s.backup.path().join("Partition").join(&record.directory);
     let mut names: Vec<_> = std::fs::read_dir(&dir)
@@ -1017,54 +971,11 @@ fn success_and_resume_keep_only_first_original_and_verified_final_read() {
 }
 
 #[test]
-fn legacy_intermediates_are_pruned_only_after_successful_independent_verification() {
-    let mut s = Setup::new(Slot::A, RollbackMode::Reset);
-    s.info.fail_after_apply = true;
-    assert!(s.transact().is_err());
-    let record = s.state.recovery.as_ref().unwrap().attempt.as_ref().unwrap();
-    let dir = s.backup.path().join("Partition").join(&record.directory);
-    let before = std::fs::read(dir.join("before_shared_1.bin")).unwrap();
-    let plan = deviceinfo::plan(&before, s.state.target_region, record.mode).unwrap();
-    std::fs::write(dir.join("planned_shared.bin"), &plan).unwrap();
-    for name in [
-        "before_shared_2.bin",
-        "before_logical.bin",
-        "byte_changes.json",
-        "after_same_session.bin",
-        "after_new_session.bin",
-        "read1.before.bin",
-        "read2.before.bin",
-        "apply.same.bin",
-        "apply.fresh.bin",
-        "independent.before.bin",
-    ] {
-        std::fs::write(dir.join(name), b"legacy intermediate").unwrap();
-    }
-    let planned = s.info.bytes.clone();
-    s.info.bytes[0xFFF] ^= 1;
-    assert!(s.transact().is_err());
-    assert!(dir.join("planned_shared.bin").exists());
-    assert!(!dir.join("after_independent.bin").exists());
-    s.info.bytes = planned;
-    s.info.fail_after_apply = false;
-    s.transact().unwrap();
-    assert_eq!(s.info.writes, 1);
-    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
-}
-
-#[test]
 fn compact_plan_hash_tampering_stops_resume_without_a_second_write() {
     let mut s = Setup::new(Slot::A, RollbackMode::Reset);
     s.info.fail_after_apply = true;
     assert!(s.transact().is_err());
-    s.state
-        .recovery
-        .as_mut()
-        .unwrap()
-        .attempt
-        .as_mut()
-        .unwrap()
-        .planned_sha256 = "0".repeat(64);
+    s.state.recovery.attempt.as_mut().unwrap().planned_sha256 = "0".repeat(64);
     s.info.fail_after_apply = false;
     assert!(s.transact().unwrap_err().contains("쓰기 의도"));
     assert_eq!(s.info.writes, 1);
@@ -1074,7 +985,7 @@ fn compact_plan_hash_tampering_stops_resume_without_a_second_write() {
 fn compact_final_readback_tampering_blocks_original_restore_and_firmware() {
     let mut s = Setup::new(Slot::B, RollbackMode::Reset);
     s.transact().unwrap();
-    let record = s.state.recovery.as_ref().unwrap().attempt.as_ref().unwrap();
+    let record = s.state.recovery.attempt.as_ref().unwrap();
     let path = s
         .backup
         .path()
@@ -1123,14 +1034,7 @@ fn fixed_deviceinfo_directory_preserves_original_across_a_failed_read_retry() {
     s.info.unstable = false;
     s.transact().unwrap();
     assert_eq!(
-        s.state
-            .recovery
-            .as_ref()
-            .unwrap()
-            .attempt
-            .as_ref()
-            .unwrap()
-            .directory,
+        s.state.recovery.attempt.as_ref().unwrap().directory,
         "DeviceInfo"
     );
     assert_eq!(
@@ -1163,39 +1067,10 @@ fn changed_deviceinfo_after_failed_read_never_overwrites_the_fixed_original() {
 }
 
 #[test]
-fn previous_random_deviceinfo_directory_can_still_resume_without_rewriting() {
-    let mut s = Setup::new(Slot::B, RollbackMode::Reset);
-    s.transact().unwrap();
-    let partition = s.backup.path().join("Partition");
-    std::fs::rename(
-        partition.join("DeviceInfo"),
-        partition.join("deviceinfo-Legacy1"),
-    )
-    .unwrap();
-    s.state
-        .recovery
-        .as_mut()
-        .unwrap()
-        .attempt
-        .as_mut()
-        .unwrap()
-        .directory = "deviceinfo-Legacy1".into();
-    recovery_flow::checkpoint(&mut s.state, &s.store, Phase::RegionVerified).unwrap();
-    s.transact().unwrap();
-    assert_eq!(s.info.writes, 1);
-    assert_eq!(
-        std::fs::read_dir(partition.join("deviceinfo-Legacy1"))
-            .unwrap()
-            .count(),
-        2
-    );
-}
-
-#[test]
 fn recovery_backup_restores_only_gpt_and_the_backed_up_recovery_slot() {
     for slot in [Slot::A, Slot::B] {
         let mut s = Setup::new(slot, RollbackMode::Reset);
-        let backup = VerifiedBackup::open_recovery(s.backup.path()).unwrap();
+        let backup = VerifiedBackup::open(s.backup.path()).unwrap();
         recovery_flow::restore_originals(&mut s.disk, &backup, &mut vec![]).unwrap();
         assert_eq!(s.disk.writes.len(), 2);
         assert!(
@@ -1676,40 +1551,6 @@ fn stopping_the_edl_wait_after_a_rollback_cancel_writes_nothing_and_keeps_the_ru
 }
 
 #[test]
-fn legacy_without_vendor_boot_is_accepted_only_before_a_region_change() {
-    use recovery_flow::restore;
-    for changed in [false, true] {
-        let mut s = Setup::new(Slot::A, RollbackMode::Reset);
-        if changed {
-            s.transact().unwrap();
-        }
-        let path = s.backup.path().join("manifest.json");
-        let mut m: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        let boot = s
-            .disk
-            .snapshot
-            .iter()
-            .find(|p| p.name == "boot_a")
-            .unwrap()
-            .clone();
-        let boot_path = s.backup.path().join("Partition/boot_a.img");
-        std::fs::write(&boot_path, s.disk.bytes("boot_a")).unwrap();
-        let (size, sha) = lapiswitch_core::backup::hash_file(&boot_path, None).unwrap();
-        m["files"].as_array_mut().unwrap().push(serde_json::json!({"filename":"boot_a.img", "size_bytes":size, "sha256":sha, "partition":boot}));
-        m["version"] = 3.into();
-        m["operation"] = "recovery_deviceinfo_v1".into();
-        m["files"]
-            .as_array_mut()
-            .unwrap()
-            .retain(|e| !e["filename"].as_str().unwrap().starts_with("vendor_boot"));
-        std::fs::write(&path, serde_json::to_vec(&m).unwrap()).unwrap();
-        let old = VerifiedBackup::open_recovery(s.backup.path()).unwrap();
-        assert_eq!(restore::preflight(&old).is_err(), changed);
-    }
-}
-
-#[test]
 #[ignore = "Pinned TWRP fixture; RAM/disk only. Set LAPISWITCH_TWRP_TEST_IMAGE"]
 fn reverse_region_restore_preserves_indices_handles_both_slots_and_blocks_uncertain_retry() {
     use recovery_flow::restore;
@@ -1904,7 +1745,7 @@ fn missing_reverse_journal_or_conversion_journal_is_never_a_clean_prewrite_state
 }
 
 #[test]
-fn v4_vendor_boot_is_mandatory_and_bound_to_the_backed_up_slot() {
+fn vendor_boot_is_mandatory_and_bound_to_the_backed_up_slot() {
     for slot in [Slot::A, Slot::B] {
         let s = Setup::new(slot, RollbackMode::Reset);
         let p = s.backup.path().join("manifest.json");
@@ -1921,7 +1762,7 @@ fn v4_vendor_boot_is_mandatory_and_bound_to_the_backed_up_slot() {
             .unwrap()
             .retain(|e| e["filename"] != name);
         std::fs::write(&p, serde_json::to_vec(&m).unwrap()).unwrap();
-        assert!(VerifiedBackup::open_recovery(s.backup.path()).is_err());
+        assert!(VerifiedBackup::open(s.backup.path()).is_err());
     }
 }
 
@@ -1937,16 +1778,7 @@ fn s3_device_version_gate_uses_active_slot_before_partition_backup() {
             ("UNKNOWN_ROW", false),
         ] {
             let dir = tempfile::tempdir().unwrap();
-            let mut d = Fake::new(600, true);
-            d.snapshot.extend([
-                part("recovery_a", 4, 1600, 2),
-                part("recovery_b", 4, 1602, 2),
-                part("misc", 0, 70, 2),
-                part("vendor_boot_a", 4, 1700, 4),
-                part("vendor_boot_b", 4, 1710, 4),
-            ]);
-            d.original_gpt = gpt(&d.snapshot);
-            d.disk[4][..d.original_gpt.len()].copy_from_slice(&d.original_gpt);
+            let mut d = Fake::with_recovery(600, true);
             // Fail immediately if any retained boot backup is attempted.
             d.fail_dump = Some(format!("boot{}", slot.suffix()));
             d.fingerprints.insert(
@@ -1957,7 +1789,7 @@ fn s3_device_version_gate_uses_active_slot_before_partition_backup() {
                 format!("vbmeta_system{}", slot.other().suffix()),
                 "qti/TB520FU/TB520FU:16/BUILD/ZUI_99.0.0.0_260408_ROW:user/release-keys".into(),
             );
-            let builder = BackupBuilder::create(dir.path()).unwrap().for_recovery();
+            let builder = BackupBuilder::create(dir.path()).unwrap();
             let folder = builder.partition_dir().to_owned();
             let result = stage1::take_backup(
                 &mut d,
@@ -1980,31 +1812,6 @@ fn s3_device_version_gate_uses_active_slot_before_partition_backup() {
     }
 }
 #[test]
-fn prior_v4_backups_still_require_boot_and_remain_readable() {
-    let s = Setup::new(Slot::B, RollbackMode::Reset);
-    let path = s.backup.path().join("manifest.json");
-    let mut m: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    m["version"] = 4.into();
-    m["operation"] = "recovery_deviceinfo_v2".into();
-    std::fs::write(&path, serde_json::to_vec(&m).unwrap()).unwrap();
-    assert!(VerifiedBackup::open_recovery(s.backup.path()).is_err());
-    let boot = s
-        .disk
-        .snapshot
-        .iter()
-        .find(|p| p.name == "boot_b")
-        .unwrap()
-        .clone();
-    let file = s.backup.path().join("Partition/boot_b.img");
-    std::fs::write(&file, s.disk.bytes("boot_b")).unwrap();
-    let (size, sha) = lapiswitch_core::backup::hash_file(&file, None).unwrap();
-    m["files"].as_array_mut().unwrap().push(serde_json::json!({"filename":"boot_b.img", "size_bytes":size, "sha256":sha, "partition":boot}));
-    std::fs::write(&path, serde_json::to_vec(&m).unwrap()).unwrap();
-    let legacy = VerifiedBackup::open_recovery(s.backup.path()).unwrap();
-    assert!(recovery_flow::restore::preflight(&legacy).is_ok());
-}
-
-#[test]
 fn edl_backups_bind_the_gpt_slot_and_do_not_require_an_adb_identity() {
     for slot in [Slot::A, Slot::B] {
         for changed in [false, true] {
@@ -2026,7 +1833,7 @@ fn edl_backups_bind_the_gpt_slot_and_do_not_require_an_adb_identity() {
             gpt[4096 + 88..4096 + 92].copy_from_slice(&crc.to_le_bytes());
             refresh_header(&mut gpt);
             disk.disk[4][..gpt.len()].copy_from_slice(&gpt);
-            let builder = BackupBuilder::create(s._dir.path()).unwrap().for_recovery();
+            let builder = BackupBuilder::create(s._dir.path()).unwrap();
             let backup = stage1::take_backup(
                 &mut disk,
                 &prepared(slot, lapiswitch_core::prepare::Connection::Edl),
@@ -2037,7 +1844,6 @@ fn edl_backups_bind_the_gpt_slot_and_do_not_require_an_adb_identity() {
             assert_eq!(backup.is_ok(), !changed);
             if let Ok(backup) = backup {
                 assert!(backup.manifest().started_in_edl);
-                assert!(!backup.manifest().slot_estimated);
                 assert_eq!(backup.manifest().slot, slot);
                 assert!(
                     backup
@@ -2144,16 +1950,7 @@ fn s3_system_ext_version_and_custom_rom_consent_are_separate_from_stock_ceiling(
             ("GSI_TEST", true, true, 1),
         ] {
             let dir = tempfile::tempdir().unwrap();
-            let mut d = Fake::new(600, true);
-            d.snapshot.extend([
-                part("recovery_a", 4, 1600, 2),
-                part("recovery_b", 4, 1602, 2),
-                part("misc", 0, 70, 2),
-                part("vendor_boot_a", 4, 1700, 4),
-                part("vendor_boot_b", 4, 1710, 4),
-            ]);
-            d.original_gpt = gpt(&d.snapshot);
-            d.disk[4][..d.original_gpt.len()].copy_from_slice(&d.original_gpt);
+            let mut d = Fake::with_recovery(600, true);
             let name = format!("vbmeta_system{}", slot.suffix());
             d.fingerprints.insert(
                 name.clone(),
@@ -2162,7 +1959,7 @@ fn s3_system_ext_version_and_custom_rom_consent_are_separate_from_stock_ceiling(
             let ext =
                 format!("qti/TB520FU/TB520FU:17/CQ2A.260712.001/{incremental}:user/release-keys");
             d.system_ext_fingerprints.insert(name, ext.clone());
-            let builder = BackupBuilder::create(dir.path()).unwrap().for_recovery();
+            let builder = BackupBuilder::create(dir.path()).unwrap();
             let folder = builder.partition_dir().to_owned();
             let mut called = 0;
             let result = stage1::take_backup_with_confirmation(

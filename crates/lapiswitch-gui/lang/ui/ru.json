@@ -75,7 +75,6 @@
   "Could not stop ADB server": "Не удалось остановить сервер ADB",
   "Country code": "Код страны",
   "Country code unchanged": "Код страны не меняется",
-  "Custom BOOT conversion and resume have been retired. Restore the original backup or archive the old run and start a new TWRP conversion.": "Смена региона через собственный BOOT и её продолжение больше не поддерживаются. Восстановите исходное состояние из резервной копии или архивируйте прошлую операцию и начните новую через TWRP.",
   "Dashboard": "Dashboard",
   "Default: Userspace / WinUSB": "По умолчанию: Userspace / WinUSB",
   "Device / slot": "Устройство / слот",

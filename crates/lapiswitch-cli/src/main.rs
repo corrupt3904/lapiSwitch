@@ -5,13 +5,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 mod status;
 
-use lapiswitch_core::backup::VerifiedBackup;
 use lapiswitch_core::firmware::check_firmware;
 use lapiswitch_core::gpt::PrimaryGpt;
-use lapiswitch_core::prepare::{Connection, DeviceIo, native::NativeDevice, prepare};
+use lapiswitch_core::prepare::{native::NativeDevice, prepare};
 use lapiswitch_core::region::Region;
 use lapiswitch_core::slot::Slot;
-use lapiswitch_core::stage1::{self, native::NativeStage};
 
 const USAGE: &str = "\
 usage: lapiswitch-cli <command>
@@ -25,8 +23,6 @@ commands:
                                            S0: validate a firmware folder (decrypts .x in place, like LTBox)
   prepare <firmware folder> --region <prc|row> --output <new folder>
                                            S0-S2: check the ADB device, reboot to EDL (no partition writes)
-  restore <backup folder> --loader <loader.melf>
-                                           verify backup/device, RESTORE original boot/GPT, request system boot
   status [--state <file>]                  inspect state without connecting to a device";
 
 fn main() -> ExitCode {
@@ -223,15 +219,7 @@ fn prepare_device(args: &[String]) -> Result<(), String> {
     // Keep the preparation failure visible even if saving the log also fails.
     match result {
         Ok(report) => {
-            println!(
-                "활성 슬롯: {}{}",
-                report.slot.suffix(),
-                if report.slot_estimated {
-                    " (EDL 이미지로 추정)"
-                } else {
-                    ""
-                }
-            );
+            println!("활성 슬롯: {}", report.slot.suffix());
             println!("기록 폴더: {}", output.display());
             println!("준비 완료. GPT·boot·펌웨어는 쓰지 않았으며, 기기를 EDL로 돌려놓았습니다.");
             log_result
@@ -271,63 +259,6 @@ fn parse_prepare_args(args: &[String]) -> Result<(PathBuf, Region, PathBuf), Str
         region.ok_or(USAGE)?,
         output.ok_or(USAGE)?,
     ))
-}
-
-fn finish_log<T>(
-    path: &Path,
-    log: &mut Vec<String>,
-    result: Result<T, String>,
-) -> Result<T, String> {
-    if let Err(error) = &result {
-        log.push(format!("작업 실패: {error}"));
-    }
-    if let Err(error) = std::fs::write(path, log.join("\n")) {
-        if result.is_ok() {
-            return Err(format!("로그 저장 실패 ({}): {error}", path.display()));
-        }
-        eprintln!("로그 저장 실패: {error}");
-    }
-    result
-}
-
-fn parse_restore_args(args: &[String]) -> Result<(PathBuf, PathBuf), String> {
-    let [folder, flag, loader] = args else {
-        return Err(USAGE.into());
-    };
-    if flag != "--loader" || folder.is_empty() || loader.is_empty() {
-        return Err(USAGE.into());
-    }
-    Ok((folder.into(), loader.into()))
-}
-
-fn restore_device(args: &[String]) -> Result<(), String> {
-    let (folder, loader) = parse_restore_args(args)?;
-    // Validate all sources before uploading a programmer to any device.
-    let backup = VerifiedBackup::open(&folder)?;
-    if !loader.is_file() {
-        return Err(format!("loader 파일 없음: {}", loader.display()));
-    }
-    let mut log = vec![];
-    let result = (|| -> Result<(), String> {
-        let mut device = NativeDevice::new(&folder)?;
-        device.ensure_single_target()?;
-        if device.detect()? != Connection::Edl {
-            return Err("복구하려는 기기를 EDL로 연결해 주세요.".into());
-        }
-        let session = device.open_edl(&loader, &mut log)?;
-        let mut device = NativeStage::new(device, session);
-        let report =
-            stage1::restore(&mut device, &backup, &mut log).map_err(|error| error.to_string())?;
-        println!(
-            "원본 boot/GPT 복구·검증 완료. 시스템 부팅을 요청했습니다. 실제 부팅 상태를 확인하세요. 백업: {}",
-            folder.display()
-        );
-        for warning in report.warnings {
-            ltbox_core::live!(log, "경고: {warning}");
-        }
-        Ok(())
-    })();
-    finish_log(&folder.join("restore.log"), &mut log, result)
 }
 
 #[cfg(test)]
@@ -377,21 +308,6 @@ mod tests {
             assert!(parse_prepare_args(&args(&invalid)).is_err());
         }
     }
-
-    #[test]
-    fn restore_requires_an_explicit_backup_and_loader() {
-        assert_eq!(
-            parse_restore_args(&args(&["C:/backup", "--loader", "C:/fw/loader.melf"])).unwrap(),
-            ("C:/backup".into(), "C:/fw/loader.melf".into())
-        );
-        for invalid in [
-            vec!["C:/backup"],
-            vec!["C:/backup", "--force", "loader"],
-            vec!["", "--loader", "loader"],
-        ] {
-            assert!(parse_restore_args(&args(&invalid)).is_err());
-        }
-    }
 }
 
 #[cfg(test)]
@@ -428,28 +344,24 @@ mod gpt_args_tests {
 
 fn execute(args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
-        Some("assets" | "stage1" | "full" | "resume") => {
-            Err(lapiswitch_core::state::LEGACY_CONVERSION_ENDED.into())
-        }
         Some("gpt-info") => gpt_info(&args[1..]),
         Some("gpt-modify") => gpt_modify(&args[1..]),
         Some("decrypt-x") => decrypt_x(&args[1..]),
         Some("check") => check(&args[1..]),
         Some("prepare") => prepare_device(&args[1..]),
-        Some("restore") => restore_device(&args[1..]),
         Some("status") => status::status(&args[1..]),
         _ => Err(USAGE.to_string()),
     }
 }
 
 #[cfg(test)]
-mod retired_tests {
+mod command_tests {
     use super::*;
     #[test]
-    fn retired_commands_fail_before_files_state_or_usb_are_opened() {
-        for command in ["assets", "stage1", "full", "resume"] {
+    fn removed_and_unknown_commands_only_print_usage() {
+        for command in ["restore", "assets", "stage1", "full", "resume", "unknown"] {
             let error = execute(&[command.into(), "nonexistent".into()]).unwrap_err();
-            assert_eq!(error, lapiswitch_core::state::LEGACY_CONVERSION_ENDED);
+            assert_eq!(error, USAGE);
         }
     }
 }

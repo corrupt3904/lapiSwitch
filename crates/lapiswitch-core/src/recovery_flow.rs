@@ -119,7 +119,7 @@ pub trait DeviceInfoIo {
     ) -> Result<(Vec<u8>, Vec<u8>), String>;
 }
 pub fn resume_action(state: &RunState, transaction: Option<TransactionStage>) -> ResumeAction {
-    let phase = state.recovery.as_ref().expect("recovery branch").phase;
+    let phase = state.recovery.phase;
     if transaction == Some(TransactionStage::Restored)
         || matches!(phase, Phase::Done | Phase::Restored)
     {
@@ -149,11 +149,7 @@ pub fn resume_action(state: &RunState, transaction: Option<TransactionStage>) ->
     }
 }
 pub fn checkpoint(state: &mut RunState, store: &StateStore, phase: Phase) -> Result<(), String> {
-    state
-        .recovery
-        .as_mut()
-        .ok_or("새 흐름 기록이 없습니다.")?
-        .phase = phase;
+    state.recovery.phase = phase;
     state.stage = match phase {
         Phase::Preflight => Stage::S1,
         Phase::BackedUp => Stage::S3,
@@ -168,7 +164,7 @@ pub fn checkpoint(state: &mut RunState, store: &StateStore, phase: Phase) -> Res
     // Retain the irreversible firmware boundary even without the active state.
     backup::write_json_atomic(
         &state.backup_dir.join("recovery_progress.json"),
-        state.recovery.as_ref().expect("checked"),
+        &state.recovery,
     )
 }
 /// Result of a DeviceInfo transaction that did not fail.
@@ -247,6 +243,8 @@ fn write_verified(
 fn part(backup: &VerifiedBackup, name: &str, lun: u8) -> Result<Partition, String> {
     Ok(storage::find_partition(&backup.manifest().snapshot, name, lun)?.clone())
 }
+/// The fixed DeviceInfo evidence folder inside the backup's Partition folder.
+pub const ATTEMPT_DIR: &str = "DeviceInfo";
 pub fn recovery_name(slot: crate::slot::Slot) -> String {
     format!("recovery{}", slot.suffix())
 }
@@ -272,18 +270,6 @@ fn saved_plan(
     if backup::digest_bytes(&planned) != record.planned_sha256 {
         return Err("DeviceInfo 변경 계획이 저장된 쓰기 의도와 다릅니다.".into());
     }
-    // Older app versions retained a separate plan. Check it until successful
-    // verification prunes the redundant files; never ignore a tampered plan.
-    let legacy = dir.join("planned_shared.bin");
-    if legacy.try_exists().map_err(|e| e.to_string())?
-        && backup::hash_file(&legacy, None)?
-            != (
-                deviceinfo::SHARED_SIZE as u64,
-                record.planned_sha256.clone(),
-            )
-    {
-        return Err("DeviceInfo 예정 파일이 변경되었습니다.".into());
-    }
     Ok((before, planned))
 }
 
@@ -291,8 +277,8 @@ fn saved_plan(
 fn verify_evidence(backup: &VerifiedBackup, state: &RunState) -> Result<(), String> {
     let record = state
         .recovery
+        .attempt
         .as_ref()
-        .and_then(|p| p.attempt.as_ref())
         .ok_or("DeviceInfo 검증 증거가 없습니다.")?;
     let dir = attempt_dir(backup, &record.directory)?;
     let (before, planned) = saved_plan(&dir, state, record)?;
@@ -308,32 +294,6 @@ fn verify_evidence(backup: &VerifiedBackup, state: &RunState) -> Result<(), Stri
     let after = std::fs::read(final_read).map_err(|e| e.to_string())?;
     deviceinfo::validate_plan(&before, &after, state.target_region, record.mode)?;
     deviceinfo::verify(&planned, &after, &after)
-}
-
-/// Only known redundant files from older app versions are pruned after a
-/// verified final read and durable RegionVerified checkpoint. Never recurse.
-fn prune_intermediates(dir: &Path, state: &mut RunState, log: &mut Vec<String>) {
-    for name in [
-        "before_shared_2.bin",
-        "before_logical.bin",
-        "planned_shared.bin",
-        "byte_changes.json",
-        "after_same_session.bin",
-        "after_new_session.bin",
-        "read1.before.bin",
-        "read2.before.bin",
-        "apply.same.bin",
-        "apply.fresh.bin",
-        "independent.before.bin",
-    ] {
-        if let Err(error) = std::fs::remove_file(dir.join(name))
-            && error.kind() != std::io::ErrorKind::NotFound
-        {
-            let warning = format!("DeviceInfo 중간 파일 정리 미완료 ({name}): {error}");
-            live!(log, "경고: {warning}");
-            state.warnings.push(warning);
-        }
-    }
 }
 
 fn original_bytes(backup: &VerifiedBackup, name: &str) -> Result<Vec<u8>, String> {
@@ -392,13 +352,7 @@ pub fn stage(
 ) -> Result<(), String> {
     backup.verify()?;
     crate::recovery_asset::verify(twrp)?;
-    if !matches!(backup.manifest().version, 3..=5) || backup.manifest().slot_estimated {
-        return Err(
-            "활성 슬롯이 확정되지 않아 Recovery에 쓰지 않았습니다. Android ADB에서 시작하세요."
-                .into(),
-        );
-    }
-    if state.recovery.as_ref().map(|p| p.phase) != Some(Phase::BackedUp)
+    if state.recovery.phase != Phase::BackedUp
         || backup.transaction_stage()? != TransactionStage::BackupVerified
     {
         return Err("TWRP 준비를 새로 실행할 수 없는 상태입니다.".into());
@@ -513,9 +467,6 @@ pub fn restore_originals(
     log: &mut Vec<String>,
 ) -> Result<(), String> {
     backup.verify()?;
-    if !matches!(backup.manifest().version, 3..=5) {
-        return Err("새 Recovery 백업이 아닙니다.".into());
-    }
     let journal = backup.path().join("recovery_progress.json");
     if journal.exists() {
         let progress: Progress = backup::read_json(&journal)?;
@@ -531,31 +482,29 @@ pub fn restore_originals(
     let work = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
     let (geometry, rec) = validate_restore_device(device, backup, work.path(), log)?;
     let mut errors = vec![];
-    if backup.manifest().version >= 4 {
-        let vb = part(
-            backup,
-            &format!("vendor_boot{}", backup.manifest().slot.suffix()),
-            4,
-        )?;
-        let name = format!("{}.img", vb.name);
-        let original = original_bytes(backup, &name)?;
-        if data(
+    let vb = part(
+        backup,
+        &format!("vendor_boot{}", backup.manifest().slot.suffix()),
+        4,
+    )?;
+    let name = format!("{}.img", vb.name);
+    let original = original_bytes(backup, &name)?;
+    if data(
+        device,
+        &vb,
+        &work.path().join("current_vendor_boot.img"),
+        log,
+    )? != original
+    {
+        let source = work.path().join(&name);
+        backup::write_new(&source, &original)?;
+        write_verified(
             device,
             &vb,
-            &work.path().join("current_vendor_boot.img"),
+            &source,
+            &work.path().join("vendor_boot_verified.img"),
             log,
-        )? != original
-        {
-            let source = work.path().join(&name);
-            backup::write_new(&source, &original)?;
-            write_verified(
-                device,
-                &vb,
-                &source,
-                &work.path().join("vendor_boot_verified.img"),
-                log,
-            )?;
-        }
+        )?;
     }
     for (p, name) in [
         (&rec, format!("{}.img", rec.name)),
@@ -607,7 +556,7 @@ fn validate_restore_device(
     }
     // TWRP mounts persist RW for qseecomd/secure storage; its pre-boot hash
     // is not an invariant. Bind restoration by the unique original GPT GUID
-    // and the still-intact model AVB, as the legacy manual restore does.
+    // and the still-intact model AVB.
     let mut matched = false;
     for name in ["vbmeta_system_a", "vbmeta_system_b"] {
         if let Some(avb) = device.read_avb(name, log)? {
@@ -624,14 +573,15 @@ fn validate_restore_device(
     match storage::validate_gpt(&live_gpt) {
         Ok(table) => {
             storage::match_gpt_partition(&table, &rec)?;
-            let mut targets = vec![rec.clone(), part(backup, "misc", 0)?];
-            if backup.manifest().version >= 4 {
-                targets.push(part(
+            let targets = vec![
+                rec.clone(),
+                part(backup, "misc", 0)?,
+                part(
                     backup,
                     &format!("vendor_boot{}", backup.manifest().slot.suffix()),
                     4,
-                )?);
-            }
+                )?,
+            ];
             for p in targets.iter().filter(|p| p.lun == 4) {
                 storage::match_gpt_partition(&table, p)?;
             }
@@ -646,11 +596,7 @@ fn validate_restore_device(
 }
 
 fn attempt_dir(backup: &VerifiedBackup, name: &str) -> Result<PathBuf, String> {
-    // Older checkpoints still refer to the generated deviceinfo-* directory.
-    if name != "DeviceInfo"
-        && (!name.starts_with("deviceinfo-")
-            || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
-    {
+    if name != ATTEMPT_DIR {
         return Err("잘못된 DeviceInfo 시도 경로".into());
     }
     let path = backup.work_dir()?.join(name);
@@ -680,16 +626,12 @@ pub fn transact(
     restore::ensure_conversion_allowed(backup)?;
     state.verify_binding(backup, firmware)?;
     stopped(ui)?;
-    let phase = state
-        .recovery
-        .as_ref()
-        .ok_or("DeviceInfo 작업 기록 없음")?
-        .phase;
+    let phase = state.recovery.phase;
     if matches!(phase, Phase::WritePending | Phase::RegionVerified) {
         let record = state
             .recovery
-            .as_ref()
-            .and_then(|p| p.attempt.clone())
+            .attempt
+            .clone()
             .ok_or("DeviceInfo 의도 기록 없음")?;
         let dir = attempt_dir(backup, &record.directory)?;
         let (before, planned) = saved_plan(&dir, state, &record)?;
@@ -713,18 +655,17 @@ pub fn transact(
             backup::write_new(&evidence, &b)?;
         }
         checkpoint(state, store, Phase::RegionVerified)?;
-        prune_intermediates(&dir, state, log);
         return Ok(Outcome::Verified);
     }
     ui.status(
         "DeviceInfo 원본을 읽어 백업하고 변경 범위를 비교합니다.",
         false,
     );
-    let attempt = backup.work_dir()?.join("DeviceInfo");
+    let attempt = backup.work_dir()?.join(ATTEMPT_DIR);
     match std::fs::create_dir(&attempt) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            attempt_dir(backup, "DeviceInfo")?;
+            attempt_dir(backup, ATTEMPT_DIR)?;
         }
         Err(error) => return Err(error.to_string()),
     }
@@ -746,9 +687,7 @@ pub fn transact(
                 "DeviceInfo가 최초 원본 백업과 다릅니다. 원본을 보존하고 쓰기를 중단합니다.".into(),
             );
         }
-        if let Some(record) = state.recovery.as_ref().and_then(|p| p.attempt.as_ref())
-            && record.directory == "DeviceInfo"
-        {
+        if let Some(record) = &state.recovery.attempt {
             saved_plan(&attempt, state, record)?;
         }
     } else {
@@ -803,7 +742,7 @@ pub fn transact(
         mode,
         changed
     );
-    state.recovery.as_mut().expect("checked").attempt = Some(Attempt {
+    state.recovery.attempt = Some(Attempt {
         directory: attempt
             .file_name()
             .and_then(|s| s.to_str())
@@ -851,7 +790,6 @@ pub fn transact(
     deviceinfo::verify(&planned, &independent, &independent)?;
     backup::write_new(&attempt.join("after_independent.bin"), &independent)?;
     checkpoint(state, store, Phase::RegionVerified)?;
-    prune_intermediates(&attempt, state, log);
     live!(
         log,
         "DeviceInfo 목표 리전·롤백 및 전체 4096바이트 재읽기 검증 완료."
@@ -974,10 +912,7 @@ pub fn finish(
         return Err("TWRP 준비 완료 기록이 없습니다. 원본 구성 복구가 필요합니다.".into());
     }
     state.verify_binding(backup, firmware)?;
-    if !matches!(backup.manifest().version, 3..=5) || state.version != 2 {
-        return Err("흐름/백업 형식 불일치".into());
-    }
-    let mut phase = state.recovery.as_ref().ok_or("Recovery 기록 없음")?.phase;
+    let mut phase = state.recovery.phase;
     ui.phase(phase);
     if phase == Phase::FinalReboot {
         state
@@ -1079,7 +1014,7 @@ pub fn finish(
         checkpoint(state, store, Phase::OriginalsRestored)?;
     }
     let work = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
-    workflow::confirm_identity(device, backup, state, store, work.path(), log)?;
+    workflow::confirm_identity(device, backup, state, work.path(), log)?;
     backup.verify()?;
     restore::ensure_conversion_allowed(backup)?;
     state.verify_binding(backup, firmware)?;

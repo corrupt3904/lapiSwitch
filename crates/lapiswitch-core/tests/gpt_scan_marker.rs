@@ -7,7 +7,10 @@ use lapiswitch_core::storage;
 use memory_device::*;
 
 fn with_marker(name: &str, start: u64, sectors: u64, duplicate: bool) -> Fake {
-    let mut device = Fake::new(600, true);
+    marked(Fake::new(600, true), name, start, sectors, duplicate)
+}
+
+fn marked(mut device: Fake, name: &str, start: u64, sectors: u64, duplicate: bool) -> Fake {
     device.snapshot.push(part(name, 4, start, sectors));
     if duplicate {
         device.snapshot.push(part(name, 4, start, sectors));
@@ -81,7 +84,14 @@ fn unknown_overlapping_out_of_bounds_and_duplicate_unused_rows_are_rejected() {
 #[test]
 fn backup_and_gpt_modification_work_with_the_scanners_unused_end_marker() {
     let root = tempfile::tempdir().unwrap();
-    let mut device = with_marker("last_parti", 1600, 400, false);
+    // vendor_boot_b ends at 1713; the marker spans the free tail to 1999.
+    let mut device = marked(
+        Fake::with_recovery(600, true),
+        "last_parti",
+        1714,
+        286,
+        false,
+    );
     let backup = device.backup(root.path(), Slot::A);
     backup.verify().unwrap();
     assert!(device.writes.is_empty());

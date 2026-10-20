@@ -56,13 +56,6 @@ fn proof(backup: &VerifiedBackup, p: &Progress) -> Result<(Vec<u8>, Vec<u8>), St
     if backup::digest_bytes(&planned) != a.planned_sha256 {
         return Err("DeviceInfo 예정 값 해시 불일치".into());
     }
-    let legacy = dir.join("planned_shared.bin");
-    if legacy.try_exists().map_err(|e| e.to_string())?
-        && backup::hash_file(&legacy, None)?
-            != (deviceinfo::SHARED_SIZE as u64, a.planned_sha256.clone())
-    {
-        return Err("DeviceInfo 예정 파일 변조".into());
-    }
     Ok((before, planned))
 }
 fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment, String> {
@@ -71,7 +64,7 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
         for file in files {
             let name = file.map_err(|e| e.to_string())?.file_name();
             let name = name.to_string_lossy();
-            if name == "DeviceInfo" || name.starts_with("deviceinfo-") {
+            if name == ATTEMPT_DIR {
                 return Err("DeviceInfo 폴더가 있지만 작업 기록이 없습니다.".into());
             }
         }
@@ -107,7 +100,7 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
             let file = file.map_err(|e| e.to_string())?;
             let name = file.file_name();
             let name = name.to_string_lossy();
-            if (name == "DeviceInfo" || name.starts_with("deviceinfo-"))
+            if name == ATTEMPT_DIR
                 && file
                     .path()
                     .join("after_independent.bin")
@@ -137,9 +130,6 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
 /// File existence alone never means a write failed or succeeded.
 pub fn assess(backup: &VerifiedBackup) -> Result<Assessment, String> {
     backup.verify()?;
-    if !matches!(backup.manifest().version, 3..=5) {
-        return Err("Recovery 백업이 아닙니다.".into());
-    }
     match progress(backup) {
         Err(e) => Ok(Assessment::Unknown(e)),
         Ok(p) => {
@@ -281,9 +271,6 @@ pub fn preflight(backup: &VerifiedBackup) -> Result<Assessment, String> {
     if let Assessment::Verified { original, current } = state
         && original != current
     {
-        if backup.manifest().version < 4 {
-            return Err("이전 백업에는 원본 vendor_boot가 없어 변경된 리전의 원본 복구를 진행할 수 없습니다. 백업과 기록을 보존하고 변환 이어하기를 사용하세요.".into());
-        }
         let vb = original_bytes(
             backup,
             &format!("vendor_boot{}.img", backup.manifest().slot.suffix()),
@@ -385,9 +372,6 @@ fn bootstrap(
     log: &mut Vec<String>,
 ) -> Result<(), String> {
     crate::recovery_asset::verify(twrp)?;
-    if backup.manifest().slot_estimated {
-        return Err("복구 슬롯이 확정되지 않았습니다.".into());
-    }
     let work = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
     let (geometry, rec) = validate_restore_device(device, backup, work.path(), log)?;
     let vb = part(

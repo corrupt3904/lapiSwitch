@@ -87,7 +87,6 @@ pub enum PrepareError {
 pub struct PrepareReport {
     pub started_in: Connection,
     pub slot: Slot,
-    pub slot_estimated: bool,
     pub device_key: Option<KeyClass>,
     /// None on EDL start; otherwise the ADB identity record saved before S2.
     pub identity: Option<String>,
@@ -267,7 +266,6 @@ fn probe_edl<D: DeviceIo>(
     Ok(PrepareReport {
         started_in: Connection::Edl,
         slot,
-        slot_estimated: false,
         device_key: vbs[active].as_ref().map(AvbSummary::key_class),
         identity: None,
     })

@@ -37,7 +37,7 @@ The software is provided **“AS IS,” without warranty**, to the extent permit
 - **Guided workflow** — target region, firmware checks, conversion options and a final review.
 - **Device monitoring** — ADB, Fastboot and EDL status on the Dashboard, with driver checks and supported installation options.
 - **Backup and verification** — original partition backups and full 4096-byte DeviceInfo readback verification after writing.
-- **Conversion options** — country code selection and rollback index reset (default) or preservation.
+- **Conversion options** — country code selection and rollback index reset (default) or preservation. With preservation, a firmware whose rollback indices are lower than the values stored in DeviceInfo opens a prompt in TWRP: reset them to 0 and continue, or cancel and automatically restore the original configuration.
 - **Saved progress** — resume and original-configuration restore, subject to the saved state and verified backup evidence.
 
 Interface languages: 한국어, English, 简体中文, 日本語 and Русский.
@@ -59,7 +59,7 @@ The version limits above apply to firmware **already installed on the tablet**. 
 
 1. Download the Windows ZIP and its `.zip.sha256` checksum from [Releases](https://github.com/corrupt3904/lapiSwitch/releases). Verify the checksum, then extract the ZIP.
 2. Run `lapiSwitch.exe`. Follow the app's USB driver guidance and install supported drivers if required.
-3. Connect the tablet and confirm its model and connection state on the **Dashboard**. Follow any USB debugging authorization prompts.
+3. Boot the tablet to Android, enable USB debugging and connect it. Confirm its model and connection state on the **Dashboard** and approve the USB debugging prompt. Conversion starts from ADB (or EDL); it cannot start from Fastboot.
 4. Select **Region conversion**, then choose the target region, firmware folder and conversion options. Review the final confirmation carefully.
 5. Keep USB connected and follow the reboot prompts until the operation finishes.
 
@@ -81,6 +81,8 @@ Change the root folder under **Settings → Logs and backup location**. Keep the
 Use **Recovery** on the Dashboard to restore the backed-up GPT, Recovery and vendor_boot configuration and, when applicable, the original DeviceInfo region. **This does not roll back the entire installed firmware.**
 
 Resume and restore depend on the available evidence. If the DeviceInfo write result cannot be established or backup verification fails, the app may refuse automatic recovery.
+
+Backups and saved runs from earlier app versions cannot be opened by this version. Finish or restore any interrupted run with the version that created it before updating.
 
 ## Build from source
 

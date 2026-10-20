@@ -75,7 +75,6 @@
   "Could not stop ADB server": "无法停止 ADB 服务器",
   "Country code": "国家代码",
   "Country code unchanged": "不更改国家代码",
-  "Custom BOOT conversion and resume have been retired. Restore the original backup or archive the old run and start a new TWRP conversion.": "已停止支持自定义 BOOT 方式的转换和继续。请使用原有备份进行还原，或归档旧任务后开始新的 TWRP 转换。",
   "Dashboard": "Dashboard",
   "Default: Userspace / WinUSB": "默认：Userspace / WinUSB",
   "Device / slot": "确认设备 · 槽位",

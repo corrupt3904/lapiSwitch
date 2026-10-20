@@ -658,10 +658,10 @@ fn options(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         footer(app, Some((Message::Next, app.options().is_some()))),
     )
 }
+/// Region conversion always erases user data.
 fn summary<'a>(
     app: &App,
     region: Option<Region>,
-    wipe: bool,
     country: Option<&str>,
     firmware: String,
 ) -> Element<'a, Message> {
@@ -670,14 +670,7 @@ fn summary<'a>(
             app.t("목표 리전", "Target region"),
             region.map_or("—", Region::token)
         ),
-        field(
-            app.t("사용자 데이터", "User data"),
-            if wipe {
-                app.t("삭제", "Erase")
-            } else {
-                app.t("유지", "Keep")
-            }
-        ),
+        field(app.t("사용자 데이터", "User data"), app.t("삭제", "Erase")),
         field(
             app.t("국가 코드", "Country code"),
             country
@@ -692,7 +685,7 @@ fn summary<'a>(
 fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let content = column![title(app, "시작 전 마지막 확인", "Ready to convert", "기기 한 대를 연결하고 USB 연결을 유지하세요.", "Connect one device and keep USB connected."),
         dashboard_view::connection_note(app),
-        summary(app, app.region, true, app.country.as_deref(), app.folder.as_ref().map(|p| p.display().to_string()).unwrap_or_default()),
+        summary(app, app.region, app.country.as_deref(), app.folder.as_ref().map(|p| p.display().to_string()).unwrap_or_default()),
         note(app.t("원본 GPT·활성 슬롯 Recovery·vendor_boot·misc 및 고유 파티션을 먼저 백업합니다. 변환이 시작되면 케이블을 빼거나 앱을 종료하지 마세요.", "Original GPT, active-slot Recovery and vendor_boot, misc and device-specific partitions are backed up first. Keep the cable connected and the app open throughout the conversion."), true),
         field(app.t("롤백인덱스", "Rollback indices"), if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {app.t("초기화 · 32개 → 0 / 낮은 펌웨어 index 허용", "Reset · 32 → 0 / lower firmware indices allowed")} else {app.t("미초기화 · 펌웨어가 더 낮으면 TWRP에서 확인", "Keep · asked in TWRP if firmware indices are lower")}),
         checkbox(app.agreed).label(app.t("사용자 데이터가 반드시 초기화되는 것과 위 안내를 확인했습니다.", "I understand that user data will be erased and have read the instructions.")).on_toggle(Message::Agree),
@@ -815,7 +808,7 @@ fn overall_progress(app: &App, show_steps: bool) -> Element<'_, Message> {
                     }),
                 );
             }
-            // Keep partial legacy/restore rows on the same five-column grid.
+            // Keep partial restore rows on the same five-column grid.
             for _ in group.len()..5 {
                 cards = cards.push(space().width(Fill));
             }
@@ -1116,7 +1109,6 @@ fn resume(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             .push(summary(
                 app,
                 Some(state.target_region),
-                state.options.wipe,
                 state.options.country.as_deref(),
                 state.firmware_dir.display().to_string(),
             ))
@@ -1124,44 +1116,33 @@ fn resume(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 app.t("백업", "Backup"),
                 state.backup_dir.display().to_string(),
             ));
-        if let Some(recovery) = &state.recovery {
-            content = content
-                .push(field(
-                    app.t("현재 단계", "Saved stage"),
-                    format!("{:?}", recovery.phase),
-                ))
-                .push(field(
-                    app.t("롤백인덱스", "Rollback indices"),
-                    if state.options.rollback_mode
-                        == lapiswitch_core::deviceinfo::RollbackMode::Reset
-                    {
-                        app.t("초기화 · 32개 → 0", "Reset · 32 → 0")
-                    } else {
-                        app.t("미초기화", "Keep")
-                    },
-                ));
-        }
-        let guidance = if state.recovery.is_none() {
-            app.t("커스텀 BOOT 방식의 변환·이어하기 지원을 종료했습니다. 기존 백업의 원본 복구 또는 이전 작업 보관 후 새 TWRP 변환을 사용하세요.", "Custom BOOT conversion and resume have been retired. Restore the original backup or archive the old run and start a new TWRP conversion.")
-        } else {
-            match pending.action {
-                ResumeAction::Recovery | ResumeAction::ResetUncertain => app.t("현재 기록으로는 이어갈 수 없습니다. 백업과 작업 기록을 확인한 뒤 원본 복구를 사용하세요.", "This checkpoint cannot be resumed. Review the backup and saved record, then use original restoration."),
-                ResumeAction::Flash => app.t("펌웨어를 다시 설치하며 사용자 데이터를 반드시 초기화합니다.", "Firmware will be installed again and user data will be erased."),
-                ResumeAction::Finalize => app.t("쓰기 완료 뒤 최종 재부팅 인계 기록을 확인합니다. 실제 부팅은 기기에서 확인하세요.", "Check the final reboot handoff after completed writes. Check actual boot on the device."),
-                _ => app.t("저장된 TWRP·DeviceInfo 단계부터 결과를 재확인합니다. 검증 후 원본 GPT·Recovery 복원과 펌웨어 설치를 진행합니다.", "Recheck the saved TWRP/DeviceInfo stage, then restore original GPT/Recovery and install firmware."),
-            }
+        content = content
+            .push(field(
+                app.t("현재 단계", "Saved stage"),
+                format!("{:?}", state.recovery.phase),
+            ))
+            .push(field(
+                app.t("롤백인덱스", "Rollback indices"),
+                if state.options.rollback_mode == lapiswitch_core::deviceinfo::RollbackMode::Reset {
+                    app.t("초기화 · 32개 → 0", "Reset · 32 → 0")
+                } else {
+                    app.t("미초기화", "Keep")
+                },
+            ));
+        let guidance = match pending.action {
+            ResumeAction::Recovery => app.t("현재 기록으로는 이어갈 수 없습니다. 백업과 작업 기록을 확인한 뒤 원본 복구를 사용하세요.", "This checkpoint cannot be resumed. Review the backup and saved record, then use original restoration."),
+            ResumeAction::Flash => app.t("펌웨어를 다시 설치하며 사용자 데이터를 반드시 초기화합니다.", "Firmware will be installed again and user data will be erased."),
+            ResumeAction::Finalize => app.t("쓰기 완료 뒤 최종 재부팅 인계 기록을 확인합니다. 실제 부팅은 기기에서 확인하세요.", "Check the final reboot handoff after completed writes. Check actual boot on the device."),
+            _ => app.t("저장된 TWRP·DeviceInfo 단계부터 결과를 재확인합니다. 검증 후 원본 GPT·Recovery 복원과 펌웨어 설치를 진행합니다.", "Recheck the saved TWRP/DeviceInfo stage, then restore original GPT/Recovery and install firmware."),
         };
-        content = content.push(note(guidance, true));
-        if state.recovery.is_some() {
-            content = content.push(
-                checkbox(app.agreed)
-                    .label(app.t(
-                        "저장된 설정과 이어갈 작업을 확인했습니다.",
-                        "I have reviewed the saved settings and resume behavior.",
-                    ))
-                    .on_toggle(Message::Agree),
-            );
-        }
+        content = content.push(note(guidance, true)).push(
+            checkbox(app.agreed)
+                .label(app.t(
+                    "저장된 설정과 이어갈 작업을 확인했습니다.",
+                    "I have reviewed the saved settings and resume behavior.",
+                ))
+                .on_toggle(Message::Agree),
+        );
     }
     (
         content.into(),

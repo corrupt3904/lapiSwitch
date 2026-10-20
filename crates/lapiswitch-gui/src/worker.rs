@@ -25,10 +25,7 @@ pub fn pending(path: &Path) -> Result<Option<Pending>, String> {
     };
     // Inspect the independent write journal even when payload verification
     // fails. A damaged backup must never turn into permission to start over.
-    let mut action = state.resume_action(backup::transaction_stage_in(&state.backup_dir)?);
-    if state.recovery.is_none() && action != ResumeAction::Restart {
-        action = ResumeAction::Recovery;
-    }
+    let action = state.resume_action(backup::transaction_stage_in(&state.backup_dir)?);
     Ok((action != ResumeAction::Restart).then_some(Pending { state, action }))
 }
 
@@ -99,7 +96,7 @@ pub fn validate(tx: Sender<Event>, folder: PathBuf, region: Region) {
 
 pub fn check_backup(tx: Sender<Event>, folder: PathBuf) {
     std::thread::spawn(move || {
-        let result = VerifiedBackup::open_recovery(&folder).and_then(|b| {
+        let result = VerifiedBackup::open(&folder).and_then(|b| {
             let assessment = lapiswitch_core::recovery_flow::restore::preflight(&b)?;
             Ok(format!(
                 "{} · slot {} · {} · {} files",
@@ -289,10 +286,8 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                         .join("cache/twrp"),
                     &mut log,
                 )?;
-                let builder = BackupBuilder::create(&output)?.for_recovery();
+                let builder = BackupBuilder::create(&output)?;
                 let mut state = RunState::new(&firmware, options, builder.path())?;
-                state.version = 2;
-                state.recovery = Some(Default::default());
                 store.begin(&state)?;
                 let _ = tx.send(Event::Backup(builder.path().to_owned()));
                 let _ = tx.send(Event::Progress(Step::Device));
@@ -348,61 +343,51 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
             }
             Action::Resume => {
                 let mut state = store.load()?.ok_or("저장된 작업이 없습니다.")?;
-                if state.recovery.is_none() {
-                    return Err(lapiswitch_core::state::LEGACY_CONVERSION_ENDED.into());
+                let phase = state.recovery.phase;
+                let _ = tx.send(Event::RecoveryPhase(phase));
+                let _ = tx.send(Event::RecoveryStatus(
+                    "이어하기 전 백업과 펌웨어를 다시 검증합니다.".into(),
+                ));
+                let backup = VerifiedBackup::open(&state.backup_dir)?;
+                if matches!(
+                    phase,
+                    lapiswitch_core::recovery_flow::Phase::Staging
+                        | lapiswitch_core::recovery_flow::Phase::Restored
+                        | lapiswitch_core::recovery_flow::Phase::Done
+                        | lapiswitch_core::recovery_flow::Phase::Preflight
+                        | lapiswitch_core::recovery_flow::Phase::BackedUp
+                ) {
+                    return Err("이 단계는 원본 구성을 복구하거나 새 작업으로 시작하세요.".into());
                 }
-                if state.recovery.is_some() {
-                    let _ = tx.send(Event::RecoveryPhase(
-                        state.recovery.as_ref().expect("checked").phase,
-                    ));
-                    let _ = tx.send(Event::RecoveryStatus(
-                        "이어하기 전 백업과 펌웨어를 다시 검증합니다.".into(),
-                    ));
-                    let backup = VerifiedBackup::open(&state.backup_dir)?;
-                    let phase = state.recovery.as_ref().expect("checked").phase;
-                    if matches!(
-                        phase,
-                        lapiswitch_core::recovery_flow::Phase::Staging
-                            | lapiswitch_core::recovery_flow::Phase::Restored
-                            | lapiswitch_core::recovery_flow::Phase::Done
-                            | lapiswitch_core::recovery_flow::Phase::Preflight
-                            | lapiswitch_core::recovery_flow::Phase::BackedUp
-                    ) {
-                        return Err(
-                            "이 단계는 원본 구성을 복구하거나 새 작업으로 시작하세요.".into()
-                        );
+                let firmware = check_firmware(&state.firmware_dir, state.target_region)
+                    .map_err(|e| e.to_string())?;
+                state.verify_binding(&backup, &firmware)?;
+                let _ = tx.send(Event::Backup(backup.path().to_owned()));
+                let mut native = NativeDevice::new(backup.path())?;
+                let mut device = if phase == lapiswitch_core::recovery_flow::Phase::Staged {
+                    native.ensure_single_target()?;
+                    if native.detect()? != Connection::Edl {
+                        return Err("준비된 기기를 EDL로 연결하세요. 이미 TWRP로 진입했다면 재부팅 요청 전송 상태를 확인해야 합니다.".into());
                     }
-                    let firmware = check_firmware(&state.firmware_dir, state.target_region)
-                        .map_err(|e| e.to_string())?;
-                    state.verify_binding(&backup, &firmware)?;
-                    let _ = tx.send(Event::Backup(backup.path().to_owned()));
-                    let mut native = NativeDevice::new(backup.path())?;
-                    let mut device = if phase == lapiswitch_core::recovery_flow::Phase::Staged {
-                        native.ensure_single_target()?;
-                        if native.detect()? != Connection::Edl {
-                            return Err("준비된 기기를 EDL로 연결하세요. 이미 TWRP로 진입했다면 재부팅 요청 전송 상태를 확인해야 합니다.".into());
-                        }
-                        let session = native.open_edl(&firmware.loader, &mut log)?;
-                        NativeWorkflow::from_stage(NativeStage::new(native, session))
-                    } else {
-                        NativeWorkflow::disconnected(native)
-                    };
-                    lapiswitch_core::recovery_flow::finish(
-                        &mut device,
-                        &backup,
-                        &firmware,
-                        &mut state,
-                        &store,
-                        &mut ui,
-                        &mut log,
-                    )?;
-                    return Ok(state.warnings);
-                }
-                Err(lapiswitch_core::state::LEGACY_CONVERSION_ENDED.into())
+                    let session = native.open_edl(&firmware.loader, &mut log)?;
+                    NativeWorkflow::from_stage(NativeStage::new(native, session))
+                } else {
+                    NativeWorkflow::disconnected(native)
+                };
+                lapiswitch_core::recovery_flow::finish(
+                    &mut device,
+                    &backup,
+                    &firmware,
+                    &mut state,
+                    &store,
+                    &mut ui,
+                    &mut log,
+                )?;
+                Ok(state.warnings)
             }
             Action::Restore { backup, loader } => {
                 let _ = tx.send(Event::Progress(Step::Check));
-                let backup = VerifiedBackup::open_recovery(&backup)?;
+                let backup = VerifiedBackup::open(&backup)?;
                 // A selected backup must not bypass an unrelated interrupted run.
                 if let Ok(Some(state)) = store.load() {
                     let incomplete = backup::transaction_stage_in(&state.backup_dir)
@@ -422,14 +407,12 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 if let Some(state) = store.load()?
                     && state.backup_dir.canonicalize().map_err(|e| e.to_string())?
                         == backup.path().canonicalize().map_err(|e| e.to_string())?
-                    && state.recovery.as_ref().is_some_and(|p| {
-                        matches!(
-                            p.phase,
-                            lapiswitch_core::recovery_flow::Phase::FirmwareWriting
-                                | lapiswitch_core::recovery_flow::Phase::FinalReboot
-                                | lapiswitch_core::recovery_flow::Phase::Done
-                        )
-                    })
+                    && matches!(
+                        state.recovery.phase,
+                        lapiswitch_core::recovery_flow::Phase::FirmwareWriting
+                            | lapiswitch_core::recovery_flow::Phase::FinalReboot
+                            | lapiswitch_core::recovery_flow::Phase::Done
+                    )
                 {
                     return Err("공식 펌웨어 설치가 시작된 작업입니다. 과거 Recovery/GPT로 되돌리지 않고 펌웨어 설치를 이어가세요.".into());
                 }
@@ -456,7 +439,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 let session = device.open_edl(&loader, &mut log)?;
                 let mut device = NativeWorkflow::from_stage(NativeStage::new(device, session));
                 let _ = tx.send(Event::Progress(Step::Originals));
-                let warnings = lapiswitch_core::recovery_flow::restore::run(
+                let mut warnings = lapiswitch_core::recovery_flow::restore::run(
                     &mut device,
                     &backup,
                     &loader,
@@ -466,10 +449,6 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                     &mut ui,
                     &mut log,
                 )?;
-                let mut report = lapiswitch_core::stage1::StageReport {
-                    backup_dir: backup.path().into(),
-                    warnings,
-                };
                 let _ = tx.send(Event::Progress(Step::Finish));
                 match store.archive_restored(&backup) {
                     Ok(Some(path)) => ltbox_core::live!(
@@ -478,11 +457,11 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                         path.display()
                     ),
                     Ok(None) => {}
-                    Err(error) => report.warnings.push(format!(
+                    Err(error) => warnings.push(format!(
                         "원본 복구는 완료했지만 이전 작업 기록 정리를 마치지 못했습니다: {error}"
                     )),
                 }
-                Ok(report.warnings)
+                Ok(warnings)
             }
         }
     })();
@@ -618,18 +597,24 @@ mod tests {
 mod edl_start_tests {
     use super::*;
     #[test]
-    fn retired_pending_run_is_recovery_only_and_does_not_modify_saved_evidence() {
+    fn interrupted_staging_is_recovery_only_and_does_not_modify_saved_evidence() {
         use lapiswitch_core::{
-            gpt::CURRENT_POLICY, rollback::RollbackIndices, slot::Slot, state::Stage,
+            deviceinfo::RollbackMode,
+            recovery_flow::{Phase, Progress},
+            rollback::RollbackIndices,
+            slot::Slot,
+            state::{STATE_VERSION, Stage},
         };
         let dir = tempfile::tempdir().unwrap();
         let store = StateStore::new(dir.path().join("state.json"));
         let state = RunState {
-            version: 1,
-            gpt_policy: CURRENT_POLICY,
-            recovery: None,
-            run_id: "retired-test".into(),
-            stage: Stage::S5,
+            version: STATE_VERSION,
+            recovery: Progress {
+                phase: Phase::Staging,
+                attempt: None,
+            },
+            run_id: "staging-test".into(),
+            stage: Stage::S4,
             target_region: Region::Row,
             firmware_dir: dir.path().join("missing-firmware"),
             fingerprint: "synthetic".into(),
@@ -638,7 +623,7 @@ mod edl_start_tests {
                 vbmeta_system: 0,
             },
             files: vec![],
-            options: FlashOptions::new(true, None).unwrap(),
+            options: FlashOptions::new(None, RollbackMode::Reset).unwrap(),
             backup_dir: dir.path().to_owned(),
             backup_sha256: None,
             slot: Some(Slot::A),
@@ -649,13 +634,13 @@ mod edl_start_tests {
         let journal = dir.path().join("transaction.json");
         std::fs::write(
             &journal,
-            br#"{"version":1,"stage":"S4_DONE","recorded_at":"synthetic"}"#,
+            br#"{"version":1,"stage":"BOOT_WRITING","recorded_at":"synthetic"}"#,
         )
         .unwrap();
         let before = std::fs::read(store.path()).unwrap();
         let journal_before = std::fs::read(&journal).unwrap();
-        let old = pending(store.path()).unwrap().unwrap();
-        assert_eq!(old.action, ResumeAction::Recovery);
+        let interrupted = pending(store.path()).unwrap().unwrap();
+        assert_eq!(interrupted.action, ResumeAction::Recovery);
         assert_eq!(std::fs::read(store.path()).unwrap(), before);
         assert_eq!(std::fs::read(journal).unwrap(), journal_before);
     }

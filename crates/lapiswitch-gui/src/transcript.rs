@@ -213,7 +213,7 @@ impl Drop for Pump {
 mod tests {
     use super::*;
     #[test]
-    fn product_log_folder_preserves_legacy_logs_and_writes_new_transcripts() {
+    fn product_log_folder_writes_new_transcripts_without_touching_other_logs() {
         let root = tempfile::tempdir().unwrap();
         let old = root.path().join("tb520-region-tool");
         std::fs::create_dir_all(old.join("logs")).unwrap();

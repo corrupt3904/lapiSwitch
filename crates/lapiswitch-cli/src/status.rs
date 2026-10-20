@@ -16,8 +16,9 @@ fn state_store(args: &[String]) -> Result<StateStore, String> {
 }
 fn print_state(state: &RunState) {
     println!(
-        "작업 {}: {:?}\n백업: {}",
+        "작업 {}: {:?} ({:?})\n백업: {}",
         state.run_id,
+        state.recovery.phase,
         state.stage,
         state.backup_dir.display()
     );
@@ -39,11 +40,7 @@ pub(super) fn status(args: &[String]) -> Result<(), String> {
             match transaction {
                 Ok(stage) => {
                     println!("백업 작업 상태: {stage:?}");
-                    if state.recovery.is_none() {
-                        println!("{}", lapiswitch_core::state::LEGACY_CONVERSION_ENDED);
-                    } else {
-                        println!("다음 동작: {:?}", state.resume_action(Some(stage)));
-                    }
+                    println!("다음 동작: {:?}", state.resume_action(Some(stage)));
                 }
                 Err(error) => println!("백업 확인 필요: {error}"),
             }

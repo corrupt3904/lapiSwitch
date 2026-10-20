@@ -10,13 +10,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::backup::{self, TransactionStage, VerifiedBackup};
 use crate::country;
+use crate::deviceinfo::RollbackMode;
 use crate::firmware::FirmwareReport;
+use crate::recovery_flow::Progress;
 use crate::region::Region;
-
-pub const LEGACY_CONVERSION_ENDED: &str = "커스텀 BOOT 방식의 변환·이어하기 지원을 종료했습니다. 새 변환은 TWRP/DeviceInfo 방식을 사용하세요. 기존 백업의 원본 복구는 계속 사용할 수 있습니다.";
 use crate::rollback::RollbackIndices;
 use crate::slot::Slot;
 
+/// The only state format this version reads or writes.
+pub const STATE_VERSION: u8 = 3;
+
+/// Coarse step mirrored from the recovery `Phase` for status display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Stage {
@@ -24,9 +28,7 @@ pub enum Stage {
     S3,
     S4,
     S4Done,
-    S5Resetting,
     S5,
-    S5Done,
     S6,
     FinalReboot,
     Done,
@@ -36,36 +38,25 @@ pub enum Stage {
 pub enum ResumeAction {
     Restart,
     Recovery,
-    ResetUncertain,
-    ResetThenWait,
     Wait,
     Flash,
     Finalize,
 }
 
+/// Region conversion always erases user data; the firmware flash wipes it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FlashOptions {
-    pub wipe: bool,
     pub country: Option<String>,
-    #[serde(default)]
-    pub rollback_mode: crate::deviceinfo::RollbackMode,
+    pub rollback_mode: RollbackMode,
 }
 
 impl FlashOptions {
-    pub fn new(wipe: bool, country: Option<&str>) -> Result<Self, String> {
-        if !wipe {
-            return Err("리전 변환은 사용자 데이터 초기화가 필수입니다. 이전 데이터 유지 작업은 원본 복구 후 다시 시작해 주세요.".into());
-        }
-        let country = country.map(country::validate).transpose()?;
+    pub fn new(country: Option<&str>, rollback_mode: RollbackMode) -> Result<Self, String> {
         Ok(Self {
-            wipe,
-            country,
-            rollback_mode: crate::deviceinfo::RollbackMode::Keep,
+            country: country.map(country::validate).transpose()?,
+            rollback_mode,
         })
-    }
-    pub fn require_wipe(&self) -> Result<(), String> {
-        Self::new(self.wipe, self.country.as_deref()).map(|_| ())
     }
 }
 
@@ -152,10 +143,7 @@ pub fn seal_firmware(firmware: &FirmwareReport) -> Result<Vec<SealedFile>, Strin
 #[serde(deny_unknown_fields)]
 pub struct RunState {
     pub version: u8,
-    #[serde(default)]
-    pub gpt_policy: crate::gpt::GptPolicy,
-    #[serde(default)]
-    pub recovery: Option<crate::recovery_flow::Progress>,
+    pub recovery: Progress,
     pub run_id: String,
     pub stage: Stage,
     pub target_region: Region,
@@ -177,11 +165,9 @@ impl RunState {
         options: FlashOptions,
         backup_dir: &Path,
     ) -> Result<Self, String> {
-        options.require_wipe()?;
         Ok(Self {
-            version: 1,
-            gpt_policy: crate::gpt::CURRENT_POLICY,
-            recovery: None,
+            version: STATE_VERSION,
+            recovery: Progress::default(),
             run_id: format!(
                 "{}-{}",
                 chrono::Utc::now().format("%Y%m%dT%H%M%S%.9fZ"),
@@ -208,14 +194,11 @@ impl RunState {
     }
 
     pub fn bind_backup(&mut self, backup: &VerifiedBackup) -> Result<(), String> {
-        if self.recovery.is_some() != (backup.manifest().version >= 3)
-            || self.gpt_policy != crate::gpt::CURRENT_POLICY
-            || backup.manifest().gpt_policy != self.gpt_policy
-            || self.backup_dir
-                != backup
-                    .path()
-                    .canonicalize()
-                    .map_err(|error| error.to_string())?
+        if self.backup_dir
+            != backup
+                .path()
+                .canonicalize()
+                .map_err(|error| error.to_string())?
             || backup.manifest().target_region != self.target_region
             || backup.manifest().firmware_indices != self.indices
         {
@@ -232,11 +215,7 @@ impl RunState {
         backup: &VerifiedBackup,
         firmware: &FirmwareReport,
     ) -> Result<(), String> {
-        self.options.require_wipe()?;
-        if self.recovery.is_some() != (backup.manifest().version >= 3)
-            || self.gpt_policy != crate::gpt::CURRENT_POLICY
-            || backup.manifest().gpt_policy != self.gpt_policy
-            || self.target_region != firmware.region
+        if self.target_region != firmware.region
             || self.indices != firmware.indices
             || self.fingerprint != firmware.fingerprint
             || self.backup_dir
@@ -257,85 +236,7 @@ impl RunState {
     }
 
     pub fn resume_action(&self, transaction: Option<TransactionStage>) -> ResumeAction {
-        if self.recovery.is_some() {
-            return crate::recovery_flow::resume_action(self, transaction);
-        }
-        if matches!(
-            transaction,
-            Some(
-                TransactionStage::GptWriting
-                    | TransactionStage::BootWriting
-                    | TransactionStage::RecoveryRequired
-            )
-        ) {
-            return ResumeAction::Recovery;
-        }
-        if transaction == Some(TransactionStage::Restored) {
-            return ResumeAction::Restart;
-        }
-        // Earlier policies removed different entries, including fixed pvmfw_a
-        // on active slot b. Never resume under another policy. Final
-        // reboot handoff and already completed/pre-write runs remain usable.
-        if self.gpt_policy != crate::gpt::CURRENT_POLICY
-            && (matches!(
-                self.stage,
-                Stage::S4Done | Stage::S5Resetting | Stage::S5 | Stage::S5Done | Stage::S6
-            ) || (self.stage == Stage::S4
-                && transaction != Some(TransactionStage::BackupVerified))
-                || (matches!(self.stage, Stage::S1 | Stage::S3)
-                    && transaction == Some(TransactionStage::S4Done)))
-        {
-            return ResumeAction::Recovery;
-        }
-        if matches!(self.stage, Stage::S1 | Stage::S3)
-            && transaction == Some(TransactionStage::S4Done)
-        {
-            return ResumeAction::Recovery;
-        }
-        if matches!(
-            self.stage,
-            Stage::S4Done
-                | Stage::S5Resetting
-                | Stage::S5
-                | Stage::S5Done
-                | Stage::S6
-                | Stage::FinalReboot
-        ) && transaction != Some(TransactionStage::S4Done)
-        {
-            return ResumeAction::Recovery;
-        }
-        let action = match self.stage {
-            Stage::S1 | Stage::S3 | Stage::Done => ResumeAction::Restart,
-            Stage::S4 if transaction == Some(TransactionStage::S4Done) => {
-                ResumeAction::ResetThenWait
-            }
-            // GptWriting is journaled (synced) before the first write, so a
-            // backup still at BackupVerified proves S4 never wrote anything.
-            Stage::S4 if transaction == Some(TransactionStage::BackupVerified) => {
-                ResumeAction::Restart
-            }
-            Stage::S4 => ResumeAction::Recovery,
-            Stage::S4Done => ResumeAction::ResetThenWait,
-            Stage::S5Resetting => ResumeAction::ResetUncertain,
-            Stage::S5 => ResumeAction::Wait,
-            Stage::S5Done | Stage::S6 => ResumeAction::Flash,
-            Stage::FinalReboot => ResumeAction::Finalize,
-        };
-        // Read legacy keep-data states for status/recovery, never silently
-        // change consent or resume a conversion under different erase rules.
-        if !self.options.wipe
-            && matches!(
-                action,
-                ResumeAction::ResetThenWait
-                    | ResumeAction::ResetUncertain
-                    | ResumeAction::Wait
-                    | ResumeAction::Flash
-            )
-        {
-            ResumeAction::Recovery
-        } else {
-            action
-        }
+        crate::recovery_flow::resume_action(self, transaction)
     }
 }
 
@@ -395,16 +296,8 @@ impl StateStore {
             return Err("잘못된 상태 파일".into());
         }
         let state: RunState = backup::read_json(&self.path)?;
-        if !matches!(
-            (state.version, state.recovery.is_some()),
-            (1, false) | (2, true)
-        ) {
+        if state.version != STATE_VERSION {
             return Err("지원하지 않는 상태 파일 버전".into());
-        }
-        // Older keep-data records remain readable so recovery cannot lose its
-        // binding to an interrupted run. Execution rejects them separately.
-        if !state.options.wipe && state.options.country.is_some() {
-            return Err("이전 데이터 유지 작업에 잘못된 국가 코드 설정이 있습니다.".into());
         }
         if let Some(code) = state.options.country.as_deref() {
             country::validate(code)?;
@@ -504,7 +397,6 @@ impl StateStore {
     }
 
     pub fn begin(&self, state: &RunState) -> Result<(), String> {
-        state.options.require_wipe()?;
         if let Some(previous) = self.load()? {
             let transaction = backup::transaction_stage_in(&previous.backup_dir)?;
             let restartable = previous.resume_action(transaction) == ResumeAction::Restart;

@@ -291,12 +291,11 @@ impl App {
     }
     fn options(&self) -> Option<FlashOptions> {
         self.country.as_ref()?;
-        FlashOptions::new(true, self.country.as_deref().filter(|v| *v != "—"))
-            .map(|mut options| {
-                options.rollback_mode = self.rollback_mode;
-                options
-            })
-            .ok()
+        FlashOptions::new(
+            self.country.as_deref().filter(|v| *v != "—"),
+            self.rollback_mode,
+        )
+        .ok()
     }
     fn drivers_ready(&self) -> bool {
         !self.driver_checking
@@ -426,15 +425,10 @@ impl App {
             && self.startup_error.is_none()
             && self.agreed
             && self.pending.as_ref().is_some_and(|p| {
-                p.state.recovery.is_some()
-                    && (p.state.options.wipe || p.action == ResumeAction::Finalize)
-                    && matches!(
-                        p.action,
-                        ResumeAction::ResetThenWait
-                            | ResumeAction::Wait
-                            | ResumeAction::Flash
-                            | ResumeAction::Finalize
-                    )
+                matches!(
+                    p.action,
+                    ResumeAction::Wait | ResumeAction::Flash | ResumeAction::Finalize
+                )
             })
     }
     fn refresh_pending(&mut self) {
@@ -1265,13 +1259,6 @@ impl App {
                 self.device.snapshot.name = "Unsupported tablet".into();
                 self.agreed = true;
             }
-            "legacy-resume" => {
-                self.page = Page::Resume;
-                self.pending = Some(Pending {
-                    state: demo_saved_state(Stage::S5),
-                    action: ResumeAction::Recovery,
-                });
-            }
             "resume" | "confirm-pending" | "archive-run" => {
                 self.page = if screen == "resume" {
                     Page::Resume
@@ -1279,12 +1266,7 @@ impl App {
                     Page::Confirm
                 };
                 self.agreed = screen != "resume";
-                let mut state = demo_saved_state(Stage::S5);
-                state.version = 2;
-                state.recovery = Some(lapiswitch_core::recovery_flow::Progress {
-                    phase: lapiswitch_core::recovery_flow::Phase::RecoveryWaiting,
-                    attempt: None,
-                });
+                let state = demo_saved_state(Stage::S5);
                 if screen == "archive-run" {
                     self.archive_confirmation = Some(state.clone());
                 }
@@ -1499,9 +1481,11 @@ impl App {
 fn demo_saved_state(stage: Stage) -> lapiswitch_core::state::RunState {
     let fw = demo_report(Region::Row);
     lapiswitch_core::state::RunState {
-        version: 1,
-        recovery: None,
-        gpt_policy: lapiswitch_core::gpt::CURRENT_POLICY,
+        version: lapiswitch_core::state::STATE_VERSION,
+        recovery: lapiswitch_core::recovery_flow::Progress {
+            phase: lapiswitch_core::recovery_flow::Phase::RecoveryWaiting,
+            attempt: None,
+        },
         run_id: "demo".into(),
         stage,
         target_region: Region::Row,
@@ -1509,7 +1493,8 @@ fn demo_saved_state(stage: Stage) -> lapiswitch_core::state::RunState {
         fingerprint: fw.fingerprint,
         indices: fw.indices,
         files: vec![],
-        options: FlashOptions::new(true, Some("KR")).unwrap(),
+        options: FlashOptions::new(Some("KR"), lapiswitch_core::deviceinfo::RollbackMode::Reset)
+            .unwrap(),
         backup_dir: "Demo/backup".into(),
         backup_sha256: None,
         slot: None,
@@ -1915,12 +1900,10 @@ mod tests {
         let _ = app.update(Message::CountryOpen);
         let _ = app.update(Message::Country("—".into()));
         let _ = app.update(Message::CountryApply);
-        assert!(app.options().unwrap().wipe);
         assert!(app.options().unwrap().country.is_none());
         let _ = app.update(Message::CountryOpen);
         let _ = app.update(Message::Country("KR".into()));
         let _ = app.update(Message::CountryApply);
-        assert!(app.options().unwrap().wipe);
         assert_eq!(app.options().unwrap().country.as_deref(), Some("KR"));
     }
     #[test]
@@ -1962,7 +1945,7 @@ mod tests {
         }
         assert_eq!(app.page, Page::Progress);
         assert_eq!(app.region, Some(Region::Row));
-        assert!(app.options().unwrap().wipe);
+        assert!(app.options().is_some());
     }
     #[test]
     fn region_has_no_default_and_must_be_chosen_first() {
@@ -1991,26 +1974,17 @@ mod tests {
         let mut app = App::base(true);
         app.agreed = true;
         assert!(!app.can_resume());
-        for action in [
-            ResumeAction::Recovery,
-            ResumeAction::ResetUncertain,
-            ResumeAction::Restart,
-        ] {
-            let mut state = saved(Stage::S5);
-            state.version = 2;
-            state.recovery = Some(Default::default());
+        for action in [ResumeAction::Recovery, ResumeAction::Restart] {
+            let state = saved(Stage::S5);
             app.pending = Some(Pending { state, action });
             assert!(!app.can_resume());
         }
         for action in [
             ResumeAction::Wait,
-            ResumeAction::ResetThenWait,
             ResumeAction::Flash,
             ResumeAction::Finalize,
         ] {
-            let mut state = saved(Stage::S5);
-            state.version = 2;
-            state.recovery = Some(Default::default());
+            let state = saved(Stage::S5);
             app.pending = Some(Pending { state, action });
             assert!(app.can_resume());
         }
@@ -2089,7 +2063,7 @@ mod tests {
         assert_eq!(app.logs.front().unwrap(), "600");
     }
     #[test]
-    fn new_conversion_defaults_to_reset_and_legacy_missing_option_keeps() {
+    fn new_conversion_defaults_to_reset_and_options_always_record_the_mode() {
         let mut app = App::base(true);
         app.country = Some("KR".into());
         assert_eq!(
@@ -2111,10 +2085,13 @@ mod tests {
             app.options().unwrap().rollback_mode,
             lapiswitch_core::deviceinfo::RollbackMode::Keep
         );
-        let old: FlashOptions = serde_json::from_str(r#"{"wipe":true,"country":null}"#).unwrap();
-        assert_eq!(
-            old.rollback_mode,
-            lapiswitch_core::deviceinfo::RollbackMode::Keep
+        // Saved options without an explicit mode are not guessed.
+        assert!(serde_json::from_str::<FlashOptions>(r#"{"country":null}"#).is_err());
+        assert!(
+            serde_json::from_str::<FlashOptions>(
+                r#"{"wipe":true,"country":null,"rollback_mode":"KEEP"}"#
+            )
+            .is_err()
         );
     }
     #[test]
@@ -2163,7 +2140,7 @@ mod tests {
         assert_eq!(rx.try_recv(), Ok(()));
     }
     #[test]
-    fn new_progress_survives_legacy_state_polling_and_confirmation_waits() {
+    fn new_progress_survives_state_polling_and_confirmation_waits() {
         use lapiswitch_core::recovery_flow::{Phase, Transition};
         let mut app = App::base(true);
         app.reset_progress(RunKind::Convert);
@@ -2188,29 +2165,10 @@ mod tests {
         assert_eq!(app.progress.percent(), 100.0);
     }
     #[test]
-    fn custom_boot_records_never_enable_resume_even_if_old_actions_say_wait_or_flash() {
-        let mut app = App::base(true);
-        app.agreed = true;
-        for action in [
-            ResumeAction::ResetThenWait,
-            ResumeAction::Wait,
-            ResumeAction::Flash,
-            ResumeAction::Finalize,
-        ] {
-            app.pending = Some(Pending {
-                state: saved(Stage::S5),
-                action,
-            });
-            assert!(!app.can_resume());
-        }
-    }
-    #[test]
     fn resume_chooses_twrp_and_preserves_wait_progress() {
-        use lapiswitch_core::recovery_flow::{Phase, Progress};
+        use lapiswitch_core::recovery_flow::Phase;
         let mut app = App::base(true);
-        let mut state = demo_saved_state(Stage::S5);
-        state.version = 2;
-        state.recovery = Some(Progress::default());
+        let state = demo_saved_state(Stage::S5);
         app.pending = Some(Pending {
             state,
             action: ResumeAction::Wait,

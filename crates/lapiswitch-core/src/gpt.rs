@@ -7,18 +7,6 @@
 
 use crate::slot::Slot;
 
-/// Missing fields in pre-policy manifests/states identify the old algorithm.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum GptPolicy {
-    #[default]
-    LegacyActiveSlot,
-    FixedVbmetaA,
-    FixedVbmetaAPvmfwA,
-    FixedVbmetaAActivePvmfw,
-}
-pub const CURRENT_POLICY: GptPolicy = GptPolicy::FixedVbmetaAActivePvmfw;
-
 /// UFS logical sector size on the TB520FU.
 pub const SECTOR_SIZE: usize = 4096;
 /// The GPT header sits in LBA 1.

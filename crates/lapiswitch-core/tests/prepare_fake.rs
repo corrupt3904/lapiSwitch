@@ -179,7 +179,6 @@ fn adb_flow_saves_the_identity_then_reboots_straight_to_edl() {
     .unwrap();
     assert_eq!(prepared.report.started_in, Connection::Adb);
     assert_eq!(prepared.report.slot, Slot::B);
-    assert!(!prepared.report.slot_estimated);
     assert_eq!(prepared.session, 42);
     assert_eq!(prepared.report.identity.as_deref(), Some(saved.as_str()));
     assert_eq!(saved, prepare::identity_record(Slot::B, "FAKE0001"));
@@ -399,7 +398,6 @@ fn edl_start_reuses_the_session_without_an_identity_record() {
     let prepared = device.run().unwrap();
     assert_eq!(prepared.report.started_in, Connection::Edl);
     assert_eq!(prepared.report.slot, Slot::B);
-    assert!(!prepared.report.slot_estimated);
     assert!(prepared.report.device_key.is_some());
     assert!(prepared.report.identity.is_none());
     assert_eq!(

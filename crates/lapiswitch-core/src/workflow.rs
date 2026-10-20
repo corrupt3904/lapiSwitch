@@ -7,10 +7,10 @@ use sha2::{Digest, Sha256};
 
 use crate::backup::{self, VerifiedBackup};
 use crate::country;
-use crate::firmware::{FirmwareReport, MODEL};
+use crate::firmware::FirmwareReport;
 use crate::gpt::{PrimaryGpt, SECTOR_SIZE};
 use crate::stage1::StageIo;
-use crate::state::{RunState, Stage, StateStore};
+use crate::state::RunState;
 use crate::storage::{self, Partition};
 
 pub mod native;
@@ -99,52 +99,26 @@ fn original_gpt(backup: &VerifiedBackup) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn confirm_model<D: StageIo>(device: &mut D, log: &mut Vec<String>) -> Result<(), String> {
-    let a = device.read_avb("vbmeta_system_a", log)?;
-    let b = device.read_avb("vbmeta_system_b", log)?;
-    if [a, b]
-        .into_iter()
-        .flatten()
-        .filter_map(|avb| avb.build_fingerprint())
-        .any(|fp| ltbox_core::model::fingerprint_model_match(&fp, MODEL))
-    {
-        Ok(())
-    } else {
-        Err("S6 기기가 TB520FU로 확인되지 않았습니다.".into())
-    }
-}
-
+/// The persist fingerprint bound right after the verified original restore
+/// identifies the device for every later firmware/GPT/country write.
 pub(crate) fn confirm_identity<D: StageIo>(
     device: &mut D,
     backup: &VerifiedBackup,
-    state: &mut RunState,
-    store: &StateStore,
+    state: &RunState,
     work: &Path,
     log: &mut Vec<String>,
 ) -> Result<(), String> {
+    let expected = state.persist_fingerprint.as_ref().ok_or(
+        "기기 식별 기록(persist 지문)이 없어 펌웨어를 설치하지 않았습니다. 원본 복구를 진행하세요.",
+    )?;
     let persist = storage::find_partition(&backup.manifest().snapshot, "persist", 0)?;
     let bytes = dump_bytes(device, persist, &work.join("identity_persist.img"), log)?;
-    let identity = country::persist_fingerprint(&bytes);
-    if let Some(expected) = &state.persist_fingerprint {
-        // A failed S6 may leave vbmeta_system unparseable. A previously bound
-        // persist fingerprint still identifies the same physical device.
-        if expected != &identity {
-            return Err(
-                "저장된 작업과 기기의 persist 지문이 다릅니다. 올바른 기기를 연결하세요.".into(),
-            );
-        }
-    } else {
-        if state.stage == Stage::S6 {
-            return Err("S6 기기 식별 기록이 누락되었습니다.".into());
-        }
-        confirm_model(device, log)?;
-        let (live, _) = read_primary(device, 4, work, "identity", log)?;
-        let original = original_gpt(backup)?;
-        if storage::disk_guid(&live)? != storage::disk_guid(&original)? {
-            return Err("S5 기기와 백업의 disk GUID가 다릅니다.".into());
-        }
-        state.persist_fingerprint = Some(identity);
-        store.save(state)?;
+    // A failed S6 may leave vbmeta_system unparseable. The bound persist
+    // fingerprint still identifies the same physical device.
+    if expected != &country::persist_fingerprint(&bytes) {
+        return Err(
+            "저장된 작업과 기기의 persist 지문이 다릅니다. 올바른 기기를 연결하세요.".into(),
+        );
     }
     Ok(())
 }

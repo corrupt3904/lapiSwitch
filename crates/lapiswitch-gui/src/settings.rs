@@ -149,20 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_backup_root_becomes_the_shared_root_and_saves_only_the_new_key() {
-        let p: Preferences =
-            serde_json::from_str(r#"{"backup_root":"legacy-custom","kernel":false}"#).unwrap();
-        assert_eq!(
-            p.storage_root(Path::new("ignored")),
-            PathBuf::from("legacy-custom")
-        );
-        assert!(!p.kernel);
-        let json = serde_json::to_value(&p).unwrap();
-        assert_eq!(json["storage_root"], "legacy-custom");
-        assert!(json.get("backup_root").is_none());
-    }
-    #[test]
-    fn old_preferences_get_the_new_default_storage_root_and_custom_paths_roundtrip() {
+    fn preferences_without_a_storage_root_use_the_default_and_custom_paths_roundtrip() {
         let preferences: Preferences =
             serde_json::from_str(r#"{"kernel":false,"mask_serial":false}"#).unwrap();
         let dir = tempfile::tempdir().unwrap();
@@ -254,7 +241,6 @@ pub struct Preferences {
     pub language: Language,
     pub mask_serial: bool,
     pub kernel: bool,
-    #[serde(alias = "backup_root")]
     pub storage_root: Option<PathBuf>,
 }
 impl Default for Preferences {

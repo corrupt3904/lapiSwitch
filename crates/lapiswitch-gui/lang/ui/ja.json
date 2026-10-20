@@ -75,7 +75,6 @@
   "Could not stop ADB server": "ADB サーバーを停止できませんでした",
   "Country code": "国コード",
   "Country code unchanged": "国コードは変更しません",
-  "Custom BOOT conversion and resume have been retired. Restore the original backup or archive the old run and start a new TWRP conversion.": "カスタム BOOT 方式の変換と再開のサポートは終了しました。既存のバックアップから復元するか、前回の作業を保管して新しい TWRP 変換を行ってください。",
   "Dashboard": "Dashboard",
   "Default: Userspace / WinUSB": "既定：Userspace / WinUSB",
   "Device / slot": "デバイス・スロット確認",

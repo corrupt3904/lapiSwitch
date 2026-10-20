@@ -16,12 +16,11 @@ pub const fn keymaster_path(slot: crate::slot::Slot) -> &'static str {
     }
 }
 
-/// Missing in old states means KEEP. Only new GUI conversions default to RESET.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Recorded explicitly in every run. New GUI conversions default to RESET.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RollbackMode {
     Reset,
-    #[default]
     Keep,
 }
 

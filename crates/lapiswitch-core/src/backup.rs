@@ -21,9 +21,12 @@ pub const MANIFEST_NAME: &str = "manifest.json";
 /// ADB model/serial/slot record of an Android start, kept beside the manifest.
 pub const IDENTITY_NAME: &str = "adb_identity.txt";
 pub const PARTITION_DIR: &str = "Partition";
+/// The only backup format this version writes, verifies or restores.
+pub const MANIFEST_VERSION: u8 = 7;
+pub const MANIFEST_OPERATION: &str = "recovery_deviceinfo_v5";
 
 /// Keep image dumps and scratch files inside the backup, never through a
-/// substituted directory link. Existing v1 payloads remain in the root.
+/// substituted directory link.
 pub(crate) fn partition_directory(dir: &Path) -> Result<PathBuf, String> {
     let path = dir.join(PARTITION_DIR);
     match std::fs::create_dir(&path) {
@@ -70,11 +73,8 @@ pub struct BackupManifest {
     pub fingerprint: String,
     pub recorded_at: String,
     pub slot: Slot,
-    #[serde(default)]
-    pub gpt_policy: crate::gpt::GptPolicy,
     pub target_region: Region,
     pub started_in_edl: bool,
-    pub slot_estimated: bool,
     pub device_key: String,
     pub firmware_indices: RollbackIndices,
     pub tool_version: String,
@@ -222,7 +222,6 @@ pub fn hash_file(path: &Path, limit: Option<u64>) -> Result<(u64, String), Strin
 pub struct BackupBuilder {
     dir: PathBuf,
     files: Vec<BackupFile>,
-    recovery: bool,
 }
 
 impl BackupBuilder {
@@ -240,25 +239,13 @@ impl BackupBuilder {
             match std::fs::create_dir(&dir) {
                 Ok(()) => {
                     partition_directory(&dir)?;
-                    return Ok(Self {
-                        dir,
-                        files: vec![],
-                        recovery: false,
-                    });
+                    return Ok(Self { dir, files: vec![] });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => return Err(error.to_string()),
             }
         }
         Err("백업 폴더 이름을 만들 수 없습니다.".into())
-    }
-
-    pub fn for_recovery(mut self) -> Self {
-        self.recovery = true;
-        self
-    }
-    pub(crate) fn is_recovery(&self) -> bool {
-        self.recovery
     }
 
     pub fn path(&self) -> &Path {
@@ -334,21 +321,14 @@ impl BackupBuilder {
         proinfo_absent: bool,
     ) -> Result<VerifiedBackup, String> {
         let manifest = BackupManifest {
-            version: if self.recovery { 5 } else { 2 },
-            operation: if self.recovery {
-                "recovery_deviceinfo_v3"
-            } else {
-                "region_change"
-            }
-            .into(),
+            version: MANIFEST_VERSION,
+            operation: MANIFEST_OPERATION.into(),
             model: MODEL.into(),
             fingerprint,
             recorded_at: chrono::Local::now().to_rfc3339(),
             slot: prepared.slot,
-            gpt_policy: crate::gpt::CURRENT_POLICY,
             target_region: firmware.region,
             started_in_edl: prepared.started_in == Connection::Edl,
-            slot_estimated: prepared.slot_estimated,
             device_key,
             firmware_indices: firmware.indices,
             tool_version: env!("CARGO_PKG_VERSION").into(),
@@ -374,16 +354,6 @@ pub struct VerifiedBackup {
 }
 
 impl VerifiedBackup {
-    /// The current GUI only restores backups that contain the original
-    /// active-slot Recovery. Never substitute an old boot dump for Recovery.
-    pub fn open_recovery(dir: &Path) -> Result<Self, String> {
-        let backup = Self::open(dir)?;
-        if !matches!(backup.manifest.version, 3..=5) {
-            return Err("이전 boot 방식 백업에는 원본 Recovery가 없습니다. GPT·Recovery 복구에는 DeviceInfo 방식의 백업을 선택하세요.".into());
-        }
-        Ok(backup)
-    }
-
     pub fn open(dir: &Path) -> Result<Self, String> {
         let path = dir.join(MANIFEST_NAME);
         let metadata = std::fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
@@ -406,15 +376,14 @@ impl VerifiedBackup {
         &self.manifest
     }
 
-    /// Resolve only a recorded basename. v1 keeps payloads in the root; v2
-    /// stores all .img/.bin originals in Partition. Never guess or fall back
-    /// between layouts when a recorded file is missing or damaged.
+    /// Resolve only a recorded basename: the identity record sits beside the
+    /// manifest and every .img/.bin original in Partition. Never guess.
     pub fn file_path(&self, name: &str) -> Result<PathBuf, String> {
         self.entry(name)?;
-        Ok(if self.manifest.version >= 2 && name != IDENTITY_NAME {
-            self.dir.join(PARTITION_DIR).join(name)
-        } else {
+        Ok(if name == IDENTITY_NAME {
             self.dir.join(name)
+        } else {
+            self.dir.join(PARTITION_DIR).join(name)
         })
     }
 
@@ -424,40 +393,29 @@ impl VerifiedBackup {
 
     pub fn verify(&self) -> Result<(), String> {
         let manifest = &self.manifest;
-        if !matches!(
-            (manifest.version, manifest.operation.as_str()),
-            (1 | 2, "region_change")
-                | (3, "recovery_deviceinfo_v1")
-                | (4, "recovery_deviceinfo_v2")
-                | (5, "recovery_deviceinfo_v3")
-        ) || manifest.model != MODEL
+        if manifest.version != MANIFEST_VERSION
+            || manifest.operation != MANIFEST_OPERATION
+            || manifest.model != MODEL
         {
-            return Err("지원하지 않는 백업 형식 또는 모델입니다.".into());
+            return Err(
+                "지원하지 않는 백업 형식 또는 모델입니다. 이 버전에서 만든 백업만 사용할 수 있습니다."
+                    .into(),
+            );
         }
-        if manifest.version >= 2 {
-            check_partition_directory(&self.dir.join(PARTITION_DIR))?;
-        }
+        check_partition_directory(&self.dir.join(PARTITION_DIR))?;
         if manifest.absent_partitions != Vec::<String>::new()
             && manifest.absent_partitions != ["proinfo"]
         {
             return Err("허용하지 않는 누락 파티션 기록입니다.".into());
         }
-        let boot_name = format!("boot{}.img", manifest.slot.suffix());
         let mut required = HashSet::from([
             "gpt_main4.bin".to_owned(),
             "devinfo.img".into(),
             "persist.img".into(),
+            format!("recovery{}.img", manifest.slot.suffix()),
+            "misc.img".into(),
+            format!("vendor_boot{}.img", manifest.slot.suffix()),
         ]);
-        if manifest.version < 5 {
-            required.insert(boot_name);
-        }
-        if manifest.version >= 3 {
-            required.insert(format!("recovery{}.img", manifest.slot.suffix()));
-            required.insert("misc.img".into());
-        }
-        if manifest.version >= 4 {
-            required.insert(format!("vendor_boot{}.img", manifest.slot.suffix()));
-        }
         if manifest.absent_partitions.is_empty() {
             required.insert("proinfo.img".into());
         }
@@ -503,21 +461,16 @@ impl VerifiedBackup {
         if self.entry("gpt_main4.bin")?.partition.as_ref() != Some(&geometry) {
             return Err("GPT 백업 좌표 불일치".into());
         }
-        // Old backups remain usable for original restoration. Only current
-        // backups require the current removal target; old ones are never
-        // accepted by S4 preflight for a new region write.
-        if manifest.gpt_policy == crate::gpt::CURRENT_POLICY {
-            gpt.remove_region_vbmeta(manifest.slot)
-                .map_err(|error| error.to_string())?;
-        }
+        // The staged table must be derivable from this original.
+        gpt.remove_region_vbmeta(manifest.slot)
+            .map_err(|error| error.to_string())?;
         for (name, lun) in [
-            (format!("boot{}", manifest.slot.suffix()), 4),
-            ("devinfo".into(), 4),
+            ("devinfo".to_owned(), 4),
             ("persist".into(), 0),
+            (format!("recovery{}", manifest.slot.suffix()), 4),
+            ("misc".into(), 0),
+            (format!("vendor_boot{}", manifest.slot.suffix()), 4),
         ] {
-            if manifest.version >= 5 && name.starts_with("boot_") {
-                continue;
-            }
             let part = storage::find_partition(&manifest.snapshot, &name, lun)?;
             if self.entry(&format!("{name}.img"))?.partition.as_ref() != Some(part) {
                 return Err(format!("백업 스냅샷 불일치: {name}"));
@@ -525,28 +478,6 @@ impl VerifiedBackup {
             if lun == 4 {
                 storage::match_gpt_partition(&gpt, part)?;
             }
-        }
-        if manifest.version >= 3 {
-            for (name, lun) in [
-                (format!("recovery{}", manifest.slot.suffix()), 4),
-                ("misc".into(), 0),
-            ] {
-                let part = storage::find_partition(&manifest.snapshot, &name, lun)?;
-                if self.entry(&format!("{name}.img"))?.partition.as_ref() != Some(part) {
-                    return Err("Recovery/misc 백업 좌표 불일치".into());
-                }
-                if lun == 4 {
-                    storage::match_gpt_partition(&gpt, part)?;
-                }
-            }
-        }
-        if manifest.version >= 4 {
-            let name = format!("vendor_boot{}", manifest.slot.suffix());
-            let part = storage::find_partition(&manifest.snapshot, &name, 4)?;
-            if self.entry(&format!("{name}.img"))?.partition.as_ref() != Some(part) {
-                return Err("vendor_boot 백업 좌표 불일치".into());
-            }
-            storage::match_gpt_partition(&gpt, part)?;
         }
         if manifest.absent_partitions.is_empty() {
             let part = storage::find_partition(&manifest.snapshot, "proinfo", 0)?;
@@ -580,41 +511,6 @@ impl VerifiedBackup {
 
     pub fn transaction_stage(&self) -> Result<TransactionStage, String> {
         transaction_stage_in(&self.dir)?.ok_or_else(|| "작업 기록 파일이 없습니다.".into())
-    }
-
-    /// Freeze verified recovery sources before the first device write. Later
-    /// backup edits/removal cannot replace the originals used in this session.
-    pub(crate) fn freeze(&self) -> Result<RecoverySources, String> {
-        self.verify()?;
-        let work = tempfile::Builder::new()
-            .prefix("stage1-")
-            .tempdir_in(self.work_dir()?)
-            .map_err(|error| error.to_string())?;
-        let boot_name = format!("boot{}.img", self.manifest.slot.suffix());
-        for name in ["gpt_main4.bin", boot_name.as_str()] {
-            let target = work.path().join(name);
-            std::fs::copy(self.file_path(name)?, &target).map_err(|error| error.to_string())?;
-            let (size, hash) = hash_file(&target, None)?;
-            let entry = self.entry(name)?;
-            if size != entry.size_bytes || hash != entry.sha256 {
-                return Err(format!("복구 원본 복사 검증 실패: {name}"));
-            }
-        }
-        Ok(RecoverySources { work, boot_name })
-    }
-}
-
-pub(crate) struct RecoverySources {
-    pub work: tempfile::TempDir,
-    boot_name: String,
-}
-
-impl RecoverySources {
-    pub fn gpt(&self) -> PathBuf {
-        self.work.path().join("gpt_main4.bin")
-    }
-    pub fn boot(&self) -> PathBuf {
-        self.work.path().join(&self.boot_name)
     }
 }
 
