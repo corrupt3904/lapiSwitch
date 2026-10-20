@@ -140,8 +140,8 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
     let privacy = section(
         app.t("개인정보 보호", "Privacy"),
         app.t(
-            "시리얼 필드와 ADB 목록을 가립니다. 복구에 필요한 백업·getvar 원본은 변경하지 않으며, 기존 로그에는 소급 적용되지 않습니다.",
-            "Masks serial fields and ADB lists. Recovery backups and original getvar stay intact. Existing transcripts are unchanged.",
+            "시리얼 필드와 ADB 목록을 가립니다. 복구에 필요한 백업·기기 확인 기록 원본은 변경하지 않으며, 기존 로그에는 소급 적용되지 않습니다.",
+            "Masks serial fields and ADB lists. Recovery backups and the original device identity record stay intact. Existing transcripts are unchanged.",
         ),
         None,
         vec![

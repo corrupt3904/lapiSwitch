@@ -130,7 +130,7 @@
   "Logs and backup location": "日志与备份位置",
   "Logs go to logs and new backups to backup/region_change under this location. Existing files are not moved.": "日志保存在所选位置下的 logs 文件夹，新的备份保存在 backup/region_change 文件夹。现有文件不会被移动。",
   "Mask serial numbers in app logs": "在应用日志中隐藏序列号",
-  "Masks serial fields and ADB lists. Recovery backups and original getvar stay intact. Existing transcripts are unchanged.": "隐藏序列号字段和 ADB 设备列表。还原所需的备份和 getvar 原始数据不会更改，已有日志也不会被追溯修改。",
+  "Masks serial fields and ADB lists. Recovery backups and the original device identity record stay intact. Existing transcripts are unchanged.": "隐藏序列号字段和 ADB 设备列表。还原所需的备份和 设备识别记录原件不会更改，已有日志也不会被追溯修改。",
   "Missing drivers": "需要安装驱动",
   "Model / region": "型号 / 区域",
   "No additional driver is required on this platform.": "此操作系统无需额外驱动。",
@@ -233,5 +233,6 @@
   "View licenses": "查看许可证",
   "Wait for the current operation to finish.": "请等待当前操作完成。",
   "Weighted by expected work; firmware installation follows actual total transfer.": "按各阶段所需时间加权，固件安装部分按实际传输总量计算。",
-  "macOS uses Userspace USB mode.": "macOS 使用 Userspace USB 模式。"
+  "macOS uses Userspace USB mode.": "macOS 使用 Userspace USB 模式。",
+  "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.": "无法从 Fastboot 开始。请将平板启动到 Android，允许 USB 调试后通过 ADB 连接。"
 }

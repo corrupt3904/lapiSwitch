@@ -14,10 +14,10 @@ fn legacy_backup_layout_and_original_restore_remain_supported() {
     let mut device = Fake::new(600, true);
     let backup = device.backup(out.path(), Slot::B);
     assert_eq!(backup.manifest().version, 2);
-    assert!(backup.path().join("getvar.txt").is_file());
+    assert!(backup.path().join(backup::IDENTITY_NAME).is_file());
     for file in &backup.manifest().files {
         let path = backup.file_path(&file.filename).unwrap();
-        if file.filename != "getvar.txt" {
+        if file.filename != backup::IDENTITY_NAME {
             assert_eq!(path.parent().unwrap(), backup.path().join("Partition"));
             assert!(!backup.path().join(&file.filename).exists());
         }
@@ -43,7 +43,7 @@ fn legacy_root_backups_restore_and_neither_layout_falls_back_to_other_files() {
         let manifest_path = backup.path().join("manifest.json");
         let mut manifest = serde_json::to_value(backup.manifest()).unwrap();
         for file in &backup.manifest().files {
-            if file.filename != "getvar.txt" {
+            if file.filename != backup::IDENTITY_NAME {
                 std::fs::rename(
                     backup.file_path(&file.filename).unwrap(),
                     backup.path().join(&file.filename),
@@ -188,16 +188,16 @@ fn manifest_path_traversal_duplicate_and_coordinate_tampering_are_rejected() {
 }
 
 #[test]
-fn backup_folders_are_unique_and_getvar_cannot_be_overwritten() {
+fn backup_folders_are_unique_and_the_adb_identity_cannot_be_overwritten() {
     let out = tempfile::tempdir().unwrap();
     let a = BackupBuilder::create(out.path()).unwrap();
     let b = BackupBuilder::create(out.path()).unwrap();
     assert_ne!(a.path(), b.path());
-    a.save_getvar("first").unwrap();
-    a.save_getvar("first").unwrap();
-    assert!(a.save_getvar("different").is_err());
+    a.save_identity("first").unwrap();
+    a.save_identity("first").unwrap();
+    assert!(a.save_identity("different").is_err());
     assert_eq!(
-        std::fs::read(a.path().join("getvar.txt")).unwrap(),
+        std::fs::read(a.path().join(backup::IDENTITY_NAME)).unwrap(),
         b"first"
     );
 }

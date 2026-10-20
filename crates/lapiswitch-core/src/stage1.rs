@@ -8,7 +8,7 @@ use ltbox_core::live;
 use crate::avb_info::AvbSummary;
 use crate::backup::{self, BackupBuilder, RecoverySources, TransactionStage, VerifiedBackup};
 use crate::firmware::{FirmwareReport, MODEL};
-use crate::prepare::{Connection, PrepareReport};
+use crate::prepare::PrepareReport;
 use crate::slot::Slot;
 use crate::storage::{self, Partition};
 
@@ -114,8 +114,8 @@ fn dump<D: StageIo>(
     Ok(())
 }
 
-/// Caller can save getvar in the builder directory before S1 rejects a
-/// downgrade; this function adds the mandatory original partitions to it.
+/// Caller saves the ADB identity in the builder directory before S2; this
+/// function adds the mandatory original partitions to it.
 pub fn take_backup<D: StageIo>(
     device: &mut D,
     prepared: &PrepareReport,
@@ -203,7 +203,8 @@ pub fn take_backup_with_confirmation<D: StageIo>(
     for part in snapshot.iter().filter(|part| part.lun == 4) {
         storage::match_gpt_partition(&gpt, part)?;
     }
-    if prepared.started_in == Connection::Edl && gpt.active_slot()? != prepared.slot {
+    // Same rule as S1: set flags must agree; blank flags keep the ADB slot.
+    if gpt.active_slot(Some(prepared.slot))? != prepared.slot {
         return Err("백업 시 GPT 활성 슬롯이 준비 단계와 달라졌습니다.".into());
     }
     gpt.remove_region_vbmeta(prepared.slot)
@@ -230,9 +231,9 @@ pub fn take_backup_with_confirmation<D: StageIo>(
         dump(device, &part, &builder.partition_dir().join(&filename), log)?;
         builder.record(&filename, Some(part))?;
     }
-    if let Some(raw) = &prepared.getvar_all {
-        builder.save_getvar(raw)?;
-        builder.record("getvar.txt", None)?;
+    if let Some(raw) = &prepared.identity {
+        builder.save_identity(raw)?;
+        builder.record(backup::IDENTITY_NAME, None)?;
     }
     let backup = builder.finish(
         prepared,

@@ -62,6 +62,7 @@ pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
         Mode::Unauthorized => app.t("태블릿에서 USB 디버깅 허용 창을 승인해 주세요.", "Approve the USB debugging prompt on the tablet."),
         Mode::Sideload => app.t("ADB Sideload에서는 시작할 수 없습니다. 시스템 또는 지원하는 연결 모드로 전환해 주세요.", "ADB Sideload is not ready for conversion. Use the system or another supported mode."),
         Mode::ServerBlocking => app.t("다른 프로그램의 ADB 서버를 종료한 뒤 다시 연결해 주세요.", "Close the other program's ADB server and reconnect."),
+        Mode::Fastboot | Mode::Fastbootd => app.fastboot_start_text(),
         _ if !app.device.reachable() => app.t("기기 연결 상태를 확인하고 있습니다. 잠시 기다려 주세요.", "Checking device readiness. Please wait."),
         _ if !app.device.startable() => app.t("기기 모델을 확인할 수 없습니다. TB520FU 연결 상태를 확인해 주세요.", "The device model is unknown. Check the TB520FU connection."),
         _ => app.t("기기 연결을 확인했습니다. 시작 직전에 한 번 더 확인합니다.", "Device detected. The connection is checked again immediately before starting."),

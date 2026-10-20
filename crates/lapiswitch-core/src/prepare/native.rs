@@ -3,20 +3,18 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use ltbox_device::adb::AdbManager;
 use ltbox_device::driver::{QcomDriverMode, qcom_driver_mode};
 use ltbox_device::edl::{self, EdlError, EdlSession};
-use ltbox_device::fastboot::{FastbootDevice, FastbootError, FastbootVars};
+use ltbox_device::fastboot::{FastbootDevice, FastbootError};
 
-use super::{AdbIdentity, Arrival, Connection, DeviceIo};
+use super::{AdbIdentity, Connection, DeviceIo};
 use crate::avb_info::{self, AvbSummary};
 use crate::slot::Slot;
 
 pub struct NativeDevice {
     adb: AdbManager,
-    fastboot: Option<FastbootDevice>,
     scratch: tempfile::TempDir,
 }
 
@@ -31,7 +29,6 @@ impl NativeDevice {
             .map_err(|error| error.to_string())?;
         Ok(Self {
             adb: AdbManager::new(),
-            fastboot: None,
             scratch,
         })
     }
@@ -46,16 +43,8 @@ impl NativeDevice {
         loader: &Path,
         log: &mut Vec<String>,
     ) -> Result<EdlSession, EdlError> {
-        self.fastboot = None;
         self.adb = AdbManager::new();
         EdlSession::open(loader, log)
-    }
-
-    fn fastboot(&mut self) -> Result<&mut FastbootDevice, String> {
-        if self.fastboot.is_none() {
-            self.fastboot = Some(FastbootDevice::open().map_err(|error| error.to_string())?);
-        }
-        Ok(self.fastboot.as_mut().expect("opened fastboot"))
     }
 
     fn edl_present() -> Result<bool, String> {
@@ -82,11 +71,9 @@ impl DeviceIo for NativeDevice {
         if Self::edl_present()? {
             return Ok(Connection::Edl);
         }
+        // Detected only so preparation can refuse it; the handle is dropped.
         match FastbootDevice::open() {
-            Ok(device) => {
-                self.fastboot = Some(device);
-                return Ok(Connection::Fastboot);
-            }
+            Ok(_) => return Ok(Connection::Fastboot),
             Err(FastbootError::DeviceNotFound) => {}
             Err(error) => return Err(error.to_string()),
         }
@@ -114,75 +101,18 @@ impl DeviceIo for NativeDevice {
         Ok(AdbIdentity { model, slot })
     }
 
+    fn adb_serial(&mut self) -> Result<String, String> {
+        self.adb
+            .shell("getprop ro.serialno")
+            .map(|serial| serial.trim().to_owned())
+            .map_err(|error| error.to_string())
+    }
+
     fn adb_reboot(&mut self, target: &str) -> Result<(), String> {
         let result = self.adb.reboot(target).map_err(|error| error.to_string());
         // A mode change invalidates the old USB claim even on response failure.
         self.adb = AdbManager::new();
         result
-    }
-
-    fn wait_fastboot(&mut self, timeout: Duration) -> Result<(), String> {
-        let deadline = Instant::now() + timeout;
-        loop {
-            self.ensure_single_target()?;
-            match FastbootDevice::open() {
-                Ok(device) => {
-                    self.fastboot = Some(device);
-                    return Ok(());
-                }
-                Err(FastbootError::DeviceNotFound) => {}
-                Err(error) => return Err(error.to_string()),
-            }
-            if Instant::now() >= deadline {
-                return Err(format!(
-                    "{}초 안에 fastboot에 연결되지 않았습니다.",
-                    timeout.as_secs()
-                ));
-            }
-            std::thread::sleep(Duration::from_secs(1));
-        }
-    }
-
-    fn fastboot_vars(&mut self) -> Result<FastbootVars, String> {
-        let device = self.fastboot()?;
-        if device.is_userspace() {
-            return Err(
-                "fastbootd에 연결되어 있습니다. bootloader fastboot로 전환해 주세요.".into(),
-            );
-        }
-        device.get_all_vars().map_err(|error| error.to_string())
-    }
-
-    fn reboot_system(&mut self) -> Result<(), String> {
-        let result = self.fastboot()?.reboot().map_err(|error| error.to_string());
-        self.fastboot = None;
-        result
-    }
-
-    fn wait_adb_or_edl(&mut self) -> Result<Arrival, String> {
-        // LTBox's ADB timeout is 120s. Poll with the SAME manager later used
-        // for reboot edl, avoiding a second USB interface claim. Unlike the
-        // bool probe, propagate multiple-device/enumeration errors.
-        let deadline = Instant::now() + Duration::from_secs(120);
-        loop {
-            self.ensure_single_target()?;
-            if Self::edl_present()? {
-                return Ok(Arrival::Edl);
-            }
-            match self
-                .adb
-                .check_device_state()
-                .map_err(|error| error.to_string())?
-            {
-                Some("device" | "recovery") => return Ok(Arrival::Adb),
-                Some(state) => return Err(format!("ADB 상태: {state}")),
-                None => {}
-            }
-            if Instant::now() >= deadline {
-                return Err("시스템 부팅 후 ADB/EDL 연결 대기 시간이 초과되었습니다.".into());
-            }
-            std::thread::sleep(Duration::from_secs(1));
-        }
     }
 
     fn wait_edl(&mut self) -> Result<(), String> {
@@ -236,6 +166,7 @@ impl DeviceIo for NativeDevice {
     fn edl_active_slot(
         &mut self,
         session: &mut EdlSession,
+        expected: Option<Slot>,
         log: &mut Vec<String>,
     ) -> Result<Slot, String> {
         let work = tempfile::tempdir_in(self.scratch.path()).map_err(|e| e.to_string())?;
@@ -257,6 +188,7 @@ impl DeviceIo for NativeDevice {
             return Err("활성 슬롯 확인 중 GPT 헤더가 변경되었습니다.".into());
         }
         let gpt = crate::storage::validate_gpt(&bytes)?;
+        let slot = gpt.active_slot(expected)?;
         if gpt
             .entries()
             .iter()
@@ -265,10 +197,11 @@ impl DeviceIo for NativeDevice {
         {
             ltbox_core::live!(
                 log,
-                "S1-E: GPT 슬롯 제어 값이 초기 상태입니다. Lapis 부트로더의 초기 기본 슬롯 A를 사용합니다."
+                "S1-E: GPT 슬롯 제어 값이 초기 상태입니다. ADB에서 확인한 활성 슬롯 {}를 사용합니다.",
+                slot.suffix()
             );
         }
-        gpt.active_slot()
+        Ok(slot)
     }
 
     fn reset_to_edl(

@@ -24,7 +24,7 @@ commands:
   check <firmware folder> --region <prc|row>
                                            S0: validate a firmware folder (decrypts .x in place, like LTBox)
   prepare <firmware folder> --region <prc|row> --output <new folder>
-                                           S0-S2: check device/rollback, reboot to EDL (no partition writes)
+                                           S0-S2: check the ADB device, reboot to EDL (no partition writes)
   restore <backup folder> --loader <loader.melf>
                                            verify backup/device, RESTORE original boot/GPT, request system boot
   status [--state <file>]                  inspect state without connecting to a device";
@@ -188,9 +188,9 @@ fn prepare_device(args: &[String]) -> Result<(), String> {
     })?;
     let mut device = NativeDevice::new(&output)?;
     let mut log = vec![];
-    let mut save_getvar = |raw: &str| -> Result<(), String> {
+    let mut save_identity = |raw: &str| -> Result<(), String> {
         use std::io::Write;
-        let path = output.join("getvar.txt");
+        let path = output.join(lapiswitch_core::backup::IDENTITY_NAME);
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -204,7 +204,7 @@ fn prepare_device(args: &[String]) -> Result<(), String> {
         "기기 확인과 EDL 전환을 시작합니다. 기록 폴더: {}",
         output.display()
     );
-    let result = prepare(&mut device, &firmware, &mut save_getvar, &mut log)
+    let result = prepare(&mut device, &firmware, &mut save_identity, &mut log)
         .map_err(|error| error.to_string())
         .and_then(|mut prepared| {
             // This standalone command ends here. Full/stage1 will retain the

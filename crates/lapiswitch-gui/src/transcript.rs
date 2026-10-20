@@ -28,7 +28,7 @@ pub(crate) fn readable_paths(value: &str) -> String {
 }
 
 /// Masks explicitly labelled serials and ADB device-list identifiers. It does
-/// not redact backup/getvar payloads, which are needed for verified recovery.
+/// not redact backup/identity payloads, which are needed for verified recovery.
 pub fn redact(line: &str) -> String {
     static SERIAL: OnceLock<regex::Regex> = OnceLock::new();
     static ADB: OnceLock<regex::Regex> = OnceLock::new();

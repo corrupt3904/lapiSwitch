@@ -157,11 +157,11 @@ pub struct PrimaryGpt {
 }
 
 /// Slot-control flags are Qualcomm/Lapis flags, not Android misc metadata.
-pub fn active_slot_from_attributes(a: u64, b: u64) -> Result<Slot, String> {
-    // LinuxLoader initializes slot A on a virgin table. Only accept the
-    // unambiguous all-zero slot-control state, never arbitrary invalid flags.
+/// `None` is the unambiguous all-zero slot-control state of a fresh table,
+/// which cannot identify the running slot; arbitrary invalid flags still fail.
+pub fn active_slot_from_attributes(a: u64, b: u64) -> Result<Option<Slot>, String> {
     if ((a | b) >> 48) & 0xff == 0 {
-        return Ok(Slot::A);
+        return Ok(None);
     }
     let mut selected = None;
     let mut priority = 0;
@@ -176,7 +176,7 @@ pub fn active_slot_from_attributes(a: u64, b: u64) -> Result<Slot, String> {
     if attrs & (1 << 55) != 0 || (attrs & (1 << 54) == 0 && (attrs >> 51) & 7 == 0) {
         return Err("GPT의 활성 슬롯이 부팅 불가 또는 재시도 소진 상태입니다. 기기를 복구한 뒤 다시 시도하세요.".into());
     }
-    Ok(slot)
+    Ok(Some(slot))
 }
 
 /// A zero type GUID or a zero LBA range is an unused entry.
@@ -249,7 +249,9 @@ impl PrimaryGpt {
 
     /// Match Lapis LinuxLoader GetActiveSlot: active bit 50, priority 48..49,
     /// scanning A before B (ties retain A). Never infer from AVB timestamps.
-    pub fn active_slot(&self) -> Result<Slot, String> {
+    /// `expected` is the slot Android reported over ADB: it must agree with
+    /// set flags, and is used as-is only when the slot-control flags are blank.
+    pub fn active_slot(&self, expected: Option<Slot>) -> Result<Slot, String> {
         let entries = self.entries();
         let attrs = |name: &str| -> Result<u64, String> {
             let mut found = entries.iter().filter(|entry| entry.name == name);
@@ -261,7 +263,15 @@ impl PrimaryGpt {
             }
             Ok(entry.attributes)
         };
-        active_slot_from_attributes(attrs("boot_a")?, attrs("boot_b")?)
+        match active_slot_from_attributes(attrs("boot_a")?, attrs("boot_b")?)? {
+            None => expected.ok_or_else(|| {
+                "GPT 슬롯 속성이 초기 상태라 활성 슬롯을 확인할 수 없습니다. Android를 부팅한 뒤 ADB로 연결해 시작하세요.".into()
+            }),
+            Some(slot) if expected.is_some_and(|adb| adb != slot) => {
+                Err("ADB와 EDL GPT의 활성 슬롯이 다릅니다.".into())
+            }
+            Some(slot) => Ok(slot),
+        }
     }
 
     /// LTBox/gptman scans named unused entries too. Lenovo's zero-type-GUID
@@ -538,6 +548,43 @@ mod tests {
         );
     }
 
+    /// LAYOUT with slot-control flags on boot_a (entry 0) and boot_b (entry 3).
+    fn with_slot_flags(a: u64, b: u64) -> PrimaryGpt {
+        let mut data = build_gpt(LAYOUT);
+        let base = ENTRIES_LBA as usize * SECTOR_SIZE;
+        for (index, attrs) in [(0, a), (3, b)] {
+            let at = base + index * 128 + 48;
+            data[at..at + 8].copy_from_slice(&attrs.to_le_bytes());
+        }
+        let h = HEADER_OFFSET;
+        let array = crc32fast::hash(&data[base..base + NUM_ENTRIES * 128]);
+        data[h + 88..h + 92].copy_from_slice(&array.to_le_bytes());
+        let crc = header_crc(&data[h..h + 92]);
+        data[h + 16..h + 20].copy_from_slice(&crc.to_le_bytes());
+        PrimaryGpt::parse(&data).unwrap()
+    }
+
+    #[test]
+    fn blank_slot_flags_use_only_the_adb_slot_and_set_flags_must_agree_with_it() {
+        let active_b = (3u64 << 48) | (1 << 50) | (7 << 51);
+        let blank = with_slot_flags(0, 0);
+        for slot in [Slot::A, Slot::B] {
+            assert_eq!(blank.active_slot(Some(slot)).unwrap(), slot);
+        }
+        // An EDL start has no ADB slot: a fresh table is never assumed to be A.
+        assert!(blank.active_slot(None).is_err());
+        let set = with_slot_flags(0, active_b);
+        assert_eq!(set.active_slot(None).unwrap(), Slot::B);
+        assert_eq!(set.active_slot(Some(Slot::B)).unwrap(), Slot::B);
+        assert!(set.active_slot(Some(Slot::A)).is_err());
+        assert!(
+            PrimaryGpt::parse(&build_gpt(&["boot_a", "vbmeta_a"]))
+                .unwrap()
+                .active_slot(Some(Slot::A))
+                .is_err()
+        );
+    }
+
     #[test]
     fn modifying_twice_fails_instead_of_dropping_more() {
         let gpt = PrimaryGpt::parse(&build_gpt(LAYOUT)).unwrap();
@@ -559,25 +606,29 @@ mod slot_tests {
     fn lapis_slot_control_matches_priority_active_and_a_first_tie() {
         assert_eq!(
             active_slot_from_attributes(flags(3), flags(2)).unwrap(),
-            Slot::A
+            Some(Slot::A)
         );
         assert_eq!(
             active_slot_from_attributes(flags(2), flags(3)).unwrap(),
-            Slot::B
+            Some(Slot::B)
         );
         assert_eq!(
             active_slot_from_attributes(flags(3), flags(3)).unwrap(),
-            Slot::A
+            Some(Slot::A)
         );
-        assert_eq!(active_slot_from_attributes(0, flags(1)).unwrap(), Slot::B);
-        assert_eq!(active_slot_from_attributes(0, 0).unwrap(), Slot::A);
+        assert_eq!(
+            active_slot_from_attributes(0, flags(1)).unwrap(),
+            Some(Slot::B)
+        );
+        // A fresh table identifies no slot; the caller decides from ADB.
+        assert_eq!(active_slot_from_attributes(0, 0).unwrap(), None);
         assert_eq!(
             active_slot_from_attributes(flags(3) & !(1 << 50), flags(1)).unwrap(),
-            Slot::B
+            Some(Slot::B)
         );
         assert_eq!(
             active_slot_from_attributes(flags(3) & !(7 << 51) | (1 << 54), 0).unwrap(),
-            Slot::A
+            Some(Slot::A)
         );
     }
     #[test]

@@ -337,6 +337,12 @@ impl App {
             _ => false,
         }
     }
+    fn fastboot_start_text(&self) -> &'static str {
+        self.t(
+            "Fastboot에서는 시작할 수 없습니다. 기기를 Android로 부팅하고 USB 디버깅을 허용해 ADB로 연결해 주세요.",
+            "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.",
+        )
+    }
     fn can_start(&self) -> bool {
         self.start_blocker().is_none()
     }
@@ -366,6 +372,8 @@ impl App {
                 "지원하지 않는 기기입니다. TB520FU(lapis)를 연결해 주세요.",
                 "Unsupported device. Connect a TB520FU (lapis).",
             )
+        } else if self.device.fastboot() {
+            self.fastboot_start_text()
         } else if !self.device.startable() {
             self.t(
                 "기기 모델을 확인할 수 없습니다. TB520FU 연결 상태를 확인해 주세요.",

@@ -362,8 +362,8 @@ fn validate_staged(
     Ok(())
 }
 
-/// Caller already bound the backup/state and saved the active slot from ADB /
-/// bootloader. An EDL-only AVB estimate is never used for a Recovery write.
+/// Caller already bound the backup/state and the active slot confirmed by
+/// ADB and the EDL GPT. An EDL-only AVB estimate is never used for a Recovery write.
 pub fn stage(
     device: &mut impl StageIo,
     backup: &VerifiedBackup,
@@ -375,7 +375,10 @@ pub fn stage(
     backup.verify()?;
     crate::recovery_asset::verify(twrp)?;
     if !matches!(backup.manifest().version, 3..=5) || backup.manifest().slot_estimated {
-        return Err("활성 슬롯이 확정되지 않아 Recovery에 쓰지 않았습니다. ADB 또는 bootloader fastboot에서 시작하세요.".into());
+        return Err(
+            "활성 슬롯이 확정되지 않아 Recovery에 쓰지 않았습니다. Android ADB에서 시작하세요."
+                .into(),
+        );
     }
     if state.recovery.as_ref().map(|p| p.phase) != Some(Phase::BackedUp)
         || backup.transaction_stage()? != TransactionStage::BackupVerified

@@ -253,14 +253,14 @@ impl Recovery {
             return Err("TWRP serial을 확인할 수 없습니다.".into());
         }
         if !backup.manifest().started_in_edl {
-            let raw = std::fs::read_to_string(backup.file_path("getvar.txt")?)
+            let raw = std::fs::read_to_string(backup.file_path(crate::backup::IDENTITY_NAME)?)
                 .map_err(|e| e.to_string())?;
             if saved_serial(&raw) != Some(serial.as_str()) {
-                return Err("TWRP serial이 bootloader 백업과 다릅니다.".into());
+                return Err("TWRP serial이 시작 시 ADB 기록과 다릅니다.".into());
             }
         }
-        // EDL starts have no fastboot getvar; the disk GUID below binds them
-        // to the original device, together with model/slot and live serial.
+        // EDL starts have no ADB identity record; the disk GUID below binds
+        // them to the original device, together with model/slot and live serial.
         self.serial = serial;
         // Identify the GPT disk through sysfs, never assume a UFS /dev/sdX name.
         // Only read two 4096-byte sectors to a private /tmp file.
@@ -443,7 +443,11 @@ mod tests {
         }
     }
     #[test]
-    fn fastboot_serial_binding_requires_an_explicit_nonempty_field() {
+    fn adb_identity_serial_binding_requires_an_explicit_nonempty_field() {
+        assert_eq!(
+            saved_serial(&crate::prepare::identity_record(Slot::B, "FAKE123")),
+            Some("FAKE123")
+        );
         assert_eq!(
             saved_serial("serialno: FAKE123\nmodel:TB520FU"),
             Some("FAKE123")

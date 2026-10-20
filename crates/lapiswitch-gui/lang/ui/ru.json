@@ -130,7 +130,7 @@
   "Logs and backup location": "Журналы и резервные копии",
   "Logs go to logs and new backups to backup/region_change under this location. Existing files are not moved.": "Журналы сохраняются в папку logs, новые резервные копии — в backup/region_change внутри этого расположения. Существующие файлы не перемещаются.",
   "Mask serial numbers in app logs": "Скрывать серийные номера в журналах приложения",
-  "Masks serial fields and ADB lists. Recovery backups and original getvar stay intact. Existing transcripts are unchanged.": "Скрывает серийные номера и списки ADB. Резервные копии для восстановления и исходный getvar не изменяются, уже сохранённые журналы тоже.",
+  "Masks serial fields and ADB lists. Recovery backups and the original device identity record stay intact. Existing transcripts are unchanged.": "Скрывает серийные номера и списки ADB. Резервные копии для восстановления и исходная запись идентификации устройства не изменяются, уже сохранённые журналы тоже.",
   "Missing drivers": "Требуются драйверы",
   "Model / region": "Модель / регион",
   "No additional driver is required on this platform.": "Для этой ОС дополнительные драйверы не нужны.",
@@ -233,5 +233,6 @@
   "View licenses": "Просмотреть лицензии",
   "Wait for the current operation to finish.": "Дождитесь завершения текущей операции.",
   "Weighted by expected work; firmware installation follows actual total transfer.": "Учитывается длительность этапов; установка прошивки отражает фактический объём передачи.",
-  "macOS uses Userspace USB mode.": "В macOS используется режим Userspace USB."
+  "macOS uses Userspace USB mode.": "В macOS используется режим Userspace USB.",
+  "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.": "Начать с Fastboot нельзя. Загрузите планшет в Android, разрешите отладку по USB и подключитесь через ADB."
 }

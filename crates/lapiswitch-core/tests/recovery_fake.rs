@@ -360,7 +360,7 @@ impl Setup {
         store.begin(&state).unwrap();
         let backup = stage1::take_backup(
             &mut disk,
-            &prepared(slot, lapiswitch_core::prepare::Connection::Fastboot),
+            &prepared(slot, lapiswitch_core::prepare::Connection::Adb),
             &fw,
             builder,
             &mut vec![],
@@ -1739,7 +1739,7 @@ fn s3_device_version_gate_uses_active_slot_before_partition_backup() {
             let folder = builder.partition_dir().to_owned();
             let result = stage1::take_backup(
                 &mut d,
-                &prepared(slot, lapiswitch_core::prepare::Connection::Fastboot),
+                &prepared(slot, lapiswitch_core::prepare::Connection::Adb),
                 &firmware(),
                 builder,
                 &mut vec![],
@@ -1783,7 +1783,7 @@ fn prior_v4_backups_still_require_boot_and_remain_readable() {
 }
 
 #[test]
-fn edl_backups_bind_the_gpt_slot_and_do_not_require_fastboot_getvar() {
+fn edl_backups_bind_the_gpt_slot_and_do_not_require_an_adb_identity() {
     for slot in [Slot::A, Slot::B] {
         for changed in [false, true] {
             let s = Setup::new(slot, RollbackMode::Reset);
@@ -1817,7 +1817,11 @@ fn edl_backups_bind_the_gpt_slot_and_do_not_require_fastboot_getvar() {
                 assert!(backup.manifest().started_in_edl);
                 assert!(!backup.manifest().slot_estimated);
                 assert_eq!(backup.manifest().slot, slot);
-                assert!(backup.file_path("getvar.txt").is_err());
+                assert!(
+                    backup
+                        .file_path(lapiswitch_core::backup::IDENTITY_NAME)
+                        .is_err()
+                );
                 backup.verify().unwrap();
             }
         }
@@ -1941,7 +1945,7 @@ fn s3_system_ext_version_and_custom_rom_consent_are_separate_from_stock_ceiling(
             let mut called = 0;
             let result = stage1::take_backup_with_confirmation(
                 &mut d,
-                &prepared(slot, lapiswitch_core::prepare::Connection::Fastboot),
+                &prepared(slot, lapiswitch_core::prepare::Connection::Adb),
                 &firmware(),
                 builder,
                 &mut || {

@@ -88,7 +88,8 @@ pub(crate) fn prepared(slot: Slot, mode: Connection) -> PrepareReport {
         slot_estimated: false,
         floors: DeviceFloors::None,
         device_key: None,
-        getvar_all: (mode != Connection::Edl).then(|| "modelname:TB520FU\nsynthetic getvar".into()),
+        identity: (mode != Connection::Edl)
+            .then(|| lapiswitch_core::prepare::identity_record(slot, "FAKE0001")),
     }
 }
 
@@ -159,7 +160,7 @@ impl Fake {
         self.journal = Some(builder.path().to_path_buf());
         stage1::take_backup(
             self,
-            &prepared(slot, Connection::Fastboot),
+            &prepared(slot, Connection::Adb),
             &firmware(),
             builder,
             &mut vec![],

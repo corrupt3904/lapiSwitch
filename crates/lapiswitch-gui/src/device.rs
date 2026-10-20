@@ -95,8 +95,14 @@ impl Monitor {
         let model = self.snapshot.model.trim();
         !model.is_empty() && !lapiswitch_core::prepare::supported_model(model)
     }
+    /// Conversion starts from Android ADB or EDL. Fastboot is shown as a
+    /// connection only; preparation never uses it.
+    pub fn fastboot(&self) -> bool {
+        matches!(self.snapshot.mode, Mode::Fastboot | Mode::Fastbootd)
+    }
     pub fn startable(&self) -> bool {
         self.reachable()
+            && !self.fastboot()
             && !self.unsupported_model()
             && (self.snapshot.mode == Mode::Edl
                 || lapiswitch_core::prepare::supported_model(&self.snapshot.model))
@@ -300,9 +306,11 @@ mod tests {
             Mode::Edl,
         ] {
             monitor.snapshot.mode = mode;
+            let fastboot = matches!(mode, Mode::Fastboot | Mode::Fastbootd);
             for model in ["TB520FU", "tb520fu", "lapis"] {
                 monitor.snapshot.model = model.into();
-                assert!(monitor.startable());
+                assert_eq!(monitor.startable(), !fastboot, "{mode:?}");
+                assert_eq!(monitor.fastboot(), fastboot);
             }
             for model in ["TB321FU", "TB520FUX", "TB320FC"] {
                 monitor.snapshot.model = model.into();

@@ -130,7 +130,7 @@
   "Logs and backup location": "ログ・バックアップ保存先",
   "Logs go to logs and new backups to backup/region_change under this location. Existing files are not moved.": "選択した場所の logs にログを、backup/region_change に新しいバックアップを保存します。既存のファイルは移動しません。",
   "Mask serial numbers in app logs": "アプリのログでシリアル番号を隠す",
-  "Masks serial fields and ADB lists. Recovery backups and original getvar stay intact. Existing transcripts are unchanged.": "シリアル番号の項目と ADB の一覧を伏せ字にします。復元に必要なバックアップと getvar の原本は変更されず、既存のログにもさかのぼって適用されません。",
+  "Masks serial fields and ADB lists. Recovery backups and the original device identity record stay intact. Existing transcripts are unchanged.": "シリアル番号の項目と ADB の一覧を伏せ字にします。復元に必要なバックアップと 機器識別記録の原本は変更されず、既存のログにもさかのぼって適用されません。",
   "Missing drivers": "ドライバーのインストールが必要",
   "Model / region": "モデル / リージョン",
   "No additional driver is required on this platform.": "この OS では追加のドライバーは不要です。",
@@ -233,5 +233,6 @@
   "View licenses": "ライセンスを表示",
   "Wait for the current operation to finish.": "実行中の作業が終わるまでお待ちください。",
   "Weighted by expected work; firmware installation follows actual total transfer.": "各段階の所要時間を考慮し、ファームウェアのインストールは実際の総転送量を反映します。",
-  "macOS uses Userspace USB mode.": "macOS では Userspace USB モードを使用します。"
+  "macOS uses Userspace USB mode.": "macOS では Userspace USB モードを使用します。",
+  "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.": "Fastboot からは開始できません。タブレットを Android で起動し、USB デバッグを許可して ADB で接続してください。"
 }

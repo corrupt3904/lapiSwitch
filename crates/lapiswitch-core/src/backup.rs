@@ -18,6 +18,8 @@ use crate::slot::Slot;
 use crate::storage::{self, Partition};
 
 pub const MANIFEST_NAME: &str = "manifest.json";
+/// ADB model/serial/slot record of an Android start, kept beside the manifest.
+pub const IDENTITY_NAME: &str = "adb_identity.txt";
 pub const PARTITION_DIR: &str = "Partition";
 
 /// Keep image dumps and scratch files inside the backup, never through a
@@ -268,11 +270,11 @@ impl BackupBuilder {
         self.dir.join(PARTITION_DIR)
     }
 
-    pub fn save_getvar(&self, raw: &str) -> Result<(), String> {
-        let path = self.dir.join("getvar.txt");
+    pub fn save_identity(&self, raw: &str) -> Result<(), String> {
+        let path = self.dir.join(IDENTITY_NAME);
         if path.exists() {
             if std::fs::read(&path).map_err(|error| error.to_string())? != raw.as_bytes() {
-                return Err("기존 getvar.txt가 현재 작업과 다릅니다.".into());
+                return Err(format!("기존 {IDENTITY_NAME}가 현재 작업과 다릅니다."));
             }
             return Ok(());
         }
@@ -287,7 +289,7 @@ impl BackupBuilder {
         if self.files.iter().any(|entry| entry.filename == filename) {
             return Err("백업 항목 중복".into());
         }
-        let path = if filename == "getvar.txt" {
+        let path = if filename == IDENTITY_NAME {
             self.dir.join(filename)
         } else {
             self.partition_dir().join(filename)
@@ -411,7 +413,7 @@ impl VerifiedBackup {
     /// between layouts when a recorded file is missing or damaged.
     pub fn file_path(&self, name: &str) -> Result<PathBuf, String> {
         self.entry(name)?;
-        Ok(if self.manifest.version >= 2 && name != "getvar.txt" {
+        Ok(if self.manifest.version >= 2 && name != IDENTITY_NAME {
             self.dir.join(PARTITION_DIR).join(name)
         } else {
             self.dir.join(name)
@@ -462,7 +464,7 @@ impl VerifiedBackup {
             required.insert("proinfo.img".into());
         }
         if !manifest.started_in_edl {
-            required.insert("getvar.txt".into());
+            required.insert(IDENTITY_NAME.into());
         }
         let mut seen = HashSet::new();
         for entry in &manifest.files {
@@ -488,7 +490,7 @@ impl VerifiedBackup {
                 {
                     return Err("백업 파티션 이름 불일치".into());
                 }
-            } else if entry.filename != "getvar.txt" {
+            } else if entry.filename != IDENTITY_NAME {
                 return Err("백업 좌표 누락".into());
             }
         }

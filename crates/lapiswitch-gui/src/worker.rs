@@ -281,7 +281,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 let prepared = lapiswitch_core::prepare::prepare_with_confirmation(
                     &mut device,
                     &firmware,
-                    &mut |raw| builder.save_getvar(raw),
+                    &mut |raw| builder.save_identity(raw),
                     state.options.rollback_mode,
                     &mut || ui.confirm_edl_start(),
                     &mut log,
