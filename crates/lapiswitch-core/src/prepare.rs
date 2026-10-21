@@ -7,7 +7,7 @@ use std::path::Path;
 use ltbox_core::live;
 
 use crate::avb_info::{AvbSummary, KeyClass};
-use crate::firmware::{FirmwareReport, MODEL};
+use crate::firmware::MODEL;
 use crate::slot::Slot;
 
 pub mod native;
@@ -131,17 +131,17 @@ pub fn identity_record(slot: Slot, serial: &str) -> String {
 /// eventual backup location; no device identifiers enter the source tree.
 pub fn prepare<D: DeviceIo>(
     device: &mut D,
-    firmware: &FirmwareReport,
+    loader: &Path,
     save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
-    prepare_with_confirmation(device, firmware, save_identity, &mut || Ok(()), log)
+    prepare_with_confirmation(device, loader, save_identity, &mut || Ok(()), log)
 }
 
 /// The GUI must obtain an explicit answer before opening an EDL-start session.
 pub fn prepare_with_confirmation<D: DeviceIo>(
     device: &mut D,
-    firmware: &FirmwareReport,
+    loader: &Path,
     save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
     confirm_edl: &mut dyn FnMut() -> Result<(), String>,
     log: &mut Vec<String>,
@@ -155,19 +155,16 @@ pub fn prepare_with_confirmation<D: DeviceIo>(
         Connection::Edl => {
             operation("EDL 시작 확인", confirm_edl())?;
             operation("USB 기기 확인", device.ensure_single_target())?;
-            let session = operation(
-                "EDL 연결 (파티션 쓰기 전)",
-                device.open_edl(&firmware.loader, log),
-            )?;
+            let session = operation("EDL 연결 (파티션 쓰기 전)", device.open_edl(loader, log))?;
             probe_or_reset(device, session, None, log)
         }
-        Connection::Adb => prepare_adb(device, firmware, save_identity, log),
+        Connection::Adb => prepare_adb(device, loader, save_identity, log),
     }
 }
 
 fn prepare_adb<D: DeviceIo>(
     device: &mut D,
-    firmware: &FirmwareReport,
+    loader: &Path,
     save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
@@ -193,10 +190,7 @@ fn prepare_adb<D: DeviceIo>(
     }
     operation("USB 기기 확인", device.ensure_single_target())?;
     operation("EDL 대기 (45초, 파티션 쓰기 전)", device.wait_edl())?;
-    let session = operation(
-        "EDL 연결 (파티션 쓰기 전)",
-        device.open_edl(&firmware.loader, log),
-    )?;
+    let session = operation("EDL 연결 (파티션 쓰기 전)", device.open_edl(loader, log))?;
     let mut prepared = probe_or_reset(device, session, Some(slot), log)?;
     prepared.report.started_in = Connection::Adb;
     prepared.report.identity = Some(raw);

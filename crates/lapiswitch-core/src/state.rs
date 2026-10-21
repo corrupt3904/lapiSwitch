@@ -18,7 +18,7 @@ use crate::rollback::RollbackIndices;
 use crate::slot::Slot;
 
 /// The only state format this version reads or writes.
-pub const STATE_VERSION: u8 = 3;
+pub const STATE_VERSION: u8 = 4;
 
 /// Coarse step mirrored from the recovery `Phase` for status display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,21 +43,82 @@ pub enum ResumeAction {
     Finalize,
 }
 
-/// Region conversion always erases user data; the firmware flash wipes it.
+/// What the run changes in DeviceInfo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+pub enum Request {
+    /// Region change chosen before the run, with the target firmware.
+    Convert {
+        target: Region,
+        rollback_mode: RollbackMode,
+    },
+    /// Fields chosen in TWRP after reading the live DeviceInfo. Firmware is
+    /// required (and bound then) only when the region changes.
+    Edit,
+}
+
+/// Options of the firmware installation. Installing firmware always erases
+/// user data; a DeviceInfo edit without a region change installs nothing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FlashOptions {
     pub country: Option<String>,
-    pub rollback_mode: RollbackMode,
 }
 
 impl FlashOptions {
-    pub fn new(country: Option<&str>, rollback_mode: RollbackMode) -> Result<Self, String> {
+    pub fn new(country: Option<&str>) -> Result<Self, String> {
         Ok(Self {
             country: country.map(country::validate).transpose()?,
-            rollback_mode,
         })
     }
+}
+
+/// The firmware a run installs, pinned by content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirmwareBinding {
+    pub region: Region,
+    pub firmware_dir: PathBuf,
+    pub fingerprint: String,
+    pub indices: RollbackIndices,
+    pub files: Vec<SealedFile>,
+}
+
+impl FirmwareBinding {
+    pub fn new(firmware: &FirmwareReport) -> Result<Self, String> {
+        Ok(Self {
+            region: firmware.region,
+            firmware_dir: firmware
+                .image_dir
+                .canonicalize()
+                .map_err(|error| error.to_string())?,
+            fingerprint: firmware.fingerprint.clone(),
+            indices: firmware.indices,
+            files: seal_firmware(firmware)?,
+        })
+    }
+    pub fn verify(&self, firmware: &FirmwareReport) -> Result<(), String> {
+        if self.region != firmware.region
+            || self.indices != firmware.indices
+            || self.fingerprint != firmware.fingerprint
+        {
+            return Err("저장된 펌웨어와 현재 펌웨어가 일치하지 않습니다.".into());
+        }
+        if seal_firmware(firmware)? != self.files {
+            return Err("펌웨어 파일 또는 XML 구성이 변경되었습니다.".into());
+        }
+        Ok(())
+    }
+}
+
+/// Seal one existing file by canonical path, size and SHA-256.
+pub fn seal_file(path: &Path) -> Result<SealedFile, String> {
+    let (size, sha256) = backup::hash_file(path, None)?;
+    Ok(SealedFile {
+        path: path.canonicalize().map_err(|error| error.to_string())?,
+        size,
+        sha256,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,11 +207,12 @@ pub struct RunState {
     pub recovery: Progress,
     pub run_id: String,
     pub stage: Stage,
-    pub target_region: Region,
-    pub firmware_dir: PathBuf,
-    pub fingerprint: String,
-    pub indices: RollbackIndices,
-    pub files: Vec<SealedFile>,
+    pub request: Request,
+    /// The EDL programmer every session of this run uploads.
+    pub loader: SealedFile,
+    /// Present from the start for a conversion; bound in TWRP when an edit
+    /// changes the region. None means no firmware is installed.
+    pub firmware: Option<FirmwareBinding>,
     pub options: FlashOptions,
     pub backup_dir: PathBuf,
     pub backup_sha256: Option<String>,
@@ -160,8 +222,40 @@ pub struct RunState {
 }
 
 impl RunState {
-    pub fn new(
+    /// A region conversion with its firmware chosen and checked up front.
+    pub fn convert(
         firmware: &FirmwareReport,
+        rollback_mode: RollbackMode,
+        options: FlashOptions,
+        backup_dir: &Path,
+    ) -> Result<Self, String> {
+        Self::build(
+            Request::Convert {
+                target: firmware.region,
+                rollback_mode,
+            },
+            &firmware.loader,
+            Some(FirmwareBinding::new(firmware)?),
+            options,
+            backup_dir,
+        )
+    }
+
+    /// A DeviceInfo edit: only the EDL loader is known before TWRP.
+    pub fn edit(loader: &Path, backup_dir: &Path) -> Result<Self, String> {
+        Self::build(
+            Request::Edit,
+            loader,
+            None,
+            FlashOptions::new(None)?,
+            backup_dir,
+        )
+    }
+
+    fn build(
+        request: Request,
+        loader: &Path,
+        firmware: Option<FirmwareBinding>,
         options: FlashOptions,
         backup_dir: &Path,
     ) -> Result<Self, String> {
@@ -174,14 +268,9 @@ impl RunState {
                 std::process::id()
             ),
             stage: Stage::S1,
-            target_region: firmware.region,
-            firmware_dir: firmware
-                .image_dir
-                .canonicalize()
-                .map_err(|error| error.to_string())?,
-            fingerprint: firmware.fingerprint.clone(),
-            indices: firmware.indices,
-            files: seal_firmware(firmware)?,
+            request,
+            loader: seal_file(loader)?,
+            firmware,
             options,
             backup_dir: backup_dir
                 .canonicalize()
@@ -193,14 +282,16 @@ impl RunState {
         })
     }
 
+    pub fn loader_path(&self) -> &Path {
+        &self.loader.path
+    }
+
     pub fn bind_backup(&mut self, backup: &VerifiedBackup) -> Result<(), String> {
         if self.backup_dir
             != backup
                 .path()
                 .canonicalize()
                 .map_err(|error| error.to_string())?
-            || backup.manifest().target_region != self.target_region
-            || backup.manifest().firmware_indices != self.indices
         {
             return Err("백업과 실행 설정이 다릅니다.".into());
         }
@@ -210,29 +301,32 @@ impl RunState {
         Ok(())
     }
 
+    /// The backup, loader and (when bound) firmware are exactly the ones this
+    /// run started with. `firmware` must be given exactly when one is bound.
     pub fn verify_binding(
         &self,
         backup: &VerifiedBackup,
-        firmware: &FirmwareReport,
+        firmware: Option<&FirmwareReport>,
     ) -> Result<(), String> {
-        if self.target_region != firmware.region
-            || self.indices != firmware.indices
-            || self.fingerprint != firmware.fingerprint
-            || self.backup_dir
-                != backup
-                    .path()
-                    .canonicalize()
-                    .map_err(|error| error.to_string())?
+        if self.backup_dir
+            != backup
+                .path()
+                .canonicalize()
+                .map_err(|error| error.to_string())?
             || self.backup_sha256.as_deref()
                 != Some(&backup::hash_file(&backup.path().join(backup::MANIFEST_NAME), None)?.1)
             || self.slot != Some(backup.manifest().slot)
         {
-            return Err("저장된 상태·펌웨어·백업이 일치하지 않습니다.".into());
+            return Err("저장된 상태·백업이 일치하지 않습니다.".into());
         }
-        if seal_firmware(firmware)? != self.files {
-            return Err("펌웨어 파일 또는 XML 구성이 변경되었습니다.".into());
+        if seal_file(&self.loader.path)? != self.loader {
+            return Err("EDL 로더 파일이 변경되었습니다.".into());
         }
-        Ok(())
+        match (&self.firmware, firmware) {
+            (Some(binding), Some(firmware)) => binding.verify(firmware),
+            (None, None) => Ok(()),
+            _ => Err("저장된 작업의 펌웨어 설치 여부와 선택한 펌웨어가 다릅니다.".into()),
+        }
     }
 
     pub fn resume_action(&self, transaction: Option<TransactionStage>) -> ResumeAction {

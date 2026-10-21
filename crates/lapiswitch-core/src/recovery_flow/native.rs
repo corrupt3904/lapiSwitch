@@ -4,7 +4,7 @@
 use super::{DeviceInfoIo, Ui};
 use crate::{
     backup::{self, VerifiedBackup},
-    deviceinfo::{self, RollbackMode},
+    deviceinfo::{self, map},
     slot::Slot,
 };
 use adb_client::{ADBDeviceExt, usb::ADBUSBDevice};
@@ -98,7 +98,6 @@ struct Prepared {
     tag: u32,
     before: String,
     planned: String,
-    mode: RollbackMode,
 }
 pub struct Recovery {
     usb: ADBUSBDevice,
@@ -335,19 +334,18 @@ impl DeviceInfoIo for Recovery {
             &path,
             Some(deviceinfo::SHARED_SIZE as u64),
         )?;
-        deviceinfo::region(&bytes)?;
+        // Any 4096 bytes are returned: an edited magic must still be verifiable.
         Ok(bytes)
     }
     fn prepare(
         &mut self,
         before: &[u8],
         planned: &[u8],
-        mode: RollbackMode,
         _log: &mut Vec<String>,
     ) -> Result<(), String> {
         self.prepared = None;
         let ta = self.active_keymaster()?;
-        deviceinfo::validate_plan(before, planned, deviceinfo::region(planned)?, mode)?;
+        map::check_plan(deviceinfo::LAYOUT, before, planned)?;
         self.reads += 1;
         let tag = self.reads;
         let (before_hash, planned_hash) =
@@ -365,7 +363,6 @@ impl DeviceInfoIo for Recovery {
             tag,
             before: before_hash,
             planned: planned_hash,
-            mode,
         });
         Ok(())
     }
@@ -373,7 +370,6 @@ impl DeviceInfoIo for Recovery {
         &mut self,
         before: &[u8],
         planned: &[u8],
-        mode: RollbackMode,
         out: &Path,
         _log: &mut Vec<String>,
     ) -> Result<(Vec<u8>, Vec<u8>), String> {
@@ -384,7 +380,6 @@ impl DeviceInfoIo for Recovery {
             .ok_or("DeviceInfo dry-run 기록이 없어 쓰기를 요청하지 않았습니다.")?;
         if prepared.before != backup::digest_bytes(before)
             || prepared.planned != backup::digest_bytes(planned)
-            || prepared.mode != mode
         {
             return Err("dry-run과 다른 DeviceInfo 계획이라 쓰기를 요청하지 않았습니다.".into());
         }

@@ -173,14 +173,7 @@ impl Fake {
     pub(crate) fn backup(&mut self, output: &Path, slot: Slot) -> VerifiedBackup {
         let builder = BackupBuilder::create(output).unwrap();
         self.journal = Some(builder.path().to_path_buf());
-        stage1::take_backup(
-            self,
-            &prepared(slot, Connection::Adb),
-            &firmware(),
-            builder,
-            &mut vec![],
-        )
-        .unwrap()
+        stage1::take_backup(self, &prepared(slot, Connection::Adb), builder, &mut vec![]).unwrap()
     }
 
     pub(crate) fn bytes(&self, name: &str) -> &[u8] {

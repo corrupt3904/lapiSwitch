@@ -4,6 +4,7 @@ use iced::widget::{
     text,
 };
 use iced::{Alignment, Background, Border, Color, Fill};
+use lapiswitch_core::state::Request;
 pub(super) const INK: Color = Color::from_rgb8(25, 39, 62);
 pub(super) const MUTED: Color = Color::from_rgb8(100, 116, 139);
 pub(super) const ACCENT: Color = Color::from_rgb8(36, 89, 198);
@@ -305,7 +306,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
                     label(app.t("이어갈 작업이 있습니다", "An interrupted run was found")),
                     small(format!(
                         "{} · {:?}",
-                        pending.state.target_region.token(),
+                        request_label(app, &pending.state),
                         pending.state.stage
                     ))
                 ]
@@ -338,6 +339,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
     }
     let (content, footer) = match app.page {
         Page::Dashboard => dashboard_view::dashboard(app),
+        Page::Edit => edit(app),
         Page::Region => region(app),
         Page::Firmware => firmware(app),
         Page::Options => options(app),
@@ -420,6 +422,8 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             border: Border { color: DANGER, width: 2.0, radius: 16.0.into() },
             ..Default::default()
         }).max_width(660))
+    } else if let Some(editor) = &app.editor {
+        Some(super::editor::modal(app, editor))
     } else if app.edl_confirmation.is_some() {
         Some(
             panel(
@@ -659,6 +663,26 @@ fn options(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     )
 }
 /// Region conversion always erases user data.
+/// One line naming what a saved run changes.
+pub(super) fn request_label(app: &App, state: &lapiswitch_core::state::RunState) -> String {
+    match state.request {
+        Request::Convert { target, .. } => {
+            format!(
+                "{} · {}",
+                app.t("리전 변환", "Region conversion"),
+                target.token()
+            )
+        }
+        Request::Edit => match &state.firmware {
+            Some(binding) => format!(
+                "{} · {}",
+                app.t("DeviceInfo 수정", "DeviceInfo edit"),
+                binding.region.token()
+            ),
+            None => app.t("DeviceInfo 수정", "DeviceInfo edit").into(),
+        },
+    }
+}
 fn summary<'a>(
     app: &App,
     region: Option<Region>,
@@ -965,6 +989,71 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         .into(),
     )
 }
+/// DeviceInfo edit setup. Values are chosen later from the live DeviceInfo
+/// read in TWRP; only the EDL loader is needed now.
+fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
+    let mut content = column![
+        title(
+            app,
+            "DeviceInfo 수정",
+            "Edit DeviceInfo",
+            "기기의 DeviceInfo를 TWRP에서 읽은 뒤 원하는 값을 직접 수정합니다.",
+            "Read the device's DeviceInfo in TWRP, then edit the values directly."
+        ),
+        dashboard_view::connection_note(app),
+        action(
+            app.t("EDL 로더 선택", "Choose EDL loader"),
+            Message::Pick(Picker::Loader),
+            !app.busy()
+        )
+        .style(soft_style)
+    ]
+    .spacing(20);
+    if let Some(path) = &app.loader {
+        content = content.push(small(path.display().to_string()));
+    }
+    content = content
+        .push(note(
+            app.t(
+                "원본 GPT·활성 슬롯 Recovery·vendor_boot·misc 및 고유 파티션을 먼저 백업하고 TWRP로 부팅합니다. TWRP에서 읽은 DeviceInfo 전체 필드가 편집 창에 표시되며, 각 값은 필드 형식과 크기에 맞게 입력해야 합니다.",
+                "Original GPT, active-slot Recovery and vendor_boot, misc and device-specific partitions are backed up first, then the tablet boots to TWRP. Every DeviceInfo field read there is shown in the editor; each value must match its field's type and size.",
+            ),
+            true,
+        ))
+        .push(note(
+            app.t(
+                "리전을 바꾸지 않으면 펌웨어를 설치하지 않고 사용자 데이터를 유지합니다. 리전을 바꾸면 해당 리전 펌웨어 설치가 필수이며 사용자 데이터가 반드시 초기화됩니다.",
+                "Without a region change no firmware is installed and user data is kept. A region change requires installing that region's firmware, which always erases user data.",
+            ),
+            false,
+        ))
+        .push(warning_note(app.t(
+            "보안·구조 필드를 잘못 바꾸면 부팅이 되지 않을 수 있습니다. 쓰기 전 변경 목록을 반드시 확인하세요. 편집 창에서 취소하면 DeviceInfo를 바꾸지 않고 원본 구성을 자동으로 복구합니다.",
+            "Wrong security/structure values can stop the tablet from booting. Always review the change list before writing. Cancelling in the editor leaves DeviceInfo unchanged and restores the original configuration automatically.",
+        )))
+        .push(
+            checkbox(app.agreed)
+                .label(app.t(
+                    "위 안내를 확인했으며 DeviceInfo 수정을 진행하겠습니다.",
+                    "I have read the instructions and want to edit DeviceInfo.",
+                ))
+                .on_toggle(Message::Agree),
+        );
+    (
+        content.into(),
+        row![
+            space().width(Fill),
+            action(app.t("이전", "Back"), Message::Back, !app.busy()).style(soft_style),
+            action(
+                app.t("DeviceInfo 수정 시작", "Start DeviceInfo edit"),
+                Message::Start,
+                app.can_start()
+            )
+        ]
+        .spacing(12)
+        .into(),
+    )
+}
 fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let mut content = column![
         title(
@@ -1016,7 +1105,7 @@ fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     if let Some(path) = &app.loader {
         content = content.push(small(path.display().to_string()));
     }
-    content = content.push(warning_note(app.t("이 작업은 설치된 전체 펌웨어를 이전 버전으로 되돌리는 기능이 아닙니다. DeviceInfo 변경이 검증되면 TWRP에서 원래 리전으로 되돌린 뒤 원본 vendor_boot·Recovery·GPT를 복구합니다. 쓰기 결과가 불명확하면 자동 복구를 진행하지 않습니다. 롤백인덱스는 유지합니다.", "This does not roll back the entire installed firmware. Verified DeviceInfo region changes are reversed in TWRP before restoring original vendor_boot, Recovery and GPT. Unknown write results block automatic restoration. Rollback indices are retained.")))
+    content = content.push(warning_note(app.t("이 작업은 설치된 전체 펌웨어를 이전 버전으로 되돌리는 기능이 아닙니다. DeviceInfo 변경이 검증되면 TWRP에서 작업 전 DeviceInfo 전체를 다시 기록한 뒤 원본 vendor_boot·Recovery·GPT를 복구합니다. 쓰기 결과가 불명확하면 자동 복구를 진행하지 않습니다.", "This does not roll back the entire installed firmware. Verified DeviceInfo changes are reversed in TWRP by writing back the complete original DeviceInfo before restoring original vendor_boot, Recovery and GPT. Unknown write results block automatic restoration.")))
         .push(checkbox(app.agreed).label(app.t("이 백업을 만든 기기이며 원본 복구를 진행하겠습니다.", "This is the device that created the backup; restore its original region and configuration.")).on_toggle(Message::Agree));
     (
         content.into(),
@@ -1105,30 +1194,40 @@ fn resume(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     }
     if let Some(pending) = &app.pending {
         let state = &pending.state;
-        content = content
-            .push(summary(
+        content = content.push(field(app.t("작업", "Operation"), request_label(app, state)));
+        content = match &state.firmware {
+            Some(binding) => content.push(summary(
                 app,
-                Some(state.target_region),
+                Some(binding.region),
                 state.options.country.as_deref(),
-                state.firmware_dir.display().to_string(),
-            ))
-            .push(field(
-                app.t("백업", "Backup"),
-                state.backup_dir.display().to_string(),
-            ));
-        content = content
-            .push(field(
-                app.t("현재 단계", "Saved stage"),
-                format!("{:?}", state.recovery.phase),
-            ))
-            .push(field(
+                binding.firmware_dir.display().to_string(),
+            )),
+            None => content.push(field(
+                app.t("펌웨어", "Firmware"),
+                app.t(
+                    "설치 안 함 · 사용자 데이터 유지",
+                    "Not installed · user data kept",
+                ),
+            )),
+        };
+        content = content.push(field(
+            app.t("백업", "Backup"),
+            state.backup_dir.display().to_string(),
+        ));
+        content = content.push(field(
+            app.t("현재 단계", "Saved stage"),
+            format!("{:?}", state.recovery.phase),
+        ));
+        if let Request::Convert { rollback_mode, .. } = state.request {
+            content = content.push(field(
                 app.t("롤백인덱스", "Rollback indices"),
-                if state.options.rollback_mode == lapiswitch_core::deviceinfo::RollbackMode::Reset {
+                if rollback_mode == lapiswitch_core::deviceinfo::RollbackMode::Reset {
                     app.t("초기화 · 32개 → 0", "Reset · 32 → 0")
                 } else {
                     app.t("미초기화", "Keep")
                 },
             ));
+        }
         let guidance = match pending.action {
             ResumeAction::Recovery => app.t("현재 기록으로는 이어갈 수 없습니다. 백업과 작업 기록을 확인한 뒤 원본 복구를 사용하세요.", "This checkpoint cannot be resumed. Review the backup and saved record, then use original restoration."),
             ResumeAction::Flash => app.t("펌웨어를 다시 설치하며 사용자 데이터를 반드시 초기화합니다.", "Firmware will be installed again and user data will be erased."),

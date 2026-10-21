@@ -2,6 +2,7 @@ mod archive;
 mod conflicts;
 mod country_view;
 mod dashboard_view;
+mod editor;
 mod licenses_view;
 mod settings_view;
 mod view;
@@ -22,6 +23,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Page {
     Dashboard,
+    /// DeviceInfo edit setup: EDL loader and consent.
+    Edit,
     Region,
     Firmware,
     Options,
@@ -43,6 +46,7 @@ enum Activity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunKind {
     Convert,
+    Edit,
     Resume,
     Restore,
 }
@@ -52,6 +56,7 @@ enum Picker {
     Output,
     Backup,
     Loader,
+    EditorFirmware,
     Export,
 }
 #[derive(Debug, Clone)]
@@ -61,6 +66,8 @@ enum Message {
     Back,
     Home,
     Convert,
+    Edit,
+    Editor(editor::EditorMessage),
     Recovery,
     Settings,
     Resume,
@@ -162,6 +169,8 @@ struct App {
     firmware_confirmation: Option<Sender<bool>>,
     /// Keep-mode rollback prompt: comparison details and the worker's answer.
     rollback_confirmation: Option<(String, Sender<bool>)>,
+    /// The live DeviceInfo editor while the tablet waits in TWRP.
+    editor: Option<editor::Editor>,
     logs: VecDeque<String>,
     log_path: Option<PathBuf>,
     backup_path: Option<PathBuf>,
@@ -239,6 +248,7 @@ impl App {
             edl_confirmation: None,
             firmware_confirmation: None,
             rollback_confirmation: None,
+            editor: None,
             logs: VecDeque::new(),
             log_path: None,
             backup_path: None,
@@ -291,11 +301,7 @@ impl App {
     }
     fn options(&self) -> Option<FlashOptions> {
         self.country.as_ref()?;
-        FlashOptions::new(
-            self.country.as_deref().filter(|v| *v != "—"),
-            self.rollback_mode,
-        )
-        .ok()
+        FlashOptions::new(self.country.as_deref().filter(|v| *v != "—")).ok()
     }
     fn drivers_ready(&self) -> bool {
         !self.driver_checking
@@ -336,7 +342,9 @@ impl App {
         };
         match page {
             Page::Region | Page::Firmware | Page::Options | Page::Confirm | Page::Resume => true,
-            Page::Progress | Page::Result => self.run_kind != RunKind::Restore,
+            Page::Progress | Page::Result => {
+                !matches!(self.run_kind, RunKind::Restore | RunKind::Edit)
+            }
             _ => false,
         }
     }
@@ -387,6 +395,20 @@ impl App {
                 "필요한 드라이버를 확인하거나 설치해 주세요.",
                 "Check or install the required drivers.",
             )
+        } else if self.page == Page::Edit {
+            if self.loader.is_none() {
+                self.t(
+                    "EDL 로더 파일을 선택해 주세요.",
+                    "Select the EDL loader file.",
+                )
+            } else if !self.agreed {
+                self.t(
+                    "DeviceInfo 수정 안내를 확인하고 동의 항목을 체크해 주세요.",
+                    "Read the DeviceInfo edit notice and select the consent checkbox.",
+                )
+            } else {
+                return None;
+            }
         } else if self.folder.is_none()
             || !self
                 .report
@@ -480,6 +502,7 @@ impl App {
         self.edl_confirmation = None;
         self.firmware_confirmation = None;
         self.rollback_confirmation = None;
+        self.editor = None;
         self.recovery_transition = None;
         self.recovery_detail = None;
         self.logs.clear();
@@ -578,6 +601,7 @@ impl App {
                     && self.reboot_confirmation.is_none()
                     && self.edl_confirmation.is_none()
                     && self.rollback_confirmation.is_none()
+                    && self.editor.is_none()
                 {
                     self.demo_tick();
                 }
@@ -646,6 +670,7 @@ impl App {
                     let _ = tx.send(reset);
                 }
             }
+            Message::Editor(message) => self.editor_update(message),
             Message::ConfirmRecoveryReboot => {
                 if let Some(confirmation) = self.reboot_confirmation.take() {
                     let delivered = confirmation.send(());
@@ -763,6 +788,11 @@ impl App {
             }
             Message::Convert if !self.device.unsupported_model() => {
                 self.page = Page::Region;
+                self.agreed = false;
+                self.error = None;
+            }
+            Message::Edit if !self.device.unsupported_model() => {
+                self.page = Page::Edit;
                 self.agreed = false;
                 self.error = None;
             }
@@ -891,7 +921,10 @@ impl App {
                     async move {
                         let dialog = rfd::AsyncFileDialog::new();
                         let path = match picker {
-                            Picker::Firmware | Picker::Output | Picker::Backup => {
+                            Picker::Firmware
+                            | Picker::Output
+                            | Picker::Backup
+                            | Picker::EditorFirmware => {
                                 dialog.pick_folder().await.map(|f| f.path().to_owned())
                             }
                             Picker::Loader => dialog
@@ -953,6 +986,7 @@ impl App {
                 self.loader = Some(path);
                 self.agreed = false;
             }
+            Picker::EditorFirmware => self.editor_firmware_picked(Some(path)),
             Picker::Export => {
                 if let Some(source) = self.log_path.clone() {
                     self.activity = Some(Activity::Dialog);
@@ -975,10 +1009,18 @@ impl App {
     fn event(&mut self, event: Event) {
         match event {
             Event::ConfirmUnrecognizedFirmware(tx) => {
-                if self.activity == Some(Activity::Run) && self.run_kind == RunKind::Convert {
+                if self.activity == Some(Activity::Run)
+                    && matches!(self.run_kind, RunKind::Convert | RunKind::Edit)
+                {
                     self.firmware_confirmation = Some(tx);
                 }
             }
+            Event::EditDeviceInfo(layout, before, tx) => {
+                if self.activity == Some(Activity::Run) && self.run_kind != RunKind::Restore {
+                    self.editor = Some(editor::Editor::new(layout, before, tx));
+                }
+            }
+            Event::EditorFirmware(result) => self.editor_firmware_checked(result),
             Event::ConfirmRollbackReset(details, tx) => {
                 if self.activity == Some(Activity::Run) && self.run_kind != RunKind::Restore {
                     self.rollback_confirmation = Some((details, tx));
@@ -1097,6 +1139,7 @@ impl App {
                 self.edl_confirmation = None;
                 self.firmware_confirmation = None;
                 self.rollback_confirmation = None;
+                self.editor = None;
                 self.recovery_transition = None;
                 self.activity = None;
                 self.wait_ticket = None;
@@ -1156,6 +1199,15 @@ impl App {
                 self.recovery_summary = Some("TB520FU · slot a · ROW · 5 files (DEMO)".into());
             }
             Picker::Loader => self.loader = Some("Demo/loader.melf".into()),
+            Picker::EditorFirmware => {
+                if let Some(editor) = self.editor.as_mut()
+                    && let Some(region) = editor.target_region()
+                {
+                    editor.firmware_dir = Some("Demo/firmware/image".into());
+                    editor.checking = false;
+                    editor.firmware = Some(Ok(demo_report(region)));
+                }
+            }
             Picker::Output => {
                 let _ = self.picked(Picker::Output, Some("Demo/lapiSwitch".into()));
             }
@@ -1342,6 +1394,27 @@ impl App {
                 self.edl_confirmation = Some(tx);
             }
             "confirm" => self.page = Page::Confirm,
+            "deviceinfo-edit" => {
+                self.page = Page::Edit;
+                self.loader = Some("Demo/loader.melf".into());
+                self.agreed = true;
+            }
+            "deviceinfo-editor" | "deviceinfo-editor-protected" | "deviceinfo-editor-review" => {
+                self.reset_progress(RunKind::Edit);
+                self.progress.step(Step::DeviceInfo);
+                let (tx, _) = mpsc::channel();
+                let mut editor =
+                    editor::Editor::new(lapiswitch_core::deviceinfo::LAYOUT, demo_deviceinfo(), tx);
+                if screen == "deviceinfo-editor-protected" {
+                    editor.tab = lapiswitch_core::deviceinfo::map::Class::Protected;
+                }
+                self.editor = Some(editor);
+                if screen == "deviceinfo-editor-review" {
+                    self.editor_update(editor::EditorMessage::Input("region".into(), "ROW".into()));
+                    self.demo_pick(Picker::EditorFirmware);
+                    self.editor_update(editor::EditorMessage::Review(true));
+                }
+            }
             "twrp-warning" | "edl-warning" | "deviceinfo" | "twrp-wait" | "new-flash"
             | "finalizing" | "preflight" => {
                 self.page = Page::Progress;
@@ -1478,6 +1551,17 @@ impl App {
         }
     }
 }
+/// Synthetic TB520FU-shaped DeviceInfo for previews (no real dump data).
+fn demo_deviceinfo() -> Vec<u8> {
+    use lapiswitch_core::deviceinfo::{SHARED_SIZE, map};
+    let mut b = vec![0u8; SHARED_SIZE];
+    b[..13].copy_from_slice(b"ANDROID-BOOT!");
+    b[0xCC8..0xCD0].copy_from_slice(b"deadbeef");
+    b[0xD10..0xD13].copy_from_slice(b"PRC");
+    b[0xD20..0xD28].copy_from_slice(b"beefdead");
+    b[map::ROLLBACK_START + 8] = 1;
+    b
+}
 fn demo_saved_state(stage: Stage) -> lapiswitch_core::state::RunState {
     let fw = demo_report(Region::Row);
     lapiswitch_core::state::RunState {
@@ -1488,13 +1572,23 @@ fn demo_saved_state(stage: Stage) -> lapiswitch_core::state::RunState {
         },
         run_id: "demo".into(),
         stage,
-        target_region: Region::Row,
-        firmware_dir: fw.image_dir,
-        fingerprint: fw.fingerprint,
-        indices: fw.indices,
-        files: vec![],
-        options: FlashOptions::new(Some("KR"), lapiswitch_core::deviceinfo::RollbackMode::Reset)
-            .unwrap(),
+        request: lapiswitch_core::state::Request::Convert {
+            target: Region::Row,
+            rollback_mode: lapiswitch_core::deviceinfo::RollbackMode::Reset,
+        },
+        loader: lapiswitch_core::state::SealedFile {
+            path: fw.loader.clone(),
+            size: 0,
+            sha256: String::new(),
+        },
+        firmware: Some(lapiswitch_core::state::FirmwareBinding {
+            region: Region::Row,
+            firmware_dir: fw.image_dir,
+            fingerprint: fw.fingerprint,
+            indices: fw.indices,
+            files: vec![],
+        }),
+        options: FlashOptions::new(Some("KR")).unwrap(),
         backup_dir: "Demo/backup".into(),
         backup_sha256: None,
         slot: None,
@@ -2021,6 +2115,10 @@ mod tests {
                 "preflight",
                 "firmware-mismatch",
                 "edl-start-warning",
+                "deviceinfo-edit",
+                "deviceinfo-editor",
+                "deviceinfo-editor-protected",
+                "deviceinfo-editor-review",
                 "twrp-wait",
                 "deviceinfo",
                 "new-flash",
@@ -2063,18 +2161,18 @@ mod tests {
         assert_eq!(app.logs.front().unwrap(), "600");
     }
     #[test]
-    fn new_conversion_defaults_to_reset_and_options_always_record_the_mode() {
+    fn new_conversion_defaults_to_reset_and_mode_is_locked_while_running() {
         let mut app = App::base(true);
         app.country = Some("KR".into());
         assert_eq!(
-            app.options().unwrap().rollback_mode,
+            app.rollback_mode,
             lapiswitch_core::deviceinfo::RollbackMode::Reset
         );
         let _ = app.update(Message::Rollback(
             lapiswitch_core::deviceinfo::RollbackMode::Keep,
         ));
         assert_eq!(
-            app.options().unwrap().rollback_mode,
+            app.rollback_mode,
             lapiswitch_core::deviceinfo::RollbackMode::Keep
         );
         app.activity = Some(Activity::Run);
@@ -2082,16 +2180,14 @@ mod tests {
             lapiswitch_core::deviceinfo::RollbackMode::Reset,
         ));
         assert_eq!(
-            app.options().unwrap().rollback_mode,
+            app.rollback_mode,
             lapiswitch_core::deviceinfo::RollbackMode::Keep
         );
-        // Saved options without an explicit mode are not guessed.
-        assert!(serde_json::from_str::<FlashOptions>(r#"{"country":null}"#).is_err());
+        // Flash options carry only the country; the mode lives in the request.
+        assert!(serde_json::from_str::<FlashOptions>(r#"{"country":null}"#).is_ok());
         assert!(
-            serde_json::from_str::<FlashOptions>(
-                r#"{"wipe":true,"country":null,"rollback_mode":"KEEP"}"#
-            )
-            .is_err()
+            serde_json::from_str::<FlashOptions>(r#"{"country":null,"rollback_mode":"KEEP"}"#)
+                .is_err()
         );
     }
     #[test]

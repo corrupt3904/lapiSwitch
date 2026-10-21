@@ -119,13 +119,13 @@ mod memory_device;
 use lapiswitch_core::{
     avb_info::AvbSummary,
     backup::{BackupBuilder, TransactionStage, VerifiedBackup},
-    deviceinfo::{self, RollbackMode},
+    deviceinfo::{self, RollbackMode, map},
     firmware::FirmwareReport,
-    recovery_flow::{self, DeviceInfoIo, Outcome, Phase, Transition},
+    recovery_flow::{self, DeviceInfoIo, EditRequest, Outcome, Phase, Transition},
     rollback::Downgrade,
     slot::Slot,
     stage1::{self, ResetMode, StageIo},
-    state::{FlashOptions, RunState, StateStore},
+    state::{FlashOptions, Request, RunState, StateStore},
     storage::Partition,
     workflow::FinishIo,
 };
@@ -140,8 +140,21 @@ struct Ui {
     /// Answer to the Keep-mode rollback prompt; `None` closes it.
     rollback: Option<bool>,
     asked: Vec<Vec<Downgrade>>,
+    /// Answer of the DeviceInfo editor; `None` cancels.
+    edit: Option<EditRequest>,
+    edits_shown: usize,
 }
 impl recovery_flow::Ui for Ui {
+    fn edit_deviceinfo(
+        &mut self,
+        layout: map::Layout,
+        before: &[u8],
+    ) -> Result<Option<EditRequest>, String> {
+        assert_eq!(layout, deviceinfo::LAYOUT);
+        layout.check_buffer(before)?;
+        self.edits_shown += 1;
+        Ok(self.edit.clone())
+    }
     fn phase(&mut self, phase: Phase) {
         self.phases.push(phase);
     }
@@ -165,9 +178,15 @@ fn sample(r: lapiswitch_core::region::Region) -> Vec<u8> {
     b[..13].copy_from_slice(b"ANDROID-BOOT!");
     b[0xCC8..0xCD0].copy_from_slice(b"deadbeef");
     b[0xD20..0xD28].copy_from_slice(b"beefdead");
+    b[0xD10..0xD20].fill(0);
     b[0xD10..0xD13].copy_from_slice(r.token().as_bytes());
-    b[0xD13] = 0;
     b
+}
+fn mode(state: &RunState) -> RollbackMode {
+    match state.request {
+        Request::Convert { rollback_mode, .. } => rollback_mode,
+        Request::Edit => panic!("not a conversion"),
+    }
 }
 struct Info {
     bytes: Vec<u8>,
@@ -215,13 +234,12 @@ impl DeviceInfoIo for Info {
         &mut self,
         before: &[u8],
         planned: &[u8],
-        mode: RollbackMode,
         _: &mut Vec<String>,
     ) -> Result<(), String> {
         // No durable write intent may exist while transfers can still fail.
         assert_eq!(self.phase(), Phase::Planned);
         assert_eq!(before, self.bytes);
-        deviceinfo::validate_plan(before, planned, deviceinfo::region(planned)?, mode)?;
+        map::check_plan(deviceinfo::LAYOUT, before, planned)?;
         if self.fail_prepare {
             return Err("push/dry-run failed".into());
         }
@@ -232,7 +250,6 @@ impl DeviceInfoIo for Info {
         &mut self,
         before: &[u8],
         planned: &[u8],
-        mode: RollbackMode,
         out: &Path,
         _: &mut Vec<String>,
     ) -> Result<(Vec<u8>, Vec<u8>), String> {
@@ -261,7 +278,7 @@ impl DeviceInfoIo for Info {
         );
         assert_eq!(before, self.bytes);
         let p = planned.to_vec();
-        deviceinfo::validate_plan(&self.bytes, &p, deviceinfo::region(&p)?, mode)?;
+        map::check_plan(deviceinfo::LAYOUT, &self.bytes, &p)?;
         if self.fail_before_write {
             self.fail_reads = self.lose_usb_on_write;
             return Err("DeviceInfo helper가 쓰기 요청 전에 종료했습니다 (exit 1).".into());
@@ -290,18 +307,31 @@ struct Setup {
     disk: Fake,
     backup: VerifiedBackup,
     firmware: FirmwareReport,
+    /// The firmware the run installs: set for conversions, chosen in the
+    /// editor for an edit that changes the region.
+    chosen: Option<FirmwareReport>,
     state: RunState,
     store: StateStore,
     info: Info,
     /// Rollback prompt answer and every prompt shown across `transact` calls.
     rollback: Option<bool>,
     asked: Vec<Vec<Downgrade>>,
+    /// Editor answer and how often the editor was shown.
+    edit: Option<EditRequest>,
+    edits_shown: usize,
 }
 impl Setup {
     fn new(slot: Slot, mode: RollbackMode) -> Self {
         Self::with_recovery_size(slot, mode, false)
     }
     fn with_recovery_size(slot: Slot, mode: RollbackMode, large: bool) -> Self {
+        Self::build(slot, Some(mode), large)
+    }
+    /// A DeviceInfo edit run; values are chosen through `edit`.
+    fn edit(slot: Slot) -> Self {
+        Self::build(slot, None, false)
+    }
+    fn build(slot: Slot, mode: Option<RollbackMode>, large: bool) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let fwdir = dir.path().join("firmware");
         std::fs::create_dir(&fwdir).unwrap();
@@ -352,14 +382,18 @@ impl Setup {
         }
         disk.disk[4][..disk.original_gpt.len()].copy_from_slice(&disk.original_gpt);
         let builder = BackupBuilder::create(dir.path()).unwrap();
-        let options = FlashOptions::new(None, mode).unwrap();
-        let mut state = RunState::new(&fw, options, builder.path()).unwrap();
+        let mut state = match mode {
+            Some(mode) => {
+                RunState::convert(&fw, mode, FlashOptions::new(None).unwrap(), builder.path())
+                    .unwrap()
+            }
+            None => RunState::edit(&fw.loader, builder.path()).unwrap(),
+        };
         let store = StateStore::new(dir.path().join("state.json"));
         store.begin(&state).unwrap();
         let backup = stage1::take_backup(
             &mut disk,
             &prepared(slot, lapiswitch_core::prepare::Connection::Adb),
-            &fw,
             builder,
             &mut vec![],
         )
@@ -386,29 +420,34 @@ impl Setup {
             _dir: dir,
             disk,
             backup,
+            chosen: mode.map(|_| fw.clone()),
             firmware: fw,
             state,
             store,
             info,
             rollback: None,
             asked: vec![],
+            edit: None,
+            edits_shown: 0,
         }
     }
     fn outcome(&mut self) -> Result<Outcome, String> {
         let mut ui = Ui {
             rollback: self.rollback,
+            edit: self.edit.clone(),
             ..Ui::default()
         };
         let result = recovery_flow::transact(
             &mut self.info,
             &self.backup,
-            &self.firmware,
+            &mut self.chosen,
             &mut self.state,
             &self.store,
             &mut ui,
             &mut vec![],
         );
         self.asked.extend(ui.asked);
+        self.edits_shown += ui.edits_shown;
         result
     }
     /// A cancelled rollback prompt is not a verified transaction.
@@ -452,16 +491,24 @@ fn reset_backs_up_before_one_write_and_preserves_all_other_bytes() {
     let before = s.info.bytes.clone();
     s.transact().unwrap();
     assert_eq!(s.info.writes, 1);
-    assert_eq!(deviceinfo::indices(&s.info.bytes).unwrap(), [0; 32]);
-    deviceinfo::validate_plan(
-        &before,
-        &s.info.bytes,
-        s.state.target_region,
-        RollbackMode::Reset,
-    )
-    .unwrap();
+    assert_eq!(deviceinfo::indices(&s.info.bytes), [0; 32]);
+    assert_eq!(s.info.bytes, conversion(&before, &s, RollbackMode::Reset));
     s.transact().unwrap();
     assert_eq!(s.info.writes, 1);
+}
+/// Region and optional rollback reset only; every other byte as read.
+fn conversion(before: &[u8], s: &Setup, mode: RollbackMode) -> Vec<u8> {
+    let edits = deviceinfo::conversion_edits(before, s.firmware.region, mode).unwrap();
+    let planned = map::apply(deviceinfo::LAYOUT, before, &edits).unwrap();
+    for (n, (a, b)) in before.iter().zip(&planned).enumerate() {
+        if a != b {
+            assert!(
+                (0xD10..0xD20).contains(&n) || (0x898..0x998).contains(&n),
+                "unexpected change at {n:#x}"
+            );
+        }
+    }
+    planned
 }
 /// boot = index 3, vbmeta_system = index 2, both little-endian u64 in DeviceInfo.
 fn store_indices(bytes: &mut [u8], boot: u64, vbmeta_system: u64) {
@@ -487,7 +534,7 @@ fn keep_lower_firmware_cancel_writes_nothing_and_stays_before_write() {
     assert_eq!(s.info.writes, 0);
     assert!(!s.info.prepared);
     let saved = saved_state(&s);
-    assert_eq!(saved.options.rollback_mode, RollbackMode::Keep);
+    assert_eq!(mode(&saved), RollbackMode::Keep);
     let progress = saved.recovery;
     assert_eq!(progress.phase, Phase::RecoveryWaiting);
     assert!(progress.attempt.is_none());
@@ -502,20 +549,13 @@ fn keep_lower_firmware_reset_answer_persists_reset_and_zeroes_all_indices() {
     s.transact().unwrap();
     assert_eq!(s.asked.len(), 1);
     assert_eq!(s.info.writes, 1);
-    assert_eq!(deviceinfo::indices(&s.info.bytes).unwrap(), [0; 32]);
-    deviceinfo::validate_plan(
-        &before,
-        &s.info.bytes,
-        s.state.target_region,
-        RollbackMode::Reset,
-    )
-    .unwrap();
+    assert_eq!(deviceinfo::indices(&s.info.bytes), [0; 32]);
+    assert_eq!(s.info.bytes, conversion(&before, &s, RollbackMode::Reset));
+    // The reset is part of the recorded plan; the request keeps its choice.
     let saved = saved_state(&s);
-    assert_eq!(saved.options.rollback_mode, RollbackMode::Reset);
-    assert_eq!(
-        saved.recovery.attempt.as_ref().unwrap().mode,
-        RollbackMode::Reset
-    );
+    assert_eq!(mode(&saved), RollbackMode::Keep);
+    let edits = &saved.recovery.attempt.as_ref().unwrap().edits;
+    assert!((0..32).all(|n| edits.contains_key(&format!("rollback_index[{n}]"))));
     assert!(
         saved
             .warnings
@@ -538,7 +578,7 @@ fn closing_the_rollback_prompt_stops_without_writes_or_mode_change() {
     assert_eq!(s.asked.len(), 1);
     assert_eq!(s.info.writes, 0);
     let saved = saved_state(&s);
-    assert_eq!(saved.options.rollback_mode, RollbackMode::Keep);
+    assert_eq!(mode(&saved), RollbackMode::Keep);
     assert_eq!(saved.recovery.phase, Phase::RecoveryWaiting);
     // A later resume asks again and may continue.
     s.rollback = Some(true);
@@ -553,12 +593,12 @@ fn keep_with_equal_or_higher_firmware_never_prompts_and_preserves_indices() {
         // Unrelated locations are not compared, even when far above 20.
         s.info.bytes[0x898..0x998].fill(0x5A);
         store_indices(&mut s.info.bytes, boot, vbmeta_system);
-        let before = deviceinfo::indices(&s.info.bytes).unwrap();
+        let before = deviceinfo::indices(&s.info.bytes);
         s.transact().unwrap();
         assert!(s.asked.is_empty(), "{boot}/{vbmeta_system}");
         assert_eq!(s.info.writes, 1);
-        assert_eq!(deviceinfo::indices(&s.info.bytes).unwrap(), before);
-        assert_eq!(saved_state(&s).options.rollback_mode, RollbackMode::Keep);
+        assert_eq!(deviceinfo::indices(&s.info.bytes), before);
+        assert_eq!(mode(&saved_state(&s)), RollbackMode::Keep);
     }
 }
 #[test]
@@ -578,13 +618,13 @@ fn reset_mode_never_compares_or_prompts() {
     let mut s = Setup::new(Slot::A, RollbackMode::Reset);
     s.transact().unwrap();
     assert!(s.asked.is_empty());
-    assert_eq!(deviceinfo::indices(&s.info.bytes).unwrap(), [0; 32]);
+    assert_eq!(deviceinfo::indices(&s.info.bytes), [0; 32]);
 }
 #[test]
 fn same_target_keep_is_noop_but_reset_must_clear_existing_indices() {
     for mode in [RollbackMode::Keep, RollbackMode::Reset] {
         let mut s = Setup::new(Slot::A, mode);
-        s.info.bytes = sample(s.state.target_region);
+        s.info.bytes = sample(s.firmware.region);
         if mode == RollbackMode::Keep {
             s.info.bytes[0x898..0x998].fill(0);
         }
@@ -832,7 +872,7 @@ fn firmware_requires_verified_deviceinfo_and_original_recovery_gpt_first() {
         recovery_flow::finish(
             &mut d,
             &s.backup,
-            &s.firmware,
+            Some(s.firmware.clone()),
             &mut s.state,
             &s.store,
             &mut ui,
@@ -881,7 +921,7 @@ fn failed_restore_or_missing_evidence_blocks_firmware() {
             recovery_flow::finish(
                 &mut d,
                 &s.backup,
-                &s.firmware,
+                Some(s.firmware.clone()),
                 &mut s.state,
                 &s.store,
                 &mut Ui::default(),
@@ -909,7 +949,7 @@ fn stop_wins_before_any_original_restore_or_firmware_write() {
         recovery_flow::finish(
             &mut d,
             &s.backup,
-            &s.firmware,
+            Some(s.firmware.clone()),
             &mut s.state,
             &s.store,
             &mut Ui {
@@ -1008,7 +1048,7 @@ fn compact_final_readback_tampering_blocks_original_restore_and_firmware() {
         recovery_flow::finish(
             &mut d,
             &s.backup,
-            &s.firmware,
+            Some(s.firmware.clone()),
             &mut s.state,
             &s.store,
             &mut Ui::default(),
@@ -1247,8 +1287,9 @@ fn restoration_classifies_durable_intent_and_real_final_dumps_not_file_presence(
     assert_eq!(
         restore::preflight(&s.backup).unwrap(),
         Assessment::Verified {
-            original: lapiswitch_core::region::Region::Prc,
-            current: lapiswitch_core::region::Region::Row
+            original: Some(lapiswitch_core::region::Region::Prc),
+            current: Some(lapiswitch_core::region::Region::Row),
+            changed: true,
         }
     );
     let final_path = s
@@ -1294,30 +1335,21 @@ impl DeviceInfoIo for RestoreInfo {
     fn read(&mut self, _: &Path, _: &mut Vec<String>) -> Result<Vec<u8>, String> {
         Ok(self.shared.borrow().0.clone())
     }
-    fn prepare(
-        &mut self,
-        b: &[u8],
-        p: &[u8],
-        mode: RollbackMode,
-        _: &mut Vec<String>,
-    ) -> Result<(), String> {
-        assert_eq!(mode, RollbackMode::Keep);
+    fn prepare(&mut self, b: &[u8], p: &[u8], _: &mut Vec<String>) -> Result<(), String> {
         assert_eq!(b, self.shared.borrow().0);
         // The reverse write intent is recorded only after the dry-run.
         let j: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&self.journal).unwrap()).unwrap();
         assert_eq!(j["phase"], "BootRequested");
-        deviceinfo::validate_plan(b, p, deviceinfo::region(p)?, mode)
+        map::check_plan(deviceinfo::LAYOUT, b, p)
     }
     fn apply(
         &mut self,
         b: &[u8],
         p: &[u8],
-        mode: RollbackMode,
         _: &Path,
         _: &mut Vec<String>,
     ) -> Result<(Vec<u8>, Vec<u8>), String> {
-        assert_eq!(mode, RollbackMode::Keep);
         assert_eq!(b, self.shared.borrow().0);
         let j: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&self.journal).unwrap()).unwrap();
@@ -1552,11 +1584,12 @@ fn stopping_the_edl_wait_after_a_rollback_cancel_writes_nothing_and_keeps_the_ru
 
 #[test]
 #[ignore = "Pinned TWRP fixture; RAM/disk only. Set LAPISWITCH_TWRP_TEST_IMAGE"]
-fn reverse_region_restore_preserves_indices_handles_both_slots_and_blocks_uncertain_retry() {
+fn reverse_restore_writes_the_full_original_handles_both_slots_and_blocks_uncertain_retry() {
     use recovery_flow::restore;
     let twrp = PathBuf::from(std::env::var_os("LAPISWITCH_TWRP_TEST_IMAGE").unwrap());
     for (slot, fail) in [(Slot::A, false), (Slot::B, false), (Slot::B, true)] {
         let mut s = Setup::with_recovery_size(slot, RollbackMode::Reset, true);
+        let original = s.info.bytes.clone();
         s.transact().unwrap();
         let shared = std::rc::Rc::new(std::cell::RefCell::new((s.info.bytes.clone(), 0)));
         let journal = s
@@ -1589,7 +1622,8 @@ fn reverse_region_restore_preserves_indices_handles_both_slots_and_blocks_uncert
             deviceinfo::region(&shared.borrow().0).unwrap(),
             lapiswitch_core::region::Region::Prc
         );
-        assert_eq!(deviceinfo::indices(&shared.borrow().0).unwrap(), [0; 32]);
+        // The complete original, rollback indices included.
+        assert_eq!(shared.borrow().0, original);
         assert_eq!(
             disk.0
                 .inner
@@ -1666,9 +1700,9 @@ fn reverse_proof_resumes_only_partition_restoration_and_corruption_blocks_all_io
         ("RegionVerified", true),
     ] {
         let mut s = Setup::new(Slot::B, RollbackMode::Reset);
+        let after = s.info.bytes.clone();
         s.transact().unwrap();
         let before = s.info.bytes.clone();
-        let after = deviceinfo::plan(&before, Region::Prc, RollbackMode::Keep).unwrap();
         let dir = s.backup.path().join("Partition/OriginalRestore");
         std::fs::create_dir(&dir).unwrap();
         let before_path = dir.join("deviceinfo_before.bin");
@@ -1794,7 +1828,6 @@ fn s3_device_version_gate_uses_active_slot_before_partition_backup() {
             let result = stage1::take_backup(
                 &mut d,
                 &prepared(slot, lapiswitch_core::prepare::Connection::Adb),
-                &firmware(),
                 builder,
                 &mut vec![],
             );
@@ -1837,7 +1870,6 @@ fn edl_backups_bind_the_gpt_slot_and_do_not_require_an_adb_identity() {
             let backup = stage1::take_backup(
                 &mut disk,
                 &prepared(slot, lapiswitch_core::prepare::Connection::Edl),
-                &s.firmware,
                 builder,
                 &mut vec![],
             );
@@ -1965,7 +1997,6 @@ fn s3_system_ext_version_and_custom_rom_consent_are_separate_from_stock_ceiling(
             let result = stage1::take_backup_with_confirmation(
                 &mut d,
                 &prepared(slot, lapiswitch_core::prepare::Connection::Adb),
-                &firmware(),
                 builder,
                 &mut || {
                     called += 1;
@@ -1988,4 +2019,181 @@ fn s3_system_ext_version_and_custom_rom_consent_are_separate_from_stock_ceiling(
             }
         }
     }
+}
+
+fn edit_request(pairs: &[(&str, &str)], firmware_dir: Option<PathBuf>) -> EditRequest {
+    EditRequest {
+        edits: pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect(),
+        firmware_dir,
+    }
+}
+
+#[test]
+fn edit_without_region_change_writes_once_binds_no_firmware_and_never_flashes() {
+    for slot in [Slot::A, Slot::B] {
+        let mut s = Setup::edit(slot);
+        let before = s.info.bytes.clone();
+        s.edit = Some(edit_request(&[("rollback_index[5]", "7")], None));
+        s.transact().unwrap();
+        assert_eq!(s.edits_shown, 1);
+        assert_eq!(s.info.writes, 1);
+        assert_eq!(deviceinfo::indices(&s.info.bytes)[5], 7);
+        // Only the edited field differs.
+        let field = deviceinfo::LAYOUT.field("rollback_index[5]").unwrap();
+        for (n, (a, b)) in before.iter().zip(&s.info.bytes).enumerate() {
+            if a != b {
+                assert!(field.range().contains(&n), "{n:#x}");
+            }
+        }
+        assert!(s.state.firmware.is_none());
+        assert!(s.chosen.is_none());
+        assert!(saved_state(&s).firmware.is_none());
+        // The re-read after the EDL prompt neither asks nor writes again.
+        s.transact().unwrap();
+        assert_eq!(s.edits_shown, 1);
+        assert_eq!(s.info.writes, 1);
+        recovery_flow::checkpoint(&mut s.state, &s.store, Phase::EdlWaiting).unwrap();
+        let mut d = Finish {
+            edl: EdlScript::default(),
+            inner: s.disk,
+            flashed: 0,
+            active: 0,
+            reboots: 0,
+            slot,
+        };
+        let mut ui = Ui::default();
+        recovery_flow::finish(
+            &mut d,
+            &s.backup,
+            None,
+            &mut s.state,
+            &s.store,
+            &mut ui,
+            &mut vec![],
+        )
+        .unwrap();
+        // Originals restored, then a plain reboot: no firmware, no wipe, no slot change.
+        assert_eq!((d.flashed, d.active, d.reboots), (0, 0, 1));
+        assert_eq!(
+            d.inner
+                .writes
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>(),
+            [recovery_flow::recovery_name(slot).as_str(), "gpt_main4"]
+        );
+        assert_eq!(
+            ui.phases,
+            vec![
+                Phase::EdlWaiting,
+                Phase::EdlWaiting,
+                Phase::Restoring,
+                Phase::FinalReboot
+            ]
+        );
+        assert_eq!(s.state.recovery.phase, Phase::Done);
+    }
+}
+
+#[test]
+fn edit_region_change_requires_a_checked_firmware_folder_before_any_write() {
+    use recovery_flow::restore::{self, Assessment};
+    let missing = std::env::temp_dir().join("lapiswitch-no-such-firmware");
+    for firmware_dir in [None, Some(missing)] {
+        let mut s = Setup::edit(Slot::A);
+        s.edit = Some(edit_request(&[("region", "ROW")], firmware_dir.clone()));
+        let error = s.transact().unwrap_err();
+        if firmware_dir.is_none() {
+            assert!(error.contains("펌웨어 폴더"), "{error}");
+        }
+        assert_eq!(s.info.writes, 0);
+        assert!(!s.info.prepared);
+        assert!(s.state.firmware.is_none());
+        assert!(s.chosen.is_none());
+        assert!(saved_state(&s).recovery.attempt.is_none());
+        assert_eq!(restore::assess(&s.backup).unwrap(), Assessment::BeforeWrite);
+    }
+}
+
+#[test]
+fn edit_invalid_values_and_tail_changes_are_rejected_without_writes() {
+    for pairs in [
+        vec![("region", "XYZ")],
+        vec![("rollback_index[0]", "not a number")],
+        vec![("region", "PRC_TOO_LONG_VALUE")],
+        vec![("no_such_field", "1")],
+    ] {
+        let mut s = Setup::edit(Slot::B);
+        s.edit = Some(edit_request(&pairs, None));
+        assert!(s.transact().is_err(), "{pairs:?}");
+        assert_eq!(s.info.writes, 0, "{pairs:?}");
+        assert!(saved_state(&s).recovery.attempt.is_none());
+    }
+}
+
+#[test]
+fn closing_the_editor_cancels_before_any_plan_or_write() {
+    use recovery_flow::restore::{self, Assessment};
+    let mut s = Setup::edit(Slot::A);
+    assert_eq!(s.outcome().unwrap(), Outcome::Cancelled);
+    assert_eq!(s.edits_shown, 1);
+    assert_eq!(s.info.writes, 0);
+    let saved = saved_state(&s);
+    assert_eq!(saved.recovery.phase, Phase::RecoveryWaiting);
+    assert!(saved.recovery.attempt.is_none());
+    assert_eq!(restore::assess(&s.backup).unwrap(), Assessment::BeforeWrite);
+}
+
+#[test]
+fn an_edit_interrupted_after_its_plan_resumes_with_the_recorded_values() {
+    let mut s = Setup::edit(Slot::B);
+    s.edit = Some(edit_request(&[("rollback_index[1]", "0x10")], None));
+    s.info.fail_prepare = true;
+    assert!(s.transact().is_err());
+    assert_eq!(phase(&s), Phase::Planned);
+    // A different answer now must not replace the durable plan.
+    s.info.fail_prepare = false;
+    s.edit = Some(edit_request(&[("rollback_index[1]", "0x20")], None));
+    s.transact().unwrap();
+    assert_eq!(s.edits_shown, 1);
+    assert_eq!(s.info.writes, 1);
+    assert_eq!(deviceinfo::indices(&s.info.bytes)[1], 0x10);
+}
+
+#[test]
+fn reverse_restore_of_an_edit_targets_the_complete_original() {
+    use recovery_flow::restore::{self, Assessment};
+    let mut s = Setup::edit(Slot::A);
+    let original = s.info.bytes.clone();
+    s.edit = Some(edit_request(&[("rollback_index[9]", "3")], None));
+    s.transact().unwrap();
+    assert_eq!(
+        restore::preflight(&s.backup).unwrap(),
+        Assessment::Verified {
+            original: Some(lapiswitch_core::region::Region::Prc),
+            current: Some(lapiswitch_core::region::Region::Prc),
+            changed: true,
+        }
+    );
+    assert!(restore::preflight(&s.backup).unwrap().needs_twrp());
+    let saved = saved_state(&s);
+    let record = saved.recovery.attempt.unwrap();
+    assert_eq!(
+        record.original_region,
+        Some(lapiswitch_core::region::Region::Prc)
+    );
+    let path = s
+        .backup
+        .path()
+        .join("Partition")
+        .join(&record.directory)
+        .join("before_shared_1.bin");
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    assert_eq!(
+        record.before_sha256,
+        lapiswitch_core::backup::hash_file(&path, None).unwrap().1
+    );
 }

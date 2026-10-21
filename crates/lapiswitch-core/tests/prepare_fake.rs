@@ -95,7 +95,7 @@ impl Fake {
     }
 
     fn run(&mut self) -> Result<PreparedDevice<usize>, PrepareError> {
-        prepare::prepare(self, &firmware(), &mut |_| Ok(()), &mut vec![])
+        prepare::prepare(self, &firmware().loader, &mut |_| Ok(()), &mut vec![])
     }
 }
 
@@ -169,7 +169,7 @@ fn adb_flow_saves_the_identity_then_reboots_straight_to_edl() {
     let mut saved = String::new();
     let prepared = prepare::prepare(
         &mut device,
-        &firmware(),
+        &firmware().loader,
         &mut |raw| {
             saved = raw.into();
             Ok(())
@@ -206,7 +206,7 @@ fn fastboot_start_is_refused_before_any_device_command() {
     let mut saved = false;
     let result = prepare::prepare_with_confirmation(
         &mut device,
-        &firmware(),
+        &firmware().loader,
         &mut |_| {
             saved = true;
             Ok(())
@@ -236,7 +236,7 @@ fn incorrect_adb_model_is_rejected_before_serial_save_or_reboot() {
         let mut saved = false;
         let result = prepare::prepare(
             &mut device,
-            &firmware(),
+            &firmware().loader,
             &mut |_| {
                 saved = true;
                 Ok(())
@@ -284,7 +284,7 @@ fn empty_multiline_or_unreadable_serial_blocks_before_save_and_reboot() {
         let mut saved = false;
         let result = prepare::prepare(
             &mut device,
-            &firmware(),
+            &firmware().loader,
             &mut |_| {
                 saved = true;
                 Ok(())
@@ -316,7 +316,7 @@ fn identity_save_failure_keeps_the_device_in_android() {
     let mut device = Fake::new(Connection::Adb);
     let result = prepare::prepare(
         &mut device,
-        &firmware(),
+        &firmware().loader,
         &mut |_| Err("disk full".into()),
         &mut vec![],
     );
@@ -455,7 +455,7 @@ fn s1_never_reads_boot_or_compares_rollback_indices() {
                 .insert(name.into(), Some(avb(u64::MAX, "TB520FU")));
         }
         let mut log = vec![];
-        let prepared = prepare::prepare(&mut device, &firmware(), &mut |_| Ok(()), &mut log);
+        let prepared = prepare::prepare(&mut device, &firmware().loader, &mut |_| Ok(()), &mut log);
         assert!(prepared.is_ok(), "{start:?}");
         assert!(!device.contains("boot_a"));
         assert!(!device.contains("boot_b"));
@@ -508,7 +508,7 @@ fn reset_failure_keeps_the_original_probe_error() {
     let mut log = vec![];
     let result = prepare::prepare(
         &mut device,
-        &firmware(),
+        &firmware().loader,
         &mut |_| panic!("EDL must not save an ADB identity"),
         &mut log,
     );
@@ -523,7 +523,7 @@ fn edl_start_confirmation_is_required_before_open_and_cancellation_does_not_rese
         let mut asked = 0;
         let result = prepare::prepare_with_confirmation(
             &mut d,
-            &firmware(),
+            &firmware().loader,
             &mut |_| Ok(()),
             &mut || {
                 asked += 1;
@@ -539,7 +539,7 @@ fn edl_start_confirmation_is_required_before_open_and_cancellation_does_not_rese
     let mut d = Fake::new(Connection::Adb);
     prepare::prepare_with_confirmation(
         &mut d,
-        &firmware(),
+        &firmware().loader,
         &mut |_| Ok(()),
         &mut || panic!("only EDL starts ask"),
         &mut vec![],

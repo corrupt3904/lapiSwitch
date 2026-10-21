@@ -19,7 +19,7 @@ struct Setup {
     store: StateStore,
 }
 fn options() -> FlashOptions {
-    FlashOptions::new(None, RollbackMode::Reset).unwrap()
+    FlashOptions::new(None).unwrap()
 }
 impl Setup {
     fn new() -> Self {
@@ -45,7 +45,8 @@ impl Setup {
         firmware.loader = fwdir.join("loader.melf");
         firmware.raw_xmls = vec![xml];
         let store = StateStore::new(root.path().join("state.json"));
-        let mut state = RunState::new(&firmware, options(), backup.path()).unwrap();
+        let mut state =
+            RunState::convert(&firmware, RollbackMode::Reset, options(), backup.path()).unwrap();
         state.bind_backup(&backup).unwrap();
         recovery_flow::checkpoint(&mut state, &store, Phase::RecoveryWaiting).unwrap();
         Self {
@@ -70,11 +71,12 @@ fn missing_nested_payloads_are_pinned_without_requiring_the_directory() {
         "<data><program filename=\"nested/optional.img\" num_partition_sectors=\"1\"/></data>",
     )
     .unwrap();
-    setup.state.files = lapiswitch_core::state::seal_firmware(&setup.firmware).unwrap();
+    setup.state.firmware.as_mut().unwrap().files =
+        lapiswitch_core::state::seal_firmware(&setup.firmware).unwrap();
     std::fs::create_dir(setup.firmware.image_dir.join("nested")).unwrap();
     setup
         .state
-        .verify_binding(&setup.backup, &setup.firmware)
+        .verify_binding(&setup.backup, Some(&setup.firmware))
         .unwrap();
     std::fs::write(
         setup.firmware.image_dir.join("nested/optional.img"),
@@ -84,7 +86,7 @@ fn missing_nested_payloads_are_pinned_without_requiring_the_directory() {
     assert!(
         setup
             .state
-            .verify_binding(&setup.backup, &setup.firmware)
+            .verify_binding(&setup.backup, Some(&setup.firmware))
             .is_err()
     );
 }
@@ -203,7 +205,13 @@ fn completed_restore_archives_active_state_and_backup_removal_does_not_block_new
     assert!(setup.store.load().unwrap().is_none());
     std::fs::remove_file(setup.backup.path().join("transaction.json")).unwrap();
     std::fs::remove_file(setup.backup.path().join("manifest.json")).unwrap();
-    let fresh = RunState::new(&setup.firmware, options(), setup.backup.path()).unwrap();
+    let fresh = RunState::convert(
+        &setup.firmware,
+        RollbackMode::Reset,
+        options(),
+        setup.backup.path(),
+    )
+    .unwrap();
     setup.store.begin(&fresh).unwrap();
     assert_eq!(setup.store.load().unwrap().unwrap().run_id, fresh.run_id);
 }
@@ -292,12 +300,22 @@ fn malformed_old_or_unknown_state_never_becomes_a_fresh_run() {
         assert!(setup.store.load().is_err(), "{field}");
     }
     let mut value = current.clone();
-    value["options"]
+    value["options"]["rollback_mode"] = serde_json::json!("RESET");
+    write(&value);
+    assert!(setup.store.load().is_err());
+    let mut value = current.clone();
+    value["request"]["CONVERT"]
         .as_object_mut()
         .unwrap()
         .remove("rollback_mode");
     write(&value);
     assert!(setup.store.load().is_err());
+    for field in ["target_region", "firmware_dir"] {
+        let mut value = current.clone();
+        value[field] = serde_json::json!("ROW");
+        write(&value);
+        assert!(setup.store.load().is_err(), "{field}");
+    }
     write(&current);
     assert!(setup.store.load().unwrap().is_some());
 }
@@ -317,12 +335,9 @@ fn unfinished_writes_block_new_runs_but_prewrite_or_restored_runs_allow_restart(
 
 #[test]
 fn country_codes_are_validated_when_options_are_built() {
-    assert!(FlashOptions::new(Some("invalid"), RollbackMode::Reset).is_err());
+    assert!(FlashOptions::new(Some("invalid")).is_err());
     assert_eq!(
-        FlashOptions::new(Some("kr"), RollbackMode::Keep)
-            .unwrap()
-            .country
-            .as_deref(),
+        FlashOptions::new(Some("kr")).unwrap().country.as_deref(),
         Some("KR")
     );
 }
@@ -383,7 +398,13 @@ fn explicit_archive_preserves_exact_state_backups_and_logs_without_claiming_rest
         TransactionStage::S4Done
     );
     // A newly prepared run can now take the active pointer normally.
-    let fresh = RunState::new(&setup.firmware, options(), setup.backup.path()).unwrap();
+    let fresh = RunState::convert(
+        &setup.firmware,
+        RollbackMode::Reset,
+        options(),
+        setup.backup.path(),
+    )
+    .unwrap();
     setup.store.begin(&fresh).unwrap();
     assert_eq!(setup.store.load().unwrap().unwrap().run_id, fresh.run_id);
 }

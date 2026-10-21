@@ -81,7 +81,8 @@ fn backups_from_other_format_versions_are_rejected() {
         (4, "recovery_deviceinfo_v2"),
         (5, "recovery_deviceinfo_v3"),
         (6, "recovery_deviceinfo_v4"),
-        (backup::MANIFEST_VERSION, "recovery_deviceinfo_v3"),
+        (7, "recovery_deviceinfo_v5"),
+        (backup::MANIFEST_VERSION, "recovery_deviceinfo_v5"),
     ] {
         let mut old = current.clone();
         old["version"] = version.into();
@@ -96,7 +97,13 @@ fn backups_from_other_format_versions_are_rejected() {
         );
     }
     // Earlier manifests also carried fields this version no longer reads.
-    for field in ["gpt_policy", "slot_estimated", "device_floors"] {
+    for field in [
+        "gpt_policy",
+        "slot_estimated",
+        "device_floors",
+        "target_region",
+        "firmware_indices",
+    ] {
         let mut old = current.clone();
         old[field] = serde_json::Value::Bool(false);
         rewrite(&backup, &old);

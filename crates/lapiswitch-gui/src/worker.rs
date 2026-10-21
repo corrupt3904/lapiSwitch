@@ -6,8 +6,10 @@ use std::sync::mpsc::{self, Sender};
 use std::time::Duration;
 
 use lapiswitch_core::backup::{self, BackupBuilder, VerifiedBackup};
+use lapiswitch_core::deviceinfo::{RollbackMode, map};
 use lapiswitch_core::firmware::{FirmwareReport, check_firmware};
 use lapiswitch_core::prepare::{Connection, DeviceIo, native::NativeDevice};
+use lapiswitch_core::recovery_flow::EditRequest;
 use lapiswitch_core::region::Region;
 use lapiswitch_core::stage1::{self, native::NativeStage};
 use lapiswitch_core::state::{FlashOptions, ResumeAction, RunState, StateStore};
@@ -39,9 +41,17 @@ pub struct Request {
 }
 #[derive(Debug, Clone)]
 pub enum Action {
+    /// Region conversion with the firmware chosen beforehand.
     Full {
         approved: Box<FirmwareReport>,
+        rollback_mode: RollbackMode,
         options: FlashOptions,
+        output: PathBuf,
+    },
+    /// DeviceInfo edit: values are chosen in TWRP; firmware only if the
+    /// region changes.
+    Edit {
+        loader: PathBuf,
         output: PathBuf,
     },
     Resume,
@@ -63,6 +73,10 @@ pub enum Event {
     /// Keep mode in TWRP: firmware indices are below DeviceInfo. `true`
     /// resets them to 0 and continues; `false` cancels and restores originals.
     ConfirmRollbackReset(String, Sender<bool>),
+    /// The live DeviceInfo, shown in the editor; `None` cancels the run.
+    EditDeviceInfo(map::Layout, Vec<u8>, Sender<Option<EditRequest>>),
+    /// Editor-side firmware check for a changed region (the run checks again).
+    EditorFirmware(Result<FirmwareReport, String>),
     BackupChecked(Result<String, String>),
     Device(u64, Result<crate::device::Snapshot, String>),
     Drivers(Result<ltbox_device::driver::DriverStatus, String>),
@@ -94,15 +108,28 @@ pub fn validate(tx: Sender<Event>, folder: PathBuf, region: Region) {
     });
 }
 
+/// The editor's region change needs that region's firmware.
+pub fn validate_editor_firmware(tx: Sender<Event>, folder: PathBuf, region: Region) {
+    std::thread::spawn(move || {
+        let result = std::panic::catch_unwind(|| check_firmware(&folder, region))
+            .unwrap_or_else(|_| {
+                Err(lapiswitch_core::firmware::FirmwareError::XmlSelection(
+                    "펌웨어 검사 작업이 예기치 않게 종료되었습니다.".into(),
+                ))
+            })
+            .map_err(|e| e.to_string());
+        let _ = tx.send(Event::EditorFirmware(result));
+    });
+}
+
 pub fn check_backup(tx: Sender<Event>, folder: PathBuf) {
     std::thread::spawn(move || {
         let result = VerifiedBackup::open(&folder).and_then(|b| {
             let assessment = lapiswitch_core::recovery_flow::restore::preflight(&b)?;
             Ok(format!(
-                "{} · slot {} · {} · {} files",
+                "{} · slot {} · {} files",
                 b.manifest().model,
                 b.manifest().slot.suffix(),
-                b.manifest().target_region.token(),
                 b.manifest().files.len()
             ) + &format!(" · DeviceInfo: {}", assessment.description()))
         });
@@ -209,6 +236,20 @@ impl lapiswitch_core::recovery_flow::Ui for ChannelUi {
             "롤백인덱스 경고가 닫혀 작업을 멈췄습니다. DeviceInfo는 변경하지 않았습니다. 이어하기 또는 원본 복구를 선택하세요.".into()
         })
     }
+    fn edit_deviceinfo(
+        &mut self,
+        layout: map::Layout,
+        before: &[u8],
+    ) -> Result<Option<EditRequest>, String> {
+        let (tx, rx) = mpsc::channel();
+        self.tx
+            .send(Event::EditDeviceInfo(layout, before.to_vec(), tx))
+            .map_err(|_| "DeviceInfo 수정 창을 표시할 수 없습니다.")?;
+        // Closing the editor is neither an edit nor a request to restore.
+        rx.recv().map_err(|_| {
+            "DeviceInfo 수정 창이 닫혀 작업을 멈췄습니다. DeviceInfo는 변경하지 않았습니다. 이어하기 또는 원본 복구를 선택하세요.".into()
+        })
+    }
     fn confirm(
         &mut self,
         transition: lapiswitch_core::recovery_flow::Transition,
@@ -264,6 +305,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
         match request.action {
             Action::Full {
                 approved,
+                rollback_mode,
                 options,
                 output,
             } => {
@@ -275,71 +317,29 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 let firmware = check_firmware(&approved.image_dir, approved.region)
                     .map_err(|e| e.to_string())?;
                 confirm_approval(&approved, &firmware)?;
-                let _ = tx.send(Event::RecoveryStatus(
-                    "공식 TWRP 파일을 준비하고 SHA-256을 확인합니다.".into(),
-                ));
-                let twrp = lapiswitch_core::recovery_asset::acquire(
-                    &request
-                        .state_path
-                        .parent()
-                        .ok_or("캐시 경로 없음")?
-                        .join("cache/twrp"),
-                    &mut log,
-                )?;
+                let twrp = acquire_twrp(&request.state_path, tx, &mut log)?;
                 let builder = BackupBuilder::create(&output)?;
-                let mut state = RunState::new(&firmware, options, builder.path())?;
-                store.begin(&state)?;
-                let _ = tx.send(Event::Backup(builder.path().to_owned()));
-                let _ = tx.send(Event::Progress(Step::Device));
-                let _ = tx.send(Event::RecoveryStatus(
-                    "기기와 활성 슬롯을 확인한 뒤 EDL로 전환합니다.".into(),
-                ));
-                let mut device = NativeDevice::new(builder.path())?;
-                let prepared = lapiswitch_core::prepare::prepare_with_confirmation(
-                    &mut device,
-                    &firmware,
-                    &mut |raw| builder.save_identity(raw),
-                    &mut || ui.confirm_edl_start(),
-                    &mut log,
-                )
-                .map_err(|e| e.to_string())?;
-                let mut stage = NativeStage::new(device, prepared.session);
-                let _ = tx.send(Event::Progress(Step::Backup));
-                let _ = tx.send(Event::RecoveryStatus(
-                    "원본 GPT·활성 슬롯 Recovery·misc와 고유 파티션을 백업합니다.".into(),
-                ));
-                let backup = stage1::take_backup_with_confirmation(
-                    &mut stage,
-                    &prepared.report,
-                    &firmware,
+                let state = RunState::convert(&firmware, rollback_mode, options, builder.path())?;
+                start_new(
+                    state,
                     builder,
-                    &mut || ui.confirm_unrecognized_firmware(),
-                    &mut log,
-                )?;
-                state.bind_backup(&backup)?;
-                lapiswitch_core::recovery_flow::checkpoint(
-                    &mut state,
+                    Some(firmware),
+                    &twrp,
                     &store,
-                    lapiswitch_core::recovery_flow::Phase::BackedUp,
-                )?;
-                let _ = tx.send(Event::Progress(Step::StageRecovery));
-                let _ = tx.send(Event::RecoveryStatus(
-                    "GPT를 수정하고 활성 슬롯 Recovery와 misc를 준비·검증합니다.".into(),
-                ));
-                lapiswitch_core::recovery_flow::stage(
-                    &mut stage, &backup, &twrp, &mut state, &store, &mut log,
-                )?;
-                let mut device = NativeWorkflow::from_stage(stage);
-                lapiswitch_core::recovery_flow::finish(
-                    &mut device,
-                    &backup,
-                    &firmware,
-                    &mut state,
-                    &store,
+                    tx,
                     &mut ui,
                     &mut log,
-                )?;
-                Ok(state.warnings)
+                )
+            }
+            Action::Edit { loader, output } => {
+                let _ = tx.send(Event::Progress(Step::Check));
+                if !loader.is_file() {
+                    return Err(format!("EDL 로더 파일이 없습니다: {}", loader.display()));
+                }
+                let twrp = acquire_twrp(&request.state_path, tx, &mut log)?;
+                let builder = BackupBuilder::create(&output)?;
+                let state = RunState::edit(&loader, builder.path())?;
+                start_new(state, builder, None, &twrp, &store, tx, &mut ui, &mut log)
             }
             Action::Resume => {
                 let mut state = store.load()?.ok_or("저장된 작업이 없습니다.")?;
@@ -359,9 +359,14 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 ) {
                     return Err("이 단계는 원본 구성을 복구하거나 새 작업으로 시작하세요.".into());
                 }
-                let firmware = check_firmware(&state.firmware_dir, state.target_region)
-                    .map_err(|e| e.to_string())?;
-                state.verify_binding(&backup, &firmware)?;
+                let firmware = match &state.firmware {
+                    Some(binding) => Some(
+                        check_firmware(&binding.firmware_dir, binding.region)
+                            .map_err(|e| e.to_string())?,
+                    ),
+                    None => None,
+                };
+                state.verify_binding(&backup, firmware.as_ref())?;
                 let _ = tx.send(Event::Backup(backup.path().to_owned()));
                 let mut native = NativeDevice::new(backup.path())?;
                 let mut device = if phase == lapiswitch_core::recovery_flow::Phase::Staged {
@@ -369,7 +374,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                     if native.detect()? != Connection::Edl {
                         return Err("준비된 기기를 EDL로 연결하세요. 이미 TWRP로 진입했다면 재부팅 요청 전송 상태를 확인해야 합니다.".into());
                     }
-                    let session = native.open_edl(&firmware.loader, &mut log)?;
+                    let session = native.open_edl(state.loader_path(), &mut log)?;
                     NativeWorkflow::from_stage(NativeStage::new(native, session))
                 } else {
                     NativeWorkflow::disconnected(native)
@@ -377,7 +382,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 lapiswitch_core::recovery_flow::finish(
                     &mut device,
                     &backup,
-                    &firmware,
+                    firmware,
                     &mut state,
                     &store,
                     &mut ui,
@@ -416,8 +421,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 {
                     return Err("공식 펌웨어 설치가 시작된 작업입니다. 과거 Recovery/GPT로 되돌리지 않고 펌웨어 설치를 이어가세요.".into());
                 }
-                let twrp = if matches!(assessment,lapiswitch_core::recovery_flow::restore::Assessment::Verified{original,current} if original!=current)
-                {
+                let twrp = if assessment.needs_twrp() {
                     Some(lapiswitch_core::recovery_asset::acquire(
                         &request
                             .state_path
@@ -476,6 +480,87 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
     }
     pump.finish()?;
     result
+}
+
+fn acquire_twrp(
+    state_path: &Path,
+    tx: &Sender<Event>,
+    log: &mut Vec<String>,
+) -> Result<PathBuf, String> {
+    let _ = tx.send(Event::RecoveryStatus(
+        "공식 TWRP 파일을 준비하고 SHA-256을 확인합니다.".into(),
+    ));
+    lapiswitch_core::recovery_asset::acquire(
+        &state_path
+            .parent()
+            .ok_or("캐시 경로 없음")?
+            .join("cache/twrp"),
+        log,
+    )
+}
+
+/// Shared by conversions and edits: S1-S3, TWRP staging and the finish.
+#[allow(clippy::too_many_arguments)]
+fn start_new(
+    mut state: RunState,
+    builder: BackupBuilder,
+    firmware: Option<FirmwareReport>,
+    twrp: &Path,
+    store: &StateStore,
+    tx: &Sender<Event>,
+    ui: &mut ChannelUi,
+    log: &mut Vec<String>,
+) -> Result<Vec<String>, String> {
+    store.begin(&state)?;
+    let _ = tx.send(Event::Backup(builder.path().to_owned()));
+    let _ = tx.send(Event::Progress(Step::Device));
+    let _ = tx.send(Event::RecoveryStatus(
+        "기기와 활성 슬롯을 확인한 뒤 EDL로 전환합니다.".into(),
+    ));
+    let mut device = NativeDevice::new(builder.path())?;
+    let loader = state.loader_path().to_path_buf();
+    let prepared = lapiswitch_core::prepare::prepare_with_confirmation(
+        &mut device,
+        &loader,
+        &mut |raw| builder.save_identity(raw),
+        &mut || ui.confirm_edl_start(),
+        log,
+    )
+    .map_err(|e| e.to_string())?;
+    let mut stage = NativeStage::new(device, prepared.session);
+    let _ = tx.send(Event::Progress(Step::Backup));
+    let _ = tx.send(Event::RecoveryStatus(
+        "원본 GPT·활성 슬롯 Recovery·misc와 고유 파티션을 백업합니다.".into(),
+    ));
+    let backup = stage1::take_backup_with_confirmation(
+        &mut stage,
+        &prepared.report,
+        builder,
+        &mut || ui.confirm_unrecognized_firmware(),
+        log,
+    )?;
+    state.bind_backup(&backup)?;
+    lapiswitch_core::recovery_flow::checkpoint(
+        &mut state,
+        store,
+        lapiswitch_core::recovery_flow::Phase::BackedUp,
+    )?;
+    let _ = tx.send(Event::Progress(Step::StageRecovery));
+    let _ = tx.send(Event::RecoveryStatus(
+        "GPT를 수정하고 활성 슬롯 Recovery와 misc를 준비·검증합니다.".into(),
+    ));
+    lapiswitch_core::recovery_flow::stage(&mut stage, &backup, twrp, &mut state, store, log)?;
+    let mut device = NativeWorkflow::from_stage(stage);
+    lapiswitch_core::recovery_flow::finish(
+        &mut device,
+        &backup,
+        firmware,
+        &mut state,
+        store,
+        ui,
+        log,
+    )?;
+    Ok(state.warnings)
 }
 
 pub const POLL_INTERVAL: Duration = Duration::from_millis(400);
@@ -603,7 +688,7 @@ mod edl_start_tests {
             recovery_flow::{Phase, Progress},
             rollback::RollbackIndices,
             slot::Slot,
-            state::{STATE_VERSION, Stage},
+            state::{Request, STATE_VERSION, Stage},
         };
         let dir = tempfile::tempdir().unwrap();
         let store = StateStore::new(dir.path().join("state.json"));
@@ -615,15 +700,26 @@ mod edl_start_tests {
             },
             run_id: "staging-test".into(),
             stage: Stage::S4,
-            target_region: Region::Row,
-            firmware_dir: dir.path().join("missing-firmware"),
-            fingerprint: "synthetic".into(),
-            indices: RollbackIndices {
-                boot: 0,
-                vbmeta_system: 0,
+            request: Request::Convert {
+                target: Region::Row,
+                rollback_mode: RollbackMode::Reset,
             },
-            files: vec![],
-            options: FlashOptions::new(None, RollbackMode::Reset).unwrap(),
+            loader: lapiswitch_core::state::SealedFile {
+                path: dir.path().join("loader.melf"),
+                size: 0,
+                sha256: String::new(),
+            },
+            firmware: Some(lapiswitch_core::state::FirmwareBinding {
+                region: Region::Row,
+                firmware_dir: dir.path().join("missing-firmware"),
+                fingerprint: "synthetic".into(),
+                indices: RollbackIndices {
+                    boot: 0,
+                    vbmeta_system: 0,
+                },
+                files: vec![],
+            }),
+            options: FlashOptions::new(None).unwrap(),
             backup_dir: dir.path().to_owned(),
             backup_sha256: None,
             slot: Some(Slot::A),

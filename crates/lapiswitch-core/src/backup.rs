@@ -10,10 +10,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::firmware::{FirmwareReport, MODEL};
+use crate::firmware::MODEL;
 use crate::prepare::{Connection, PrepareReport};
-use crate::region::Region;
-use crate::rollback::RollbackIndices;
 use crate::slot::Slot;
 use crate::storage::{self, Partition};
 
@@ -22,8 +20,8 @@ pub const MANIFEST_NAME: &str = "manifest.json";
 pub const IDENTITY_NAME: &str = "adb_identity.txt";
 pub const PARTITION_DIR: &str = "Partition";
 /// The only backup format this version writes, verifies or restores.
-pub const MANIFEST_VERSION: u8 = 7;
-pub const MANIFEST_OPERATION: &str = "recovery_deviceinfo_v5";
+pub const MANIFEST_VERSION: u8 = 8;
+pub const MANIFEST_OPERATION: &str = "recovery_deviceinfo_v6";
 
 /// Keep image dumps and scratch files inside the backup, never through a
 /// substituted directory link.
@@ -73,10 +71,8 @@ pub struct BackupManifest {
     pub fingerprint: String,
     pub recorded_at: String,
     pub slot: Slot,
-    pub target_region: Region,
     pub started_in_edl: bool,
     pub device_key: String,
-    pub firmware_indices: RollbackIndices,
     pub tool_version: String,
     pub snapshot: Vec<Partition>,
     pub absent_partitions: Vec<String>,
@@ -314,7 +310,6 @@ impl BackupBuilder {
     pub(crate) fn finish(
         self,
         prepared: &PrepareReport,
-        firmware: &FirmwareReport,
         fingerprint: String,
         device_key: String,
         snapshot: Vec<Partition>,
@@ -327,10 +322,8 @@ impl BackupBuilder {
             fingerprint,
             recorded_at: chrono::Local::now().to_rfc3339(),
             slot: prepared.slot,
-            target_region: firmware.region,
             started_in_edl: prepared.started_in == Connection::Edl,
             device_key,
-            firmware_indices: firmware.indices,
             tool_version: env!("CARGO_PKG_VERSION").into(),
             snapshot,
             absent_partitions: if proinfo_absent {

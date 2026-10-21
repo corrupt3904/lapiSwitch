@@ -9,20 +9,33 @@ const JOURNAL: &str = "original_restore.json";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Assessment {
     BeforeWrite,
-    Verified { original: Region, current: Region },
+    /// The verified final read; `changed` is any DeviceInfo byte difference.
+    Verified {
+        original: Option<Region>,
+        current: Option<Region>,
+        changed: bool,
+    },
     Unknown(String),
 }
 impl Assessment {
     pub fn description(&self) -> String {
+        let token = |region: &Option<Region>| region.map_or("?", Region::token);
         match self {
             Self::BeforeWrite => "쓰기 전".into(),
-            Self::Verified { original, current } => format!(
-                "변경 검증 완료 · {} → {}",
-                original.token(),
-                current.token()
+            Self::Verified { changed: false, .. } => "변경 검증 완료 · 변경 없음".into(),
+            Self::Verified {
+                original, current, ..
+            } => format!(
+                "변경 검증 완료 · 리전 {} → {}",
+                token(original),
+                token(current)
             ),
             Self::Unknown(_) => "결과 불명".into(),
         }
+    }
+    /// The original DeviceInfo must be written back through TWRP.
+    pub fn needs_twrp(&self) -> bool {
+        matches!(self, Self::Verified { changed: true, .. })
     }
 }
 fn evidence_json<T: serde::de::DeserializeOwned>(p: &Path) -> Result<T, String> {
@@ -49,10 +62,10 @@ fn proof(backup: &VerifiedBackup, p: &Progress) -> Result<(Vec<u8>, Vec<u8>), St
         return Err("DeviceInfo 원본 백업 해시 불일치".into());
     }
     let before = std::fs::read(before_path).map_err(|e| e.to_string())?;
-    if deviceinfo::region(&before)? != a.original_region {
+    if deviceinfo::LAYOUT.region(&before) != a.original_region {
         return Err("원래 리전 기록 불일치".into());
     }
-    let planned = deviceinfo::plan(&before, backup.manifest().target_region, a.mode)?;
+    let planned = map::apply(deviceinfo::LAYOUT, &before, &a.edits)?;
     if backup::digest_bytes(&planned) != a.planned_sha256 {
         return Err("DeviceInfo 예정 값 해시 불일치".into());
     }
@@ -123,8 +136,9 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
     let after = std::fs::read(final_path).map_err(|e| e.to_string())?;
     deviceinfo::verify(&planned, &after, &after)?;
     Ok(Assessment::Verified {
-        original: deviceinfo::region(&before)?,
-        current: deviceinfo::region(&after)?,
+        original: deviceinfo::LAYOUT.region(&before),
+        current: deviceinfo::LAYOUT.region(&after),
+        changed: before != after,
     })
 }
 /// File existence alone never means a write failed or succeeded.
@@ -225,12 +239,9 @@ fn load_journal(backup: &VerifiedBackup) -> Result<Option<Journal>, String> {
     }
     Ok(Some(j))
 }
-fn restore_proof(
-    backup: &VerifiedBackup,
-    j: &Journal,
-    original: Region,
-    current: Region,
-) -> Result<bool, String> {
+/// The reverse plan is the complete original DeviceInfo read before the
+/// conversion; the live state must still be exactly the verified result.
+fn restore_proof(backup: &VerifiedBackup, j: &Journal) -> Result<bool, String> {
     let dir = directory(backup, false)?;
     if j.before_sha256.is_none() && j.planned_sha256.is_none() {
         return Ok(false);
@@ -242,20 +253,21 @@ fn restore_proof(
     }
     let before = std::fs::read(before_path).map_err(|e| e.to_string())?;
     let p = progress(backup)?.ok_or("변환 기록 누락")?;
-    if before != proof(backup, &p)?.1 || deviceinfo::region(&before)? != current {
+    let (original, converted) = proof(backup, &p)?;
+    if before != converted {
         return Err("복구 직전 DeviceInfo와 검증된 변환 결과가 다릅니다.".into());
     }
-    let planned = deviceinfo::plan(&before, original, RollbackMode::Keep)?;
+    let planned = original;
     let expected = j.planned_sha256.as_ref().ok_or("복구 예정 해시 누락")?;
     if backup::digest_bytes(&planned) != *expected {
-        return Err("원본 리전 복구 계획 불일치".into());
+        return Err("원본 DeviceInfo 복구 계획 불일치".into());
     }
     let after_path = dir.join("deviceinfo_after.bin");
     if !after_path.try_exists().map_err(|e| e.to_string())? {
         return Ok(false);
     }
     if backup::hash_file(&after_path, None)? != (4096, expected.clone()) {
-        return Err("원본 리전 최종 재읽기 증거 변조".into());
+        return Err("원본 DeviceInfo 최종 재읽기 증거 변조".into());
     }
     let after = std::fs::read(after_path).map_err(|e| e.to_string())?;
     deviceinfo::verify(&planned, &after, &after)?;
@@ -268,18 +280,21 @@ pub fn preflight(backup: &VerifiedBackup) -> Result<Assessment, String> {
         return Err(format!("{UNKNOWN_MESSAGE}\n{reason}"));
     }
     let j = load_journal(backup)?;
-    if let Assessment::Verified { original, current } = state
-        && original != current
+    if let Assessment::Verified {
+        original,
+        changed: true,
+        ..
+    } = state
     {
         let vb = original_bytes(
             backup,
             &format!("vendor_boot{}.img", backup.manifest().slot.suffix()),
         )?;
-        if vendor_boot::region(&vb)? != original {
+        if original.is_some_and(|original| vendor_boot::region(&vb).ok() != Some(original)) {
             return Err("원본 vendor_boot DTB와 원래 DeviceInfo 리전이 다릅니다.".into());
         }
         if let Some(j) = &j {
-            let proven = restore_proof(backup, j, original, current)?;
+            let proven = restore_proof(backup, j)?;
             if (matches!(
                 j.phase,
                 RestorePhase::RegionWritePending
@@ -288,7 +303,7 @@ pub fn preflight(backup: &VerifiedBackup) -> Result<Assessment, String> {
             )) && !proven
             {
                 return Err(format!(
-                    "{UNKNOWN_MESSAGE}\n원래 리전 복구 쓰기의 최종 검증 증거가 없습니다."
+                    "{UNKNOWN_MESSAGE}\n원본 DeviceInfo 복구 쓰기의 최종 검증 증거가 없습니다."
                 ));
             }
         }
@@ -443,10 +458,14 @@ pub fn run(
     if j.progress_sha256.is_some() {
         backup.mark(TransactionStage::RecoveryRequired)?;
     }
-    if let Assessment::Verified { original, current } = assessment
-        && original != current
-        && !restore_proof(backup, &j, original, current)?
+    if let Assessment::Verified {
+        current,
+        changed: true,
+        ..
+    } = assessment
+        && !restore_proof(backup, &j)?
     {
+        let current = current.ok_or("변경된 DeviceInfo의 리전이 PRC/ROW가 아닙니다.")?;
         ui.status(
             "확인된 리전에 맞춰 vendor_boot DTB와 TWRP를 준비합니다.",
             false,
@@ -461,31 +480,28 @@ pub fn run(
         save(&dir, &mut j, RestorePhase::BootRequested)?;
         device.reboot_recovery(log)?;
         ui.phase(Phase::RecoveryWaiting);
-        ui.status("원래 리전을 복구할 TWRP ADB 연결을 기다립니다.", true);
+        ui.status("원래 DeviceInfo를 복구할 TWRP ADB 연결을 기다립니다.", true);
         let mut recovery = connector.connect(backup, ui, log)?;
         recovery.verify_identity(backup)?;
         let scratch = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
         let before = recovery.read(&scratch.path().join("read1"), log)?;
         let second = recovery.read(&scratch.path().join("read2"), log)?;
         let p = progress(backup)?.ok_or("변환 기록 누락")?;
-        let expected = proof(backup, &p)?.1;
+        let (planned, expected) = proof(backup, &p)?;
         deviceinfo::verify(&expected, &before, &second)?;
         preserve(&dir.join("deviceinfo_before.bin"), &before)?;
-        let planned = deviceinfo::plan(&before, original, RollbackMode::Keep)?;
         j.before_sha256 = Some(backup::digest_bytes(&before));
         j.planned_sha256 = Some(backup::digest_bytes(&planned));
         // Transfers and the dry-run precede the durable write intent.
-        recovery.prepare(&before, &planned, RollbackMode::Keep, log)?;
+        recovery.prepare(&before, &planned, log)?;
         save(&dir, &mut j, RestorePhase::RegionWritePending)?;
         ui.phase(Phase::Planned);
-        ui.status("원래 DeviceInfo 리전을 복구하고 전체 4096바이트를 검증합니다. 롤백인덱스는 유지합니다.",false);
-        let (same, fresh) = recovery.apply(
-            &before,
-            &planned,
-            RollbackMode::Keep,
-            &scratch.path().join("apply"),
-            log,
-        )?;
+        ui.status(
+            "변환 전 DeviceInfo 4096바이트 전체를 복구하고 검증합니다.",
+            false,
+        );
+        let (same, fresh) =
+            recovery.apply(&before, &planned, &scratch.path().join("apply"), log)?;
         deviceinfo::verify(&planned, &same, &fresh)?;
         let independent = recovery.read(&scratch.path().join("independent"), log)?;
         deviceinfo::verify(&planned, &independent, &independent)?;
@@ -511,7 +527,9 @@ pub fn run(
     super::restore_originals(device, backup, log)?;
     save(&dir, &mut j, RestorePhase::Complete)?;
     backup.mark(TransactionStage::Restored)?;
-    let mut warnings=vec!["원본 구성 복구·검증 완료. DeviceInfo 리전은 원래 값이며 롤백인덱스는 유지했습니다. misc 덤프는 보존했습니다.".into()];
+    let mut warnings = vec![
+        "원본 구성 복구·검증 완료. DeviceInfo는 변환 전 값이며 misc 덤프는 보존했습니다.".into(),
+    ];
     if let Err(e) = device.reset(crate::stage1::ResetMode::System, log) {
         warnings.push(format!("시스템 부팅 요청 실패: {e}"));
     }

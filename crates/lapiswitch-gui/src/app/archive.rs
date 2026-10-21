@@ -3,7 +3,7 @@ use super::*;
 
 impl App {
     pub(super) fn can_archive_run(&self) -> bool {
-        self.page == Page::Confirm
+        matches!(self.page, Page::Confirm | Page::Edit)
             && self.can_start()
             && self.pending.is_some()
             && !self.fix.confirm
@@ -14,7 +14,7 @@ impl App {
 
     pub(super) fn start_conversion(&mut self) -> Task<Message> {
         self.refresh_pending();
-        if self.page != Page::Confirm || !self.can_start() {
+        if !matches!(self.page, Page::Confirm | Page::Edit) || !self.can_start() {
             self.error = self.start_blocker().map(str::to_owned);
             return Task::none();
         }
@@ -38,14 +38,23 @@ impl App {
     pub(super) fn start_verified(&mut self) {
         // A second instance may have left a run while the device was probed.
         self.refresh_pending();
-        if self.page != Page::Confirm || !self.can_start() {
+        if !matches!(self.page, Page::Confirm | Page::Edit) || !self.can_start() {
             self.error = self.start_blocker().map(str::to_owned);
         } else if let Some(pending) = &self.pending {
             self.archive_confirmation = Some(pending.state.clone());
+        } else if self.page == Page::Edit {
+            self.launch(
+                worker::Action::Edit {
+                    loader: self.loader.clone().expect("validated loader"),
+                    output: self.output.clone(),
+                },
+                RunKind::Edit,
+            );
         } else {
             self.launch(
                 worker::Action::Full {
                     approved: Box::new(self.report.clone().expect("validated firmware")),
+                    rollback_mode: self.rollback_mode,
                     options: self.options().expect("validated options"),
                     output: self.output.clone(),
                 },
@@ -208,7 +217,7 @@ mod tests {
         assert_eq!(app.folder, folder);
         assert_eq!(app.country.as_deref(), Some("US"));
         assert_eq!(
-            app.options().unwrap().rollback_mode,
+            app.rollback_mode,
             lapiswitch_core::deviceinfo::RollbackMode::Keep
         );
     }

@@ -7,7 +7,7 @@ use ltbox_core::live;
 
 use crate::avb_info::AvbSummary;
 use crate::backup::{self, BackupBuilder, VerifiedBackup};
-use crate::firmware::{FirmwareReport, MODEL};
+use crate::firmware::MODEL;
 use crate::prepare::PrepareReport;
 use crate::slot::Slot;
 use crate::storage::{self, Partition};
@@ -87,11 +87,10 @@ fn dump<D: StageIo>(
 pub fn take_backup<D: StageIo>(
     device: &mut D,
     prepared: &PrepareReport,
-    firmware: &FirmwareReport,
     builder: BackupBuilder,
     log: &mut Vec<String>,
 ) -> Result<VerifiedBackup, String> {
-    take_backup_with_confirmation(device, prepared, firmware, builder, &mut || Ok(false), log)
+    take_backup_with_confirmation(device, prepared, builder, &mut || Ok(false), log)
 }
 
 /// Only unrecognized ROM metadata is overridable, with an explicit answer
@@ -100,7 +99,6 @@ pub fn take_backup<D: StageIo>(
 pub fn take_backup_with_confirmation<D: StageIo>(
     device: &mut D,
     prepared: &PrepareReport,
-    firmware: &FirmwareReport,
     mut builder: BackupBuilder,
     confirm_unrecognized: &mut dyn FnMut() -> Result<bool, String>,
     log: &mut Vec<String>,
@@ -197,14 +195,7 @@ pub fn take_backup_with_confirmation<D: StageIo>(
         builder.save_identity(raw)?;
         builder.record(backup::IDENTITY_NAME, None)?;
     }
-    let backup = builder.finish(
-        prepared,
-        firmware,
-        fingerprint,
-        key,
-        snapshot,
-        proinfo.is_none(),
-    )?;
+    let backup = builder.finish(prepared, fingerprint, key, snapshot, proinfo.is_none())?;
     live!(
         log,
         "S3: 백업 파일을 다시 읽어 크기와 SHA-256을 확인했습니다: {}",

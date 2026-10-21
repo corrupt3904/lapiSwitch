@@ -1,0 +1,570 @@
+//! DeviceInfo editor shown while the tablet waits in TWRP. Every field of the
+//! structure map is editable; inputs are checked for type and exact size.
+use super::view::*;
+use super::*;
+use iced::widget::{self, button, checkbox, column, container, row, scrollable, space, text_input};
+use iced::{Alignment, Border, Color, Fill};
+use lapiswitch_core::deviceinfo::map::{self, Class, Field, Kind, Layout};
+use lapiswitch_core::recovery_flow::EditRequest;
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone)]
+pub(crate) enum EditorMessage {
+    Input(String, String),
+    Reset(String),
+    ResetAll,
+    RollbackZero,
+    Tab(Class),
+    Query(String),
+    Review(bool),
+    Ack(bool),
+    Apply,
+    Cancel,
+}
+
+pub(crate) struct Editor {
+    pub(crate) layout: Layout,
+    pub(crate) before: Vec<u8>,
+    fields: Vec<Field>,
+    pub(crate) inputs: BTreeMap<String, String>,
+    pub(crate) tab: Class,
+    pub(crate) query: String,
+    pub(crate) review: bool,
+    pub(crate) protected_ack: bool,
+    pub(crate) firmware_dir: Option<PathBuf>,
+    /// The last editor-side check of `firmware_dir` for the planned region.
+    pub(crate) firmware: Option<Result<FirmwareReport, String>>,
+    pub(crate) checking: bool,
+    reply: Option<Sender<Option<EditRequest>>>,
+}
+
+impl Editor {
+    pub(crate) fn new(layout: Layout, before: Vec<u8>, reply: Sender<Option<EditRequest>>) -> Self {
+        let fields = layout.fields();
+        let inputs = fields
+            .iter()
+            .map(|field| (field.key.clone(), map::display(field, &before)))
+            .collect();
+        Self {
+            layout,
+            before,
+            fields,
+            inputs,
+            tab: Class::Basic,
+            query: String::new(),
+            review: false,
+            protected_ack: false,
+            firmware_dir: None,
+            firmware: None,
+            checking: false,
+            reply: Some(reply),
+        }
+    }
+    fn original(&self, field: &Field) -> String {
+        map::display(field, &self.before)
+    }
+    pub(crate) fn input(&self, field: &Field) -> &str {
+        self.inputs.get(&field.key).map_or("", String::as_str)
+    }
+    pub(crate) fn error(&self, field: &Field) -> Option<String> {
+        map::encode(field, self.input(field)).err()
+    }
+    pub(crate) fn invalid(&self) -> Vec<&Field> {
+        self.fields
+            .iter()
+            .filter(|f| self.error(f).is_some())
+            .collect()
+    }
+    /// The full plan, once every input is valid.
+    pub(crate) fn planned(&self) -> Option<Vec<u8>> {
+        let edits: map::Edits = self
+            .fields
+            .iter()
+            .filter(|field| self.input(field).trim() != self.original(field))
+            .map(|field| (field.key.clone(), self.input(field).to_owned()))
+            .collect();
+        map::apply(self.layout, &self.before, &edits).ok()
+    }
+    pub(crate) fn changes(&self) -> Vec<map::Change> {
+        self.planned()
+            .map(|planned| map::diff(self.layout, &self.before, &planned))
+            .unwrap_or_default()
+    }
+    pub(crate) fn target_region(&self) -> Option<Region> {
+        self.planned()
+            .and_then(|planned| self.layout.region(&planned))
+    }
+    pub(crate) fn region_changed(&self) -> bool {
+        self.planned()
+            .is_some_and(|planned| self.layout.region(&planned) != self.layout.region(&self.before))
+    }
+    pub(crate) fn protected_changed(&self) -> bool {
+        self.changes()
+            .iter()
+            .any(|change| change.field.class == Class::Protected)
+    }
+    fn firmware_ready(&self) -> bool {
+        matches!(&self.firmware, Some(Ok(report)) if Some(report.region) == self.target_region())
+    }
+    /// Why the plan cannot be applied yet.
+    pub(crate) fn blocker(&self, app: &App) -> Option<&'static str> {
+        if !self.invalid().is_empty() {
+            Some(app.t(
+                "입력 형식이 맞지 않는 필드가 있습니다.",
+                "Some fields have invalid input.",
+            ))
+        } else if self.changes().is_empty() {
+            Some(app.t("변경된 필드가 없습니다.", "No field has been changed."))
+        } else if self.target_region().is_none() {
+            Some(app.t(
+                "리전 필드는 PRC 또는 ROW여야 합니다.",
+                "The region field must be PRC or ROW.",
+            ))
+        } else if self.region_changed() && !self.firmware_ready() {
+            Some(app.t(
+                "리전을 바꾸려면 해당 리전의 펌웨어 폴더를 선택해 검사를 마쳐야 합니다.",
+                "Changing the region requires a checked firmware folder for that region.",
+            ))
+        } else if self.protected_changed() && !self.protected_ack {
+            Some(app.t(
+                "보안·구조 필드 변경 위험 확인에 체크해 주세요.",
+                "Confirm the risk of changing security/structure fields.",
+            ))
+        } else {
+            None
+        }
+    }
+    fn send(&mut self, request: Option<EditRequest>) {
+        if let Some(reply) = self.reply.take() {
+            let _ = reply.send(request);
+        }
+    }
+    /// Firmware and folder only matter for a region change.
+    fn request(&self) -> Option<EditRequest> {
+        let planned = self.planned()?;
+        Some(EditRequest {
+            edits: map::edits_between(self.layout, &self.before, &planned),
+            firmware_dir: self
+                .region_changed()
+                .then(|| self.firmware_dir.clone())
+                .flatten(),
+        })
+    }
+}
+
+impl App {
+    pub(super) fn editor_update(&mut self, message: EditorMessage) {
+        let Some(ready) = self.editor.as_ref().map(|e| e.blocker(self).is_none()) else {
+            return;
+        };
+        let editor = self.editor.as_mut().expect("checked");
+        let firmware_target = |editor: &Editor| editor.target_region();
+        let before_target = firmware_target(editor);
+        match message {
+            EditorMessage::Input(key, value) => {
+                editor.inputs.insert(key, value);
+            }
+            EditorMessage::Reset(key) => {
+                if let Some(field) = editor.fields.iter().find(|f| f.key == key).cloned() {
+                    let original = editor.original(&field);
+                    editor.inputs.insert(key, original);
+                }
+            }
+            EditorMessage::ResetAll => {
+                for field in editor.fields.clone() {
+                    let original = editor.original(&field);
+                    editor.inputs.insert(field.key, original);
+                }
+                editor.protected_ack = false;
+            }
+            EditorMessage::RollbackZero => {
+                for n in 0..map::ROLLBACK_COUNT {
+                    editor
+                        .inputs
+                        .insert(format!("rollback_index[{n}]"), "0".into());
+                }
+            }
+            EditorMessage::Tab(class) => editor.tab = class,
+            EditorMessage::Query(query) => editor.query = query,
+            EditorMessage::Review(review) => {
+                editor.review = review && ready;
+                return;
+            }
+            EditorMessage::Ack(ack) => editor.protected_ack = ack,
+            EditorMessage::Apply => {
+                if editor.review && ready {
+                    let request = editor.request();
+                    editor.send(request);
+                    self.editor = None;
+                }
+                return;
+            }
+            EditorMessage::Cancel => {
+                editor.send(None);
+                self.editor = None;
+                return;
+            }
+        }
+        // A different planned region invalidates an earlier firmware check.
+        let editor = self.editor.as_mut().expect("still open");
+        if firmware_target(editor) != before_target {
+            editor.firmware = None;
+            editor.checking = false;
+            if let (Some(dir), Some(region)) = (editor.firmware_dir.clone(), editor.target_region())
+                && editor.region_changed()
+            {
+                editor.checking = true;
+                worker::validate_editor_firmware(self.tx.clone(), dir, region);
+            }
+        }
+    }
+    pub(super) fn editor_firmware_picked(&mut self, folder: Option<PathBuf>) {
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
+        let Some(folder) = folder else {
+            return;
+        };
+        editor.firmware_dir = Some(folder.clone());
+        editor.firmware = None;
+        editor.checking = false;
+        if let Some(region) = editor.target_region()
+            && editor.region_changed()
+        {
+            editor.checking = true;
+            worker::validate_editor_firmware(self.tx.clone(), folder, region);
+        }
+    }
+    pub(super) fn editor_firmware_checked(&mut self, result: Result<FirmwareReport, String>) {
+        if let Some(editor) = self.editor.as_mut() {
+            editor.checking = false;
+            editor.firmware = Some(result);
+        }
+    }
+}
+
+fn class_label(app: &App, class: Class) -> &'static str {
+    match class {
+        Class::Basic => app.t("기본", "Basic"),
+        Class::Advanced => app.t("고급", "Advanced"),
+        Class::Protected => app.t("보안·구조 (위험)", "Security/structure (risky)"),
+    }
+}
+
+fn kind_hint(app: &App, field: &Field) -> String {
+    match field.kind {
+        Kind::Flag => app.t("0 또는 1", "0 or 1").into(),
+        Kind::Uint => app
+            .t(
+                "{bytes}바이트 정수 (10진수 또는 0x16진수)",
+                "{bytes}-byte integer (decimal or 0x hex)",
+            )
+            .replace("{bytes}", &field.size.to_string()),
+        Kind::Region => "PRC / ROW".into(),
+        Kind::Text { nul } => app
+            .t("ASCII 최대 {chars}자", "ASCII, up to {chars} characters")
+            .replace("{chars}", &(field.size - usize::from(nul)).to_string()),
+        Kind::Bytes => app
+            .t("16진수 {bytes}바이트", "{bytes} bytes of hex")
+            .replace("{bytes}", &field.size.to_string()),
+    }
+}
+
+/// Long values (keys, caches) are summarized in the review list.
+fn short(value: &str) -> String {
+    if value.chars().count() > 48 {
+        let head: String = value.chars().take(40).collect();
+        format!("{head}… ({}자)", value.chars().count())
+    } else {
+        value.to_owned()
+    }
+}
+
+fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<'a, Message> {
+    let value = editor.input(field);
+    let changed = value.trim() != editor.original(field);
+    let mut head = row![
+        label(field.key.clone()).size(15),
+        small(format!("0x{:04X} · {}B", field.offset, field.size)),
+        small(field.description),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    if changed {
+        head = head.push(space().width(Fill)).push(
+            button(small(app.t("원래 값", "Original")))
+                .padding([4, 10])
+                .style(soft_style)
+                .on_press(Message::Editor(EditorMessage::Reset(field.key.clone()))),
+        );
+    }
+    let key = field.key.clone();
+    let mut content = column![
+        head,
+        text_input(&kind_hint(app, field), value)
+            .on_input(move |text| Message::Editor(EditorMessage::Input(key.clone(), text)))
+            .padding(8)
+            .size(14),
+    ]
+    .spacing(6);
+    if let Some(error) = editor.error(field) {
+        content = content.push(small(error).color(Color::from_rgb8(187, 42, 52)));
+    } else if changed {
+        content = content.push(small(format!(
+            "{}: {}",
+            app.t("원래 값", "Original"),
+            short(&editor.original(field))
+        )));
+    }
+    container(content)
+        .padding(12)
+        .width(Fill)
+        .style(move |_| container::Style {
+            background: Some(if changed { PALE } else { Color::WHITE }.into()),
+            border: Border {
+                color: LINE,
+                width: 1.0,
+                radius: 10.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+}
+
+fn region_box<'a>(app: &'a App, editor: &'a Editor) -> Option<Element<'a, Message>> {
+    if !editor.region_changed() {
+        return None;
+    }
+    let from = editor
+        .layout
+        .region(&editor.before)
+        .map_or("?", Region::token);
+    let to = editor.target_region().map_or("?", Region::token);
+    let status: String = match (&editor.firmware, editor.checking) {
+        (_, true) => app.t("펌웨어 검사 중…", "Checking firmware…").into(),
+        (Some(Ok(report)), _) => {
+            format!("{} · {}", app.t("검사 완료", "Checked"), report.fingerprint)
+        }
+        (Some(Err(error)), _) => error.clone(),
+        (None, _) => app
+            .t("펌웨어 폴더를 선택하세요.", "Choose a firmware folder.")
+            .into(),
+    };
+    Some(
+        column![
+            note(
+                app.t(
+                    "리전 변경 {from} → {to}: 해당 리전의 공식 펌웨어를 설치해야 정상 부팅됩니다. 펌웨어 설치 시 사용자 데이터가 초기화됩니다.",
+                    "Region {from} → {to}: the official firmware of that region must be installed to boot. Installing firmware erases user data."
+                )
+                .replace("{from}", from)
+                .replace("{to}", to),
+                true
+            ),
+            row![
+                action(
+                    app.t("펌웨어 폴더 선택", "Choose firmware folder"),
+                    Message::Pick(Picker::EditorFirmware),
+                    !editor.checking
+                )
+                .style(soft_style),
+                small(status).width(Fill),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(10)
+        .into(),
+    )
+}
+
+fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message> {
+    let changes = editor.changes();
+    let mut list = column![].spacing(6);
+    for change in &changes {
+        let danger = change.field.class == Class::Protected;
+        list = list.push(
+            column![
+                label(format!(
+                    "{} · 0x{:04X} · {}B",
+                    change.field.key, change.field.offset, change.field.size
+                ))
+                .size(14)
+                .color(if danger {
+                    Color::from_rgb8(187, 42, 52)
+                } else {
+                    INK
+                }),
+                small(format!(
+                    "{} → {}",
+                    short(&change.before),
+                    short(&change.after)
+                )),
+            ]
+            .spacing(2),
+        );
+    }
+    let flash = editor.region_changed();
+    panel(
+        column![
+            label(app.t("변경 내용 확인", "Review changes")).size(25),
+            small(
+                app.t("바뀌는 필드 {count}개", "{count} fields change")
+                    .replace("{count}", &changes.len().to_string())
+            ),
+            scrollable(list).height(380),
+            note(
+                if flash {
+                    app.t(
+                        "적용하면 DeviceInfo를 쓰고 검증한 뒤 원본 GPT·Recovery를 복원하고 공식 펌웨어를 설치합니다. 사용자 데이터가 초기화됩니다.",
+                        "Applying writes and verifies DeviceInfo, restores the original GPT/Recovery and installs official firmware. User data is erased.",
+                    )
+                } else {
+                    app.t(
+                        "적용하면 DeviceInfo를 쓰고 검증한 뒤 원본 GPT·Recovery를 복원하고 재부팅합니다. 펌웨어 설치와 데이터 초기화는 하지 않습니다.",
+                        "Applying writes and verifies DeviceInfo, restores the original GPT/Recovery and reboots. No firmware is installed and no data is erased.",
+                    )
+                },
+                flash
+            ),
+            row![
+                space().width(Fill),
+                action(app.t("이전", "Back"), Message::Editor(EditorMessage::Review(false)), true)
+                    .style(soft_style),
+                action(app.t("적용", "Apply"), Message::Editor(EditorMessage::Apply), true)
+                    .style(if editor.protected_changed() || flash { button::danger } else { button::primary }),
+            ]
+            .spacing(12),
+        ]
+        .spacing(16),
+    )
+    .max_width(820)
+}
+
+pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message> {
+    if editor.review {
+        return review(app, editor);
+    }
+    let mut tabs = row![].spacing(8);
+    for class in [Class::Basic, Class::Advanced, Class::Protected] {
+        let changed = editor
+            .changes()
+            .iter()
+            .filter(|change| change.field.class == class)
+            .count();
+        let title = if changed > 0 {
+            format!("{} ({changed})", class_label(app, class))
+        } else {
+            class_label(app, class).to_owned()
+        };
+        tabs = tabs.push(
+            button(label(title).size(14).color(if editor.tab == class {
+                Color::WHITE
+            } else {
+                INK
+            }))
+            .padding([8, 14])
+            .style(if editor.tab == class {
+                button::primary
+            } else {
+                soft_style
+            })
+            .on_press(Message::Editor(EditorMessage::Tab(class))),
+        );
+    }
+    let query = editor.query.trim().to_ascii_lowercase();
+    let mut list = column![].spacing(8);
+    if editor.tab == Class::Basic {
+        list = list.push(row![
+            space().width(Fill),
+            action(
+                app.t("롤백인덱스 32개 모두 0", "Set all 32 rollback indices to 0"),
+                Message::Editor(EditorMessage::RollbackZero),
+                true
+            )
+            .style(soft_style),
+        ]);
+    }
+    if editor.tab == Class::Protected {
+        list = list.push(note(
+            app.t(
+                "이 필드는 잠금 상태, verity, 공개키, AVB 값, 기기 고유 캐시와 구조 표식입니다. 잘못 바꾸면 부팅되지 않거나 보안 상태가 바뀔 수 있습니다.",
+                "These are lock state, verity, public key, AVB values, device-unique caches and structure markers. Wrong values can prevent booting or change the security state.",
+            ),
+            true,
+        ));
+    }
+    for field in editor.fields.iter().filter(|field| {
+        field.class == editor.tab
+            && (query.is_empty()
+                || field.key.to_ascii_lowercase().contains(&query)
+                || field.description.contains(editor.query.trim()))
+    }) {
+        list = list.push(field_row(app, editor, field));
+    }
+    let mut body = column![
+        label(
+            app.t("DeviceInfo 수정 · {model}", "Edit DeviceInfo · {model}")
+                .replace("{model}", editor.layout.model())
+        )
+        .size(25),
+        small(
+            app.t(
+                "TWRP에서 읽은 현재 값입니다. 바꿀 필드만 수정하세요. 논리 크기 0x{size} 밖의 공유 버퍼는 바뀌지 않습니다.",
+                "Current values read in TWRP. Change only the fields you need. The shared buffer after the 0x{size} logical size is never changed.",
+            )
+            .replace("{size}", &format!("{:X}", editor.layout.logical_size()))
+        ),
+        row![
+            tabs,
+            space().width(Fill),
+            text_input(app.t("필드 검색", "Search fields"), &editor.query)
+                .on_input(|text| Message::Editor(EditorMessage::Query(text)))
+                .padding(8)
+                .width(220),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
+        scrollable(list).height(400),
+    ]
+    .spacing(14);
+    if let Some(region) = region_box(app, editor) {
+        body = body.push(region);
+    }
+    if editor.protected_changed() {
+        body = body.push(
+            checkbox(editor.protected_ack)
+                .label(app.t(
+                    "보안·구조 필드를 바꾸면 부팅 불가·보안 상태 변경이 생길 수 있음을 이해했습니다.",
+                    "I understand that changing security/structure fields can prevent booting or change the security state.",
+                ))
+                .on_toggle(|ack| Message::Editor(EditorMessage::Ack(ack))),
+        );
+    }
+    let blocker = editor.blocker(app);
+    body = body.push(
+        row![
+            small(blocker.unwrap_or("")).width(Fill),
+            action(
+                app.t("모두 원래 값", "Reset all"),
+                Message::Editor(EditorMessage::ResetAll),
+                true
+            )
+            .style(soft_style),
+            action(
+                app.t("작업 취소 · 원본 복구", "Cancel · Restore originals"),
+                Message::Editor(EditorMessage::Cancel),
+                true
+            )
+            .style(soft_style),
+            action(
+                app.t("변경 내용 확인", "Review changes"),
+                Message::Editor(EditorMessage::Review(true)),
+                blocker.is_none()
+            ),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
+    );
+    panel(body).max_width(980)
+}

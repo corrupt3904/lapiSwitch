@@ -1,11 +1,12 @@
 //! TWRP/DeviceInfo conversion and verified original restoration.
 use crate::{
     backup::{self, TransactionStage, VerifiedBackup},
-    deviceinfo::{self, RollbackMode},
+    deviceinfo::{self, map},
     firmware::FirmwareReport,
+    region::Region,
     rollback::{self, Downgrade, RollbackIndices},
     stage1::StageIo,
-    state::{ResumeAction, RunState, Stage, StateStore},
+    state::{FirmwareBinding, Request, ResumeAction, RunState, Stage, StateStore},
     storage::{self, Partition},
     workflow::{self, FinishIo},
 };
@@ -43,8 +44,10 @@ pub struct Attempt {
     pub directory: String,
     pub before_sha256: String,
     pub planned_sha256: String,
-    pub original_region: crate::region::Region,
-    pub mode: RollbackMode,
+    /// PRC/ROW of the original, when its region field holds one of them.
+    pub original_region: Option<Region>,
+    /// The chosen field values; with the original they rebuild the plan.
+    pub edits: map::Edits,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -92,9 +95,23 @@ pub trait Ui {
     /// cancels the conversion and restores the originals. An error (the prompt
     /// was closed) stops without any write and keeps the run for resume/restore.
     fn confirm_rollback_reset(&mut self, downgrades: &[Downgrade]) -> Result<bool, String>;
+    /// DeviceInfo edit: the live buffer is shown for editing. `Ok(None)`
+    /// cancels and restores the originals; an error stops without a write.
+    fn edit_deviceinfo(
+        &mut self,
+        layout: map::Layout,
+        before: &[u8],
+    ) -> Result<Option<EditRequest>, String>;
     fn status(&mut self, text: &str, stoppable: bool);
     fn cancelled(&self) -> bool;
     fn finish_wait(&mut self) -> bool;
+}
+/// Field values chosen in the editor. A changed region needs the folder of
+/// that region's official firmware, which is then checked and installed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditRequest {
+    pub edits: map::Edits,
+    pub firmware_dir: Option<PathBuf>,
 }
 pub trait DeviceInfoIo {
     fn read(&mut self, out: &Path, log: &mut Vec<String>) -> Result<Vec<u8>, String>;
@@ -104,7 +121,6 @@ pub trait DeviceInfoIo {
         &mut self,
         before: &[u8],
         planned: &[u8],
-        mode: RollbackMode,
         log: &mut Vec<String>,
     ) -> Result<(), String>;
     /// The only write request, for the plan just prepared in this session.
@@ -113,7 +129,6 @@ pub trait DeviceInfoIo {
         &mut self,
         before: &[u8],
         planned: &[u8],
-        mode: RollbackMode,
         out: &Path,
         log: &mut Vec<String>,
     ) -> Result<(Vec<u8>, Vec<u8>), String>;
@@ -251,14 +266,7 @@ pub fn recovery_name(slot: crate::slot::Slot) -> String {
 
 /// Reconstruct the exact durable plan from the original and the recorded
 /// target/mode. Its hash must match the intent saved before the only write.
-fn saved_plan(
-    dir: &Path,
-    state: &RunState,
-    record: &Attempt,
-) -> Result<(Vec<u8>, Vec<u8>), String> {
-    if record.mode != state.options.rollback_mode {
-        return Err("롤백 옵션이 검증 기록과 다릅니다.".into());
-    }
+fn saved_plan(dir: &Path, record: &Attempt) -> Result<(Vec<u8>, Vec<u8>), String> {
     let original = dir.join("before_shared_1.bin");
     if backup::hash_file(&original, None)?
         != (deviceinfo::SHARED_SIZE as u64, record.before_sha256.clone())
@@ -266,7 +274,7 @@ fn saved_plan(
         return Err("DeviceInfo 원본 백업이 변경되었습니다.".into());
     }
     let before = std::fs::read(original).map_err(|e| e.to_string())?;
-    let planned = deviceinfo::plan(&before, state.target_region, record.mode)?;
+    let planned = map::apply(deviceinfo::LAYOUT, &before, &record.edits)?;
     if backup::digest_bytes(&planned) != record.planned_sha256 {
         return Err("DeviceInfo 변경 계획이 저장된 쓰기 의도와 다릅니다.".into());
     }
@@ -281,7 +289,7 @@ fn verify_evidence(backup: &VerifiedBackup, state: &RunState) -> Result<(), Stri
         .as_ref()
         .ok_or("DeviceInfo 검증 증거가 없습니다.")?;
     let dir = attempt_dir(backup, &record.directory)?;
-    let (before, planned) = saved_plan(&dir, state, record)?;
+    let (before, planned) = saved_plan(&dir, record)?;
     let final_read = dir.join("after_independent.bin");
     if backup::hash_file(&final_read, None)?
         != (
@@ -292,7 +300,7 @@ fn verify_evidence(backup: &VerifiedBackup, state: &RunState) -> Result<(), Stri
         return Err("DeviceInfo 최종 재읽기 검증 증거가 변경되었습니다.".into());
     }
     let after = std::fs::read(final_read).map_err(|e| e.to_string())?;
-    deviceinfo::validate_plan(&before, &after, state.target_region, record.mode)?;
+    map::check_plan(deviceinfo::LAYOUT, &before, &after)?;
     deviceinfo::verify(&planned, &after, &after)
 }
 
@@ -613,10 +621,147 @@ fn attempt_dir(backup: &VerifiedBackup, name: &str) -> Result<PathBuf, String> {
     }
     Ok(path)
 }
+/// Edits of this run: the conversion preset, or the user's choice in the
+/// editor. An edit that changes the region binds that region's firmware.
+fn choose_edits(
+    before: &[u8],
+    state: &mut RunState,
+    firmware: &mut Option<FirmwareReport>,
+    ui: &mut impl Ui,
+    log: &mut Vec<String>,
+) -> Result<Option<map::Edits>, String> {
+    let layout = deviceinfo::LAYOUT;
+    match state.request {
+        Request::Convert {
+            target,
+            rollback_mode,
+        } => {
+            if firmware.as_ref().map(|firmware| firmware.region) != Some(target) {
+                return Err("변환 대상 리전의 펌웨어가 없습니다.".into());
+            }
+            Ok(Some(deviceinfo::conversion_edits(
+                before,
+                target,
+                rollback_mode,
+            )?))
+        }
+        Request::Edit => {
+            ui.status(
+                "DeviceInfo를 읽었습니다. 수정할 값을 입력하고 변경 내용을 확인하세요.",
+                false,
+            );
+            let Some(request) = ui.edit_deviceinfo(layout, before)? else {
+                live!(log, "DeviceInfo 수정 창에서 작업 취소를 선택했습니다.");
+                return Ok(None);
+            };
+            let planned = map::apply(layout, before, &request.edits)?;
+            let target = layout
+                .region(&planned)
+                .ok_or("리전 필드는 PRC 또는 ROW여야 합니다.")?;
+            if layout.region(before) == Some(target) {
+                state.firmware = None;
+                *firmware = None;
+            } else {
+                let dir = request.firmware_dir.ok_or_else(|| {
+                    format!(
+                        "리전을 {}(으)로 바꾸려면 해당 리전의 공식 펌웨어 폴더가 필요합니다.",
+                        target.token()
+                    )
+                })?;
+                let checked = crate::firmware::check_firmware(&dir, target)
+                    .map_err(|error| error.to_string())?;
+                live!(
+                    log,
+                    "리전 변경 {} → {}: 펌웨어를 설치하고 사용자 데이터를 초기화합니다.",
+                    layout.region(before).map_or("?", Region::token),
+                    target.token()
+                );
+                state.firmware = Some(FirmwareBinding::new(&checked)?);
+                *firmware = Some(checked);
+            }
+            Ok(Some(map::edits_between(layout, before, &planned)))
+        }
+    }
+}
+
+/// A firmware below the planned rollback indices would not boot. The stored
+/// values decide; the user may reset all 32 or cancel and restore.
+fn check_planned_rollback(
+    before: &[u8],
+    edits: map::Edits,
+    firmware: &FirmwareReport,
+    state: &mut RunState,
+    ui: &mut impl Ui,
+    log: &mut Vec<String>,
+) -> Result<Option<map::Edits>, String> {
+    let planned = map::apply(deviceinfo::LAYOUT, before, &edits)?;
+    let stored = deviceinfo::indices(&planned);
+    let device = RollbackIndices {
+        boot: stored[3],
+        vbmeta_system: stored[2],
+    };
+    for (partition, image, floor) in [
+        ("boot", firmware.indices.boot, device.boot),
+        (
+            "vbmeta_system",
+            firmware.indices.vbmeta_system,
+            device.vbmeta_system,
+        ),
+    ] {
+        live!(log, "롤백 비교 {partition}: 펌웨어 {image}, 기기 {floor}");
+    }
+    let Err(downgrades) = rollback::check(firmware.indices, device) else {
+        return Ok(Some(edits));
+    };
+    let details = rollback::describe(&downgrades);
+    live!(log, "{ROLLBACK_LOWER_MESSAGE} {details}");
+    if !ui.confirm_rollback_reset(&downgrades)? {
+        live!(log, "{ROLLBACK_CANCELLED_MESSAGE}");
+        return Ok(None);
+    }
+    state.warnings.push(format!(
+        "{ROLLBACK_LOWER_MESSAGE} 사용자 확인 후 32개 롤백인덱스를 0으로 초기화했습니다. {details}"
+    ));
+    live!(log, "사용자가 롤백인덱스 0 초기화 후 계속을 선택했습니다.");
+    Ok(Some(deviceinfo::with_rollback_reset(before, &edits)?))
+}
+
+/// Field changes for the log. Long opaque values (keys, device caches) are
+/// named but never printed.
+fn log_changes(before: &[u8], planned: &[u8], log: &mut Vec<String>) {
+    let changes = map::diff(deviceinfo::LAYOUT, before, planned);
+    live!(
+        log,
+        "DeviceInfo 변경 필드 {}개. 나머지 바이트는 보존합니다.",
+        changes.len()
+    );
+    for change in changes {
+        let field = &change.field;
+        if field.kind == map::Kind::Bytes && field.size > 8 {
+            live!(
+                log,
+                "  {} (0x{:04X}, {}바이트) 변경",
+                field.key,
+                field.offset,
+                field.size
+            );
+        } else {
+            live!(
+                log,
+                "  {} (0x{:04X}): {} → {}",
+                field.key,
+                field.offset,
+                change.before,
+                change.after
+            );
+        }
+    }
+}
+
 pub fn transact(
     device: &mut impl DeviceInfoIo,
     backup: &VerifiedBackup,
-    firmware: &FirmwareReport,
+    firmware: &mut Option<FirmwareReport>,
     state: &mut RunState,
     store: &StateStore,
     ui: &mut impl Ui,
@@ -624,7 +769,7 @@ pub fn transact(
 ) -> Result<Outcome, String> {
     backup.verify()?;
     restore::ensure_conversion_allowed(backup)?;
-    state.verify_binding(backup, firmware)?;
+    state.verify_binding(backup, firmware.as_ref())?;
     stopped(ui)?;
     let phase = state.recovery.phase;
     if matches!(phase, Phase::WritePending | Phase::RegionVerified) {
@@ -634,7 +779,7 @@ pub fn transact(
             .clone()
             .ok_or("DeviceInfo 의도 기록 없음")?;
         let dir = attempt_dir(backup, &record.directory)?;
-        let (before, planned) = saved_plan(&dir, state, &record)?;
+        let (before, planned) = saved_plan(&dir, &record)?;
         let verify = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
         let a = device.read(&verify.path().join("resume_1"), log)?;
         let b = device.read(&verify.path().join("resume_2"), log)?;
@@ -645,7 +790,9 @@ pub fn transact(
             live!(log, "{NOT_APPLIED_MESSAGE}");
             return Err(NOT_APPLIED_MESSAGE.into());
         }
-        deviceinfo::verify(&planned,&a,&b).map_err(|_|"이전 DeviceInfo 쓰기 결과를 확인할 수 없습니다. 자동 재쓰기 없이 상태와 백업을 보존합니다.".to_owned())?;
+        deviceinfo::verify(&planned, &a, &b).map_err(|_| {
+            "이전 DeviceInfo 쓰기 결과를 확인할 수 없습니다. 자동 재쓰기 없이 상태와 백업을 보존합니다.".to_owned()
+        })?;
         let evidence = dir.join("after_independent.bin");
         if evidence.exists() {
             if std::fs::read(&evidence).map_err(|e| e.to_string())? != planned {
@@ -673,7 +820,7 @@ pub fn transact(
     // Preserve the very first read immediately, even if a later check fails.
     let scratch = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
     let before = device.read(&scratch.path().join("read1"), log)?;
-    deviceinfo::region(&before)?;
+    deviceinfo::LAYOUT.check_buffer(&before)?;
     let original = attempt.join("before_shared_1.bin");
     if original.try_exists().map_err(|e| e.to_string())? {
         // A retry after a failed read must keep the very first original.
@@ -687,9 +834,6 @@ pub fn transact(
                 "DeviceInfo가 최초 원본 백업과 다릅니다. 원본을 보존하고 쓰기를 중단합니다.".into(),
             );
         }
-        if let Some(record) = &state.recovery.attempt {
-            saved_plan(&attempt, state, record)?;
-        }
     } else {
         backup::write_new(&original, &before)?;
     }
@@ -697,51 +841,26 @@ pub fn transact(
     if before != second {
         return Err("DeviceInfo 독립 읽기 두 개가 일치하지 않습니다. 쓰지 않았습니다.".into());
     }
-    let mut mode = state.options.rollback_mode;
-    if mode == RollbackMode::Keep {
-        // The only rollback comparison: the values actually stored on the device.
-        let stored = deviceinfo::indices(&before)?;
-        let device = RollbackIndices {
-            boot: stored[3],
-            vbmeta_system: stored[2],
+    // A plan recorded before an unapplied write is reused as chosen.
+    let edits = if let Some(record) = state.recovery.attempt.clone() {
+        saved_plan(&attempt, &record)?;
+        record.edits
+    } else {
+        let Some(edits) = choose_edits(&before, state, firmware, ui, log)? else {
+            return Ok(Outcome::Cancelled);
         };
-        for (partition, image, floor) in [
-            ("boot", firmware.indices.boot, device.boot),
-            (
-                "vbmeta_system",
-                firmware.indices.vbmeta_system,
-                device.vbmeta_system,
-            ),
-        ] {
-            live!(log, "롤백 비교 {partition}: 펌웨어 {image}, 기기 {floor}");
-        }
-        if let Err(downgrades) = rollback::check(firmware.indices, device) {
-            let details = rollback::describe(&downgrades);
-            live!(log, "{ROLLBACK_LOWER_MESSAGE} {details}");
-            if !ui.confirm_rollback_reset(&downgrades)? {
-                live!(log, "{ROLLBACK_CANCELLED_MESSAGE}");
-                return Ok(Outcome::Cancelled);
-            }
-            // Durable before the plan: the write intent and resume both use it.
-            state.options.rollback_mode = RollbackMode::Reset;
-            state.warnings.push(format!(
-                "{ROLLBACK_LOWER_MESSAGE} 사용자 확인 후 32개 롤백인덱스를 0으로 초기화했습니다. {details}"
-            ));
-            store.save(state)?;
-            mode = RollbackMode::Reset;
-            live!(log, "사용자가 롤백인덱스 0 초기화 후 계속을 선택했습니다.");
-        }
-    }
-    let planned = deviceinfo::plan(&before, state.target_region, mode)?;
-    let changed = before.iter().zip(&planned).filter(|(a, b)| a != b).count();
-    live!(
-        log,
-        "DeviceInfo: {} → {}, 롤백 {:?}, 변경 {}바이트. 나머지 영역은 보존합니다.",
-        deviceinfo::region(&before)?.token(),
-        state.target_region.token(),
-        mode,
-        changed
-    );
+        let edits = match firmware.as_ref() {
+            Some(chosen) => match check_planned_rollback(&before, edits, chosen, state, ui, log)? {
+                Some(edits) => edits,
+                None => return Ok(Outcome::Cancelled),
+            },
+            None => edits,
+        };
+        stopped(ui)?;
+        edits
+    };
+    let planned = map::apply(deviceinfo::LAYOUT, &before, &edits)?;
+    log_changes(&before, &planned, log);
     state.recovery.attempt = Some(Attempt {
         directory: attempt
             .file_name()
@@ -750,25 +869,26 @@ pub fn transact(
             .into(),
         before_sha256: backup::digest_bytes(&before),
         planned_sha256: backup::digest_bytes(&planned),
-        original_region: deviceinfo::region(&before)?,
-        mode,
+        original_region: deviceinfo::LAYOUT.region(&before),
+        edits,
     });
     if backup::hash_file(&attempt.join("before_shared_1.bin"), None)?
         != (before.len() as u64, backup::digest_bytes(&before))
     {
         return Err("쓰기 전 PC DeviceInfo 원본 백업 검증 실패".into());
     }
+    // The plan, and any firmware it requires, become durable here.
     checkpoint(state, store, Phase::Planned)?;
     stopped(ui)?;
     if before != planned {
         ui.status("DeviceInfo 쓰기 요청 및 독립 재읽기 검증 중입니다.", false);
         // Transfers and the dry-run cannot change DeviceInfo. Their failures
         // stay at Planned instead of becoming an unresolved write.
-        device.prepare(&before, &planned, mode, log)?;
+        device.prepare(&before, &planned, log)?;
         checkpoint(state, store, Phase::WritePending)?;
         // A durable PC intent exists before the only write call.
         let (same, fresh) =
-            match device.apply(&before, &planned, mode, &scratch.path().join("apply"), log) {
+            match device.apply(&before, &planned, &scratch.path().join("apply"), log) {
                 Ok(readback) => readback,
                 Err(error) if unapplied(device, &before, scratch.path(), log) => {
                     checkpoint(state, store, Phase::Planned)
@@ -780,20 +900,14 @@ pub fn transact(
             };
         deviceinfo::verify(&planned, &same, &fresh)?;
     } else {
-        live!(
-            log,
-            "DeviceInfo가 목표 리전·롤백 설정과 같습니다. 쓰기를 생략합니다."
-        );
+        live!(log, "DeviceInfo가 선택한 값과 같습니다. 쓰기를 생략합니다.");
     }
     // Independent helper process, freshly opened TA session, compared on PC too.
     let independent = device.read(&scratch.path().join("independent"), log)?;
     deviceinfo::verify(&planned, &independent, &independent)?;
     backup::write_new(&attempt.join("after_independent.bin"), &independent)?;
     checkpoint(state, store, Phase::RegionVerified)?;
-    live!(
-        log,
-        "DeviceInfo 목표 리전·롤백 및 전체 4096바이트 재읽기 검증 완료."
-    );
+    live!(log, "DeviceInfo 변경 및 전체 4096바이트 재읽기 검증 완료.");
     Ok(Outcome::Verified)
 }
 
@@ -897,11 +1011,12 @@ pub fn wait_for_edl(
 }
 
 /// Firmware is unreachable until both DeviceInfo verification AND original
-/// Recovery/GPT restoration have completed.
+/// Recovery/GPT restoration have completed. Without bound firmware (an edit
+/// that keeps the region) the run ends there with a normal boot and no wipe.
 pub fn finish(
     device: &mut impl FinishIo,
     backup: &VerifiedBackup,
-    firmware: &FirmwareReport,
+    mut firmware: Option<FirmwareReport>,
     state: &mut RunState,
     store: &StateStore,
     ui: &mut impl Ui,
@@ -911,7 +1026,8 @@ pub fn finish(
     if backup.transaction_stage()? != TransactionStage::S4Done {
         return Err("TWRP 준비 완료 기록이 없습니다. 원본 구성 복구가 필요합니다.".into());
     }
-    state.verify_binding(backup, firmware)?;
+    state.verify_binding(backup, firmware.as_ref())?;
+    let loader = state.loader_path().to_path_buf();
     let mut phase = state.recovery.phase;
     ui.phase(phase);
     if phase == Phase::FinalReboot {
@@ -942,12 +1058,14 @@ pub fn finish(
         ui.phase(Phase::RecoveryWaiting);
         let mut recovery = native::Recovery::wait(backup, ui, log)?;
         ui.phase(Phase::Planned);
-        if transact(&mut recovery, backup, firmware, state, store, ui, log)? == Outcome::Cancelled {
+        if transact(&mut recovery, backup, &mut firmware, state, store, ui, log)?
+            == Outcome::Cancelled
+        {
             return Err(cancelled(cancel_to_original(
                 device,
                 &mut recovery,
                 backup,
-                &firmware.loader,
+                &loader,
                 store,
                 &mut workflow::native::SystemClock::default(),
                 ui,
@@ -959,7 +1077,9 @@ pub fn finish(
         stopped(ui)?;
         // Confirmation can be open for minutes. Re-read, never assume old bytes.
         // Only the verified-result path is reachable here, so no new prompt.
-        if transact(&mut recovery, backup, firmware, state, store, ui, log)? == Outcome::Cancelled {
+        if transact(&mut recovery, backup, &mut firmware, state, store, ui, log)?
+            == Outcome::Cancelled
+        {
             return Err(
                 "DeviceInfo 검증 후 예상하지 않은 취소 결과입니다. 작업 기록을 보존했습니다."
                     .into(),
@@ -984,7 +1104,7 @@ pub fn finish(
     ) {
         wait_for_edl(
             device,
-            &firmware.loader,
+            &loader,
             &mut workflow::native::SystemClock::default(),
             ui,
             log,
@@ -1013,18 +1133,36 @@ pub fn finish(
         state.persist_fingerprint = Some(crate::country::persist_fingerprint(&bytes));
         checkpoint(state, store, Phase::OriginalsRestored)?;
     }
+    let Some(firmware) = firmware else {
+        // DeviceInfo edit without a region change: nothing is installed.
+        ui.phase(Phase::FinalReboot);
+        ui.status(
+            "원본 GPT·Recovery를 복원했습니다. 펌웨어 설치 없이 시스템 부팅을 요청합니다.",
+            false,
+        );
+        checkpoint(state, store, Phase::FinalReboot)?;
+        if let Some(warning) = device.final_reboot(log) {
+            state.warnings.push(warning);
+        }
+        checkpoint(state, store, Phase::Done)?;
+        live!(
+            log,
+            "DeviceInfo 검증·원본 구성 복원 완료. 펌웨어 설치와 데이터 초기화 없이 시스템 부팅을 요청했습니다."
+        );
+        return Ok(());
+    };
     let work = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
     workflow::confirm_identity(device, backup, state, work.path(), log)?;
     backup.verify()?;
     restore::ensure_conversion_allowed(backup)?;
-    state.verify_binding(backup, firmware)?;
+    state.verify_binding(backup, Some(&firmware))?;
     checkpoint(state, store, Phase::FirmwareWriting)?;
     ui.phase(Phase::FirmwareWriting);
     ui.status(
         "공식 펌웨어를 설치하고 사용자 데이터를 초기화합니다.",
         false,
     );
-    device.flash_firmware(firmware, true, log)?;
+    device.flash_firmware(&firmware, true, log)?;
     ui.phase(Phase::FinalReboot);
     ui.status(
         "GPT·국가 코드·활성 슬롯을 확인한 뒤 시스템 부팅을 요청합니다.",

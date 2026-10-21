@@ -213,6 +213,12 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
                 Message::Convert,
                 !app.busy() && !app.device.unsupported_model()
             )
+            .style(soft_style),
+            action(
+                app.t("DeviceInfo 수정", "Edit DeviceInfo"),
+                Message::Edit,
+                !app.busy() && !app.device.unsupported_model()
+            )
         ]
         .spacing(12),
     );
