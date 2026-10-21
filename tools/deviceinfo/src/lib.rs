@@ -7,28 +7,53 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
 };
-pub const REGION_OFFSET: usize = 0xD10;
-pub const ROLLBACK: std::ops::Range<usize> = 0x898..0x998;
 pub type State = [u8; SHARED_SIZE];
 pub type Result<T> = std::result::Result<T, String>;
 
+/// Logical DeviceInfo size of each supported model; the rest of the 4096-byte
+/// shared buffer is never part of a write plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Profile {
+    Tb520fu,
+    Tb522fu,
+}
+impl Profile {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "TB520FU" => Ok(Self::Tb520fu),
+            "TB522FU" => Ok(Self::Tb522fu),
+            _ => Err(format!("Unsupported --profile {value}")),
+        }
+    }
+    pub const fn logical_size(self) -> usize {
+        match self {
+            Self::Tb520fu => 0xEA8,
+            Self::Tb522fu => 0xD20,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Options {
+    pub profile: Profile,
     pub ta: PathBuf,
     pub prefix: PathBuf,
     pub expected: Option<PathBuf>,
     pub planned: Option<PathBuf>,
     pub read_only: bool,
     pub apply: bool,
-    pub reset: bool,
 }
 impl Options {
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self> {
         let mut args = args.into_iter();
         let (mut ta, mut prefix, mut expected, mut planned) = (None, None, None, None);
-        let (mut read_only, mut apply, mut reset) = (false, false, false);
+        let (mut read_only, mut apply, mut profile) = (false, false, None);
         while let Some(arg) = args.next() {
             match arg.to_str() {
+                Some("--profile") => {
+                    let value = args.next().ok_or("Missing --profile value")?;
+                    profile = Some(Profile::parse(&value.to_string_lossy())?);
+                }
                 Some("--ta") => ta = Some(PathBuf::from(args.next().ok_or("Missing --ta value")?)),
                 Some("--out-prefix") => {
                     prefix = Some(PathBuf::from(
@@ -45,7 +70,6 @@ impl Options {
                 }
                 Some("--read") => read_only = true,
                 Some("--apply-once") => apply = true,
-                Some("--reset-rollback") => reset = true,
                 _ => return Err(format!("Unknown argument: {}", arg.to_string_lossy())),
             }
         }
@@ -66,13 +90,13 @@ impl Options {
             return Err("Unsupported Keymaster path; use the confirmed active-slot keymaster_a or keymaster_b".into());
         }
         Ok(Self {
+            profile: profile.ok_or("--profile must name the device model (TB520FU or TB522FU)")?,
             ta,
             prefix: prefix.ok_or("Missing --out-prefix")?,
             expected,
             planned,
             read_only,
             apply,
-            reset,
         })
     }
 }
@@ -82,23 +106,19 @@ pub fn phase(name: &str) {
 }
 pub fn valid_state(data: &State) -> bool {
     &data[..13] == b"ANDROID-BOOT!"
-        && &data[0xCC8..0xCD0] == b"deadbeef"
-        && &data[0xD20..0xD28] == b"beefdead"
-        && data[REGION_OFFSET + 3] == 0
-        && matches!(&data[REGION_OFFSET..REGION_OFFSET + 3], b"PRC" | b"ROW")
 }
-pub fn validate_plan(before: &State, planned: &State, reset: bool) -> Result<()> {
-    if !valid_state(before) || !valid_state(planned) {
-        return Err("Invalid DeviceInfo profile".into());
+/// The PC reads the current state, the user chooses every field value and
+/// the PC verifies the plan. Here only the read state's magic and the shared
+/// tail after the logical structure are enforced.
+pub fn validate_plan(profile: Profile, before: &State, planned: &State) -> Result<()> {
+    if !valid_state(before) {
+        return Err("Invalid DeviceInfo magic in the read state".into());
     }
-    for i in 0..SHARED_SIZE {
-        if reset && ROLLBACK.contains(&i) {
-            if planned[i] != 0 {
-                return Err("All 32 rollback indices must be zero".into());
-            }
-        } else if !(REGION_OFFSET..REGION_OFFSET + 3).contains(&i) && before[i] != planned[i] {
-            return Err(format!("Protected DeviceInfo byte changed at 0x{i:X}"));
-        }
+    let logical = profile.logical_size();
+    if let Some(i) = (logical..SHARED_SIZE).find(|&i| before[i] != planned[i]) {
+        return Err(format!(
+            "Shared-buffer byte outside the logical DeviceInfo changed at 0x{i:X}"
+        ));
     }
     Ok(())
 }
@@ -162,9 +182,9 @@ pub fn execute(
     let run = (|| -> Result<()> {
         if !options.read_only {
             validate_plan(
+                options.profile,
                 expected.ok_or("Missing original")?,
                 planned.ok_or("Missing plan")?,
-                options.reset,
             )?;
             phase("PLAN_VALIDATED");
         }
@@ -220,37 +240,28 @@ pub fn execute(
     })
 }
 pub fn self_test() -> Result<()> {
-    for reset in [false, true] {
-        for region in [b"PRC", b"ROW"] {
-            let mut before = std::array::from_fn(|i| (i.wrapping_mul(17).wrapping_add(5)) as u8);
-            before[..13].copy_from_slice(b"ANDROID-BOOT!");
-            before[0xCC8..0xCD0].copy_from_slice(b"deadbeef");
-            before[0xD20..0xD28].copy_from_slice(b"beefdead");
-            before[REGION_OFFSET..REGION_OFFSET + 16].fill(0);
-            before[REGION_OFFSET..REGION_OFFSET + 3].copy_from_slice(region);
-            let mut planned = before;
-            planned[REGION_OFFSET..REGION_OFFSET + 3].copy_from_slice(if region == b"PRC" {
-                b"ROW"
-            } else {
-                b"PRC"
-            });
-            if reset {
-                planned[ROLLBACK].fill(0);
+    for profile in [Profile::Tb520fu, Profile::Tb522fu] {
+        let mut before = std::array::from_fn(|i| (i.wrapping_mul(17).wrapping_add(5)) as u8);
+        before[..13].copy_from_slice(b"ANDROID-BOOT!");
+        let logical = profile.logical_size();
+        // Any byte of the logical structure may be planned, even the magic.
+        let mut planned = before;
+        for byte in &mut planned[..logical] {
+            *byte ^= 0xFF;
+        }
+        validate_plan(profile, &before, &planned)?;
+        for i in logical..SHARED_SIZE {
+            planned[i] ^= 1;
+            let wrongly_accepted = validate_plan(profile, &before, &planned).is_ok();
+            planned[i] ^= 1;
+            if wrongly_accepted {
+                return Err(format!("Shared-tail self-test failed at 0x{i:X}"));
             }
-            validate_plan(&before, &planned, reset)?;
-            for i in 0..SHARED_SIZE {
-                if (REGION_OFFSET..REGION_OFFSET + 3).contains(&i) {
-                    continue;
-                }
-                planned[i] ^= 1;
-                let wrongly_accepted = validate_plan(&before, &planned, reset).is_ok();
-                planned[i] ^= 1;
-                if wrongly_accepted {
-                    return Err(format!("Protected-byte self-test failed at 0x{i:X}"));
-                }
-            }
-            planned[REGION_OFFSET..REGION_OFFSET + 3].copy_from_slice(region);
-            validate_plan(&before, &planned, reset)?;
+        }
+        let mut invalid = before;
+        invalid[0] = b'X';
+        if validate_plan(profile, &invalid, &invalid).is_ok() {
+            return Err("Read-state magic self-test failed".into());
         }
     }
     Ok(())
@@ -265,18 +276,18 @@ mod tests {
         data[..13].copy_from_slice(b"ANDROID-BOOT!");
         data[0xCC8..0xCD0].copy_from_slice(b"deadbeef");
         data[0xD20..0xD28].copy_from_slice(b"beefdead");
-        data[REGION_OFFSET..REGION_OFFSET + 4].copy_from_slice(b"PRC\0");
+        data[0xD10..0xD14].copy_from_slice(b"PRC\0");
         data
     }
     fn options(apply: bool) -> Options {
         Options {
+            profile: Profile::Tb520fu,
             ta: "/dev/block/bootdevice/by-name/keymaster_b".into(),
             prefix: "unused".into(),
             expected: Some("before".into()),
             planned: Some("planned".into()),
             read_only: false,
             apply,
-            reset: true,
         }
     }
     #[derive(Default)]
@@ -334,12 +345,12 @@ mod tests {
     }
     fn plan(before: &State) -> State {
         let mut p = *before;
-        p[REGION_OFFSET..REGION_OFFSET + 3].copy_from_slice(b"ROW");
-        p[ROLLBACK].fill(0);
+        p[0xD10..0xD13].copy_from_slice(b"ROW");
+        p[0x898..0x998].fill(0);
         p
     }
     #[test]
-    fn every_protected_byte_and_both_region_directions() {
+    fn every_logical_byte_is_plannable_but_the_shared_tail_is_not() {
         self_test().unwrap();
     }
     #[test]
@@ -472,8 +483,21 @@ mod tests {
         assert!(Options::parse(args(&["--read", "--out-prefix", "/tmp/a"])).is_err());
         for slot in ["a", "b"] {
             let ta = format!("/dev/block/bootdevice/by-name/keymaster_{slot}");
-            let mut items = args(&["--read", "--ta", &ta, "--out-prefix", "/tmp/a"]);
-            assert!(Options::parse(items.clone()).is_ok());
+            let read = ["--read", "--ta", &ta, "--out-prefix", "/tmp/a"];
+            // The model is always explicit: it fixes the protected shared tail.
+            assert!(Options::parse(args(&read)).is_err());
+            let mut items = args(&read);
+            items.extend(args(&["--profile", "TB522FU"]));
+            assert_eq!(
+                Options::parse(items.clone()).unwrap().profile,
+                Profile::Tb522fu
+            );
+            let mut wrong = args(&read);
+            wrong.extend(args(&["--profile", "TB999FU"]));
+            assert!(Options::parse(wrong).is_err());
+            let mut removed = items.clone();
+            removed.push("--reset-rollback".into());
+            assert!(Options::parse(removed).is_err());
             items.push("--apply-once".into());
             assert!(Options::parse(items).is_err());
         }

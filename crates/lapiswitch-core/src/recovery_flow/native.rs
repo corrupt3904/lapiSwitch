@@ -11,7 +11,7 @@ use adb_client::{ADBDeviceExt, usb::ADBUSBDevice};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 const HELPER: &[u8] = include_bytes!("../../../../assets/lapiswitch_deviceinfo");
-const HELPER_SHA: &str = "36b023482fb67e5d2b5f751b08a1d51eadff5a770095fbfbcbb4831838443b4d";
+const HELPER_SHA: &str = "73151d164adf34bf2ebe94fbd88e2fb56f85678213621885e9561e33d21c2a88";
 const EXIT: &str = "__LAPISWITCH_EXIT__:";
 
 struct Output {
@@ -189,15 +189,13 @@ impl Recovery {
     fn shell(&mut self, command: &str, stream: bool) -> Result<String, String> {
         command_result(&self.shell_output(command, stream)?)
     }
-    fn helper_command(&self, ta: &str, tag: u32, mode: RollbackMode) -> String {
+    /// The helper only enforces the model's shared tail; the PC verified the
+    /// field plan before this command is built.
+    fn helper_command(&self, ta: &str, tag: u32) -> String {
         format!(
-            "{remote}/deviceinfo --ta {ta} --expected {remote}/expected{tag}.bin --planned {remote}/planned{tag}.bin {reset}",
+            "{remote}/deviceinfo --profile {model} --ta {ta} --expected {remote}/expected{tag}.bin --planned {remote}/planned{tag}.bin",
             remote = self.remote,
-            reset = if mode == RollbackMode::Reset {
-                "--reset-rollback"
-            } else {
-                ""
-            }
+            model = crate::firmware::MODEL,
         )
     }
     fn pull(&mut self, remote: &str, out: &Path, expected: Option<u64>) -> Result<Vec<u8>, String> {
@@ -324,8 +322,10 @@ impl DeviceInfoIo for Recovery {
         let prefix = format!("{}/read{}", self.remote, self.reads);
         self.shell(
             &format!(
-                "{}/deviceinfo --read --ta {} --out-prefix {prefix}",
-                self.remote, ta
+                "{}/deviceinfo --profile {} --read --ta {} --out-prefix {prefix}",
+                self.remote,
+                crate::firmware::MODEL,
+                ta
             ),
             true,
         )?;
@@ -356,7 +356,7 @@ impl DeviceInfoIo for Recovery {
         let planned_remote = format!("{}/planned{tag}.bin", self.remote);
         self.push_checked(before, &expected, &before_hash)?;
         self.push_checked(planned, &planned_remote, &planned_hash)?;
-        let command = self.helper_command(ta, tag, mode);
+        let command = self.helper_command(ta, tag);
         self.shell(
             &format!("{command} --out-prefix {}/dry{tag}", self.remote),
             true,
@@ -391,7 +391,7 @@ impl DeviceInfoIo for Recovery {
         // Recheck after dry-run and immediately before the only write request.
         let ta = self.active_keymaster()?;
         let tag = prepared.tag;
-        let command = self.helper_command(ta, tag, mode);
+        let command = self.helper_command(ta, tag);
         // Once only. No retry path around this call.
         let output = self
             .shell_output(
