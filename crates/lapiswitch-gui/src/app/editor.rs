@@ -356,7 +356,11 @@ fn choice_row<'a>(
     )]
     .spacing(8)
     .align_y(Alignment::Center);
-    for option in options {
+    // An option equal to the current value would duplicate "Current".
+    for option in options
+        .iter()
+        .filter(|option| !original.eq_ignore_ascii_case(option))
+    {
         choices = choices.push(choice(
             (*option).into(),
             !unchanged && value == *option,
@@ -388,17 +392,26 @@ fn choice_row<'a>(
     )
 }
 
+/// Changed fields get a red outline so edits stand out.
+fn changed_border(changed: bool) -> Border {
+    Border {
+        color: if changed {
+            Color::from_rgb8(187, 42, 52)
+        } else {
+            LINE
+        },
+        width: if changed { 2.0 } else { 1.0 },
+        radius: 10.0.into(),
+    }
+}
+
 fn basic_box<'a>(content: widget::Column<'a, Message>, changed: bool) -> Element<'a, Message> {
     container(content)
         .padding(12)
         .width(Fill)
         .style(move |_| container::Style {
             background: Some(if changed { PALE } else { Color::WHITE }.into()),
-            border: Border {
-                color: LINE,
-                width: 1.0,
-                radius: 10.0.into(),
-            },
+            border: changed_border(changed),
             ..Default::default()
         })
         .into()
@@ -406,6 +419,32 @@ fn basic_box<'a>(content: widget::Column<'a, Message>, changed: bool) -> Element
 
 fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
     let selected = editor.rollback_choice();
+    // "0" duplicates "Current" when every stored index is already 0.
+    let all_zero = lapiswitch_core::deviceinfo::indices(&editor.before)
+        .iter()
+        .all(|index| *index == 0);
+    let mut choices = row![choice(
+        if all_zero {
+            format!("{} (0)", app.t("현재값", "Current"))
+        } else {
+            app.t("현재값", "Current").into()
+        },
+        selected == RollbackChoice::Current,
+        EditorMessage::Rollback(RollbackChoice::Current),
+    )]
+    .spacing(8);
+    if !all_zero {
+        choices = choices.push(choice(
+            "0".into(),
+            selected == RollbackChoice::Zero,
+            EditorMessage::Rollback(RollbackChoice::Zero),
+        ));
+    }
+    choices = choices.push(choice(
+        app.t("사용자지정", "Custom").into(),
+        selected == RollbackChoice::Custom,
+        EditorMessage::Rollback(RollbackChoice::Custom),
+    ));
     let mut content = column![
         row![
             label(app.t("롤백인덱스 32개", "32 rollback indices")).size(15),
@@ -416,24 +455,7 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
         ]
         .spacing(10)
         .align_y(Alignment::Center),
-        row![
-            choice(
-                app.t("현재값", "Current").into(),
-                selected == RollbackChoice::Current,
-                EditorMessage::Rollback(RollbackChoice::Current),
-            ),
-            choice(
-                "0".into(),
-                selected == RollbackChoice::Zero,
-                EditorMessage::Rollback(RollbackChoice::Zero),
-            ),
-            choice(
-                app.t("사용자지정", "Custom").into(),
-                selected == RollbackChoice::Custom,
-                EditorMessage::Rollback(RollbackChoice::Custom),
-            ),
-        ]
-        .spacing(8),
+        choices,
     ]
     .spacing(8);
     if selected == RollbackChoice::Custom {
@@ -516,11 +538,7 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
         .width(Fill)
         .style(move |_| container::Style {
             background: Some(if changed { PALE } else { Color::WHITE }.into()),
-            border: Border {
-                color: LINE,
-                width: 1.0,
-                radius: 10.0.into(),
-            },
+            border: changed_border(changed),
             ..Default::default()
         })
         .into()
