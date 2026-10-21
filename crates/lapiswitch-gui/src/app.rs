@@ -1399,16 +1399,32 @@ impl App {
                 self.loader = Some("Demo/loader.melf".into());
                 self.agreed = true;
             }
-            "deviceinfo-editor" | "deviceinfo-editor-protected" | "deviceinfo-editor-review" => {
+            "deviceinfo-editor"
+            | "deviceinfo-editor-custom"
+            | "deviceinfo-editor-rollback"
+            | "deviceinfo-editor-review" => {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
                 let mut editor =
                     editor::Editor::new(lapiswitch_core::deviceinfo::LAYOUT, demo_deviceinfo(), tx);
-                if screen == "deviceinfo-editor-protected" {
-                    editor.tab = lapiswitch_core::deviceinfo::map::Class::Protected;
+                if screen == "deviceinfo-editor-custom" {
+                    editor.tab = editor::Tab::Custom;
                 }
                 self.editor = Some(editor);
+                if screen == "deviceinfo-editor-rollback" {
+                    self.editor_update(editor::EditorMessage::Input(
+                        "is_unlocked".into(),
+                        "1".into(),
+                    ));
+                    self.editor_update(editor::EditorMessage::Rollback(
+                        editor::RollbackChoice::Custom,
+                    ));
+                    self.editor_update(editor::EditorMessage::Input(
+                        "rollback_index[3]".into(),
+                        "20".into(),
+                    ));
+                }
                 if screen == "deviceinfo-editor-review" {
                     self.editor_update(editor::EditorMessage::Input("region".into(), "ROW".into()));
                     self.demo_pick(Picker::EditorFirmware);
@@ -2117,7 +2133,8 @@ mod tests {
                 "edl-start-warning",
                 "deviceinfo-edit",
                 "deviceinfo-editor",
-                "deviceinfo-editor-protected",
+                "deviceinfo-editor-custom",
+                "deviceinfo-editor-rollback",
                 "deviceinfo-editor-review",
                 "twrp-wait",
                 "deviceinfo",

@@ -8,13 +8,40 @@ use lapiswitch_core::deviceinfo::map::{self, Class, Field, Kind, Layout};
 use lapiswitch_core::recovery_flow::EditRequest;
 use std::collections::BTreeMap;
 
+/// Basic: the common fields as choices. Custom: every field typed directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tab {
+    Basic,
+    Custom,
+}
+
+/// Rollback choice of the basic tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RollbackChoice {
+    Current,
+    Zero,
+    Custom,
+}
+
+/// Lock fields offered as 0/1 choices on the basic tab.
+const LOCK_KEYS: [&str; 2] = ["is_unlocked", "is_unlock_critical"];
+
+fn rollback_key(n: usize) -> String {
+    format!("rollback_index[{n}]")
+}
+
+/// Fields the basic tab covers; their changes need no extra risk checkbox.
+fn is_basic(key: &str) -> bool {
+    LOCK_KEYS.contains(&key) || key == "region" || key.starts_with("rollback_index[")
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum EditorMessage {
     Input(String, String),
     Reset(String),
     ResetAll,
-    RollbackZero,
-    Tab(Class),
+    Rollback(RollbackChoice),
+    Tab(Tab),
     Query(String),
     Review(bool),
     Ack(bool),
@@ -27,7 +54,9 @@ pub(crate) struct Editor {
     pub(crate) before: Vec<u8>,
     fields: Vec<Field>,
     pub(crate) inputs: BTreeMap<String, String>,
-    pub(crate) tab: Class,
+    pub(crate) tab: Tab,
+    /// The basic tab shows the 32 rollback inputs.
+    pub(crate) rollback_custom: bool,
     pub(crate) query: String,
     pub(crate) review: bool,
     pub(crate) protected_ack: bool,
@@ -50,7 +79,8 @@ impl Editor {
             before,
             fields,
             inputs,
-            tab: Class::Basic,
+            tab: Tab::Basic,
+            rollback_custom: false,
             query: String::new(),
             review: false,
             protected_ack: false,
@@ -98,10 +128,34 @@ impl Editor {
         self.planned()
             .is_some_and(|planned| self.layout.region(&planned) != self.layout.region(&self.before))
     }
+    /// Security/structure fields changed outside the basic choices.
     pub(crate) fn protected_changed(&self) -> bool {
         self.changes()
             .iter()
-            .any(|change| change.field.class == Class::Protected)
+            .any(|change| change.field.class == Class::Protected && !is_basic(&change.field.key))
+    }
+    fn unchanged(&self, key: &str) -> bool {
+        self.fields
+            .iter()
+            .find(|f| f.key == key)
+            .is_none_or(|f| self.input(f).trim() == self.original(f))
+    }
+    pub(crate) fn rollback_choice(&self) -> RollbackChoice {
+        if self.rollback_custom {
+            return RollbackChoice::Custom;
+        }
+        let keys: Vec<String> = (0..map::ROLLBACK_COUNT).map(rollback_key).collect();
+        if keys.iter().all(|key| self.unchanged(key)) {
+            RollbackChoice::Current
+        } else if keys.iter().all(|key| {
+            self.fields.iter().find(|f| &f.key == key).is_some_and(|f| {
+                map::encode(f, self.input(f)).is_ok_and(|b| b.iter().all(|x| *x == 0))
+            })
+        }) {
+            RollbackChoice::Zero
+        } else {
+            RollbackChoice::Custom
+        }
     }
     fn firmware_ready(&self) -> bool {
         matches!(&self.firmware, Some(Ok(report)) if Some(report.region) == self.target_region())
@@ -176,15 +230,29 @@ impl App {
                     editor.inputs.insert(field.key, original);
                 }
                 editor.protected_ack = false;
+                editor.rollback_custom = false;
             }
-            EditorMessage::RollbackZero => {
+            EditorMessage::Rollback(choice) => {
+                editor.rollback_custom = choice == RollbackChoice::Custom;
                 for n in 0..map::ROLLBACK_COUNT {
-                    editor
-                        .inputs
-                        .insert(format!("rollback_index[{n}]"), "0".into());
+                    let key = rollback_key(n);
+                    match choice {
+                        RollbackChoice::Current => {
+                            if let Some(field) =
+                                editor.fields.iter().find(|f| f.key == key).cloned()
+                            {
+                                let original = editor.original(&field);
+                                editor.inputs.insert(key, original);
+                            }
+                        }
+                        RollbackChoice::Zero => {
+                            editor.inputs.insert(key, "0".into());
+                        }
+                        RollbackChoice::Custom => {}
+                    }
                 }
             }
-            EditorMessage::Tab(class) => editor.tab = class,
+            EditorMessage::Tab(tab) => editor.tab = tab,
             EditorMessage::Query(query) => editor.query = query,
             EditorMessage::Review(review) => {
                 editor.review = review && ready;
@@ -243,12 +311,139 @@ impl App {
     }
 }
 
-fn class_label(app: &App, class: Class) -> &'static str {
-    match class {
-        Class::Basic => app.t("기본", "Basic"),
-        Class::Advanced => app.t("고급", "Advanced"),
-        Class::Protected => app.t("보안·구조 (위험)", "Security/structure (risky)"),
+fn tab_label(app: &App, tab: Tab) -> &'static str {
+    match tab {
+        Tab::Basic => app.t("기본", "Basic"),
+        Tab::Custom => app.t("사용자지정", "Custom"),
     }
+}
+
+/// One selectable option; the chosen one is highlighted.
+fn choice<'a>(text: String, selected: bool, message: EditorMessage) -> Element<'a, Message> {
+    button(
+        label(text)
+            .size(14)
+            .color(if selected { Color::WHITE } else { INK }),
+    )
+    .padding([7, 14])
+    .style(if selected {
+        button::primary
+    } else {
+        soft_style
+    })
+    .on_press(Message::Editor(message))
+    .into()
+}
+
+/// A basic-tab field: its current value and fixed options. A value set on
+/// the custom tab that is none of the options is shown as such.
+fn choice_row<'a>(
+    app: &'a App,
+    editor: &'a Editor,
+    key: &'static str,
+    options: &[&'static str],
+) -> Element<'a, Message> {
+    let Some(field) = editor.fields.iter().find(|f| f.key == key) else {
+        return space().into();
+    };
+    let original = editor.original(field);
+    let value = editor.input(field).trim().to_ascii_uppercase();
+    let unchanged = editor.unchanged(key);
+    let mut choices = row![choice(
+        format!("{} ({})", app.t("현재값", "Current"), short(&original)),
+        unchanged,
+        EditorMessage::Reset(key.into()),
+    )]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    for option in options {
+        choices = choices.push(choice(
+            (*option).into(),
+            !unchanged && value == *option,
+            EditorMessage::Input(key.into(), (*option).into()),
+        ));
+    }
+    if !unchanged && !options.contains(&value.as_str()) {
+        choices = choices.push(small(format!(
+            "{}: {}",
+            app.t("사용자지정 값", "Custom value"),
+            short(editor.input(field))
+        )));
+    }
+    basic_box(
+        column![
+            row![
+                label(field.description).size(15),
+                small(format!(
+                    "{} · 0x{:04X} · {}B",
+                    field.key, field.offset, field.size
+                )),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+            choices,
+        ]
+        .spacing(8),
+        !unchanged,
+    )
+}
+
+fn basic_box<'a>(content: widget::Column<'a, Message>, changed: bool) -> Element<'a, Message> {
+    container(content)
+        .padding(12)
+        .width(Fill)
+        .style(move |_| container::Style {
+            background: Some(if changed { PALE } else { Color::WHITE }.into()),
+            border: Border {
+                color: LINE,
+                width: 1.0,
+                radius: 10.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+}
+
+fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
+    let selected = editor.rollback_choice();
+    let mut content = column![
+        row![
+            label(app.t("롤백인덱스 32개", "32 rollback indices")).size(15),
+            small(format!(
+                "rollback_index[0..31] · 0x{:04X} · 8B × 32",
+                map::ROLLBACK_START
+            )),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+        row![
+            choice(
+                app.t("현재값", "Current").into(),
+                selected == RollbackChoice::Current,
+                EditorMessage::Rollback(RollbackChoice::Current),
+            ),
+            choice(
+                "0".into(),
+                selected == RollbackChoice::Zero,
+                EditorMessage::Rollback(RollbackChoice::Zero),
+            ),
+            choice(
+                app.t("사용자지정", "Custom").into(),
+                selected == RollbackChoice::Custom,
+                EditorMessage::Rollback(RollbackChoice::Custom),
+            ),
+        ]
+        .spacing(8),
+    ]
+    .spacing(8);
+    if selected == RollbackChoice::Custom {
+        for n in 0..map::ROLLBACK_COUNT {
+            if let Some(field) = editor.fields.iter().find(|f| f.key == rollback_key(n)) {
+                content = content.push(field_row(app, editor, field));
+            }
+        }
+    }
+    basic_box(content, selected != RollbackChoice::Current)
 }
 
 fn kind_hint(app: &App, field: &Field) -> String {
@@ -445,62 +640,52 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
     if editor.review {
         return review(app, editor);
     }
+    let changes = editor.changes();
     let mut tabs = row![].spacing(8);
-    for class in [Class::Basic, Class::Advanced, Class::Protected] {
-        let changed = editor
-            .changes()
+    for tab in [Tab::Basic, Tab::Custom] {
+        let changed = changes
             .iter()
-            .filter(|change| change.field.class == class)
+            .filter(|change| tab == Tab::Custom || is_basic(&change.field.key))
             .count();
         let title = if changed > 0 {
-            format!("{} ({changed})", class_label(app, class))
+            format!("{} ({changed})", tab_label(app, tab))
         } else {
-            class_label(app, class).to_owned()
+            tab_label(app, tab).to_owned()
         };
-        tabs = tabs.push(
-            button(label(title).size(14).color(if editor.tab == class {
-                Color::WHITE
-            } else {
-                INK
-            }))
-            .padding([8, 14])
-            .style(if editor.tab == class {
-                button::primary
-            } else {
-                soft_style
-            })
-            .on_press(Message::Editor(EditorMessage::Tab(class))),
-        );
+        tabs = tabs.push(choice(title, editor.tab == tab, EditorMessage::Tab(tab)));
     }
-    let query = editor.query.trim().to_ascii_lowercase();
     let mut list = column![].spacing(8);
-    if editor.tab == Class::Basic {
-        list = list.push(row![
-            space().width(Fill),
-            action(
-                app.t("롤백인덱스 32개 모두 0", "Set all 32 rollback indices to 0"),
-                Message::Editor(EditorMessage::RollbackZero),
-                true
-            )
-            .style(soft_style),
-        ]);
-    }
-    if editor.tab == Class::Protected {
+    if editor.tab == Tab::Basic {
+        list = list
+            .push(choice_row(app, editor, "region", &["PRC", "ROW"]))
+            .push(choice_row(app, editor, LOCK_KEYS[0], &["0", "1"]))
+            .push(choice_row(app, editor, LOCK_KEYS[1], &["0", "1"]))
+            .push(rollback_row(app, editor));
+        if LOCK_KEYS.iter().any(|key| !editor.unchanged(key)) {
+            list = list.push(note(
+                app.t(
+                    "잠금 상태 값은 부트로더 동작과 보안 상태에 영향을 줍니다. 기기에 맞는 값인지 확인하세요.",
+                    "Lock state values affect bootloader behaviour and the security state. Make sure they suit the device.",
+                ),
+                true,
+            ));
+        }
+    } else {
         list = list.push(note(
             app.t(
-                "이 필드는 잠금 상태, verity, 공개키, AVB 값, 기기 고유 캐시와 구조 표식입니다. 잘못 바꾸면 부팅되지 않거나 보안 상태가 바뀔 수 있습니다.",
-                "These are lock state, verity, public key, AVB values, device-unique caches and structure markers. Wrong values can prevent booting or change the security state.",
+                "모든 필드를 직접 입력합니다. 잠금 상태, verity, 공개키, AVB 값, 기기 고유 캐시와 구조 표식을 잘못 바꾸면 부팅되지 않거나 보안 상태가 바뀔 수 있습니다.",
+                "Every field is typed directly. Wrong lock state, verity, public key, AVB values, device-unique caches or structure markers can prevent booting or change the security state.",
             ),
             true,
         ));
-    }
-    for field in editor.fields.iter().filter(|field| {
-        field.class == editor.tab
-            && (query.is_empty()
+        let query = editor.query.trim().to_ascii_lowercase();
+        for field in editor.fields.iter().filter(|field| {
+            query.is_empty()
                 || field.key.to_ascii_lowercase().contains(&query)
-                || field.description.contains(editor.query.trim()))
-    }) {
-        list = list.push(field_row(app, editor, field));
+                || field.description.contains(editor.query.trim())
+        }) {
+            list = list.push(field_row(app, editor, field));
+        }
     }
     let mut body = column![
         label(
@@ -515,14 +700,18 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
             )
             .replace("{size}", &format!("{:X}", editor.layout.logical_size()))
         ),
-        row![
-            tabs,
-            space().width(Fill),
-            text_input(app.t("필드 검색", "Search fields"), &editor.query)
-                .on_input(|text| Message::Editor(EditorMessage::Query(text)))
-                .padding(8)
-                .width(220),
-        ]
+        if editor.tab == Tab::Custom {
+            row![
+                tabs,
+                space().width(Fill),
+                text_input(app.t("필드 검색", "Search fields"), &editor.query)
+                    .on_input(|text| Message::Editor(EditorMessage::Query(text)))
+                    .padding(8)
+                    .width(220),
+            ]
+        } else {
+            row![tabs]
+        }
         .spacing(12)
         .align_y(Alignment::Center),
         scrollable(list).height(400),
@@ -567,4 +756,76 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
         .align_y(Alignment::Center),
     );
     panel(body).max_width(980)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open() -> (App, std::sync::mpsc::Receiver<Option<EditRequest>>) {
+        let mut app = App::base(true);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.editor = Some(Editor::new(
+            lapiswitch_core::deviceinfo::LAYOUT,
+            super::super::demo_deviceinfo(),
+            tx,
+        ));
+        (app, rx)
+    }
+    fn editor(app: &App) -> &Editor {
+        app.editor.as_ref().unwrap()
+    }
+
+    #[test]
+    fn basic_choices_set_values_and_current_restores_the_read_value() {
+        let (mut app, _rx) = open();
+        assert_eq!(editor(&app).tab, Tab::Basic);
+        assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Current);
+        app.editor_update(EditorMessage::Rollback(RollbackChoice::Zero));
+        assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Zero);
+        let planned = editor(&app).planned().unwrap();
+        assert_eq!(lapiswitch_core::deviceinfo::indices(&planned), [0; 32]);
+        app.editor_update(EditorMessage::Rollback(RollbackChoice::Current));
+        assert!(editor(&app).changes().is_empty());
+        // Custom keeps the values and opens the 32 inputs.
+        app.editor_update(EditorMessage::Rollback(RollbackChoice::Custom));
+        assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Custom);
+        assert!(editor(&app).changes().is_empty());
+        app.editor_update(EditorMessage::Input(rollback_key(3), "20".into()));
+        let planned = editor(&app).planned().unwrap();
+        assert_eq!(lapiswitch_core::deviceinfo::indices(&planned)[3], 20);
+        app.editor_update(EditorMessage::ResetAll);
+        assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Current);
+    }
+
+    #[test]
+    fn basic_lock_changes_need_no_risk_checkbox_but_custom_security_fields_do() {
+        let (mut app, _rx) = open();
+        app.editor_update(EditorMessage::Input("is_unlocked".into(), "1".into()));
+        app.editor_update(EditorMessage::Input(
+            "is_unlock_critical".into(),
+            "1".into(),
+        ));
+        assert!(!editor(&app).protected_changed());
+        assert!(editor(&app).blocker(&app).is_none());
+        app.editor_update(EditorMessage::Input("verity_mode".into(), "1".into()));
+        assert!(editor(&app).protected_changed());
+        assert!(editor(&app).blocker(&app).is_some());
+        app.editor_update(EditorMessage::Ack(true));
+        assert!(editor(&app).blocker(&app).is_none());
+    }
+
+    #[test]
+    fn region_choice_requires_firmware_and_differing_custom_rollbacks_show_custom() {
+        let (mut app, _rx) = open();
+        app.editor_update(EditorMessage::Input("region".into(), "ROW".into()));
+        assert!(editor(&app).region_changed());
+        assert!(editor(&app).blocker(&app).is_some());
+        app.editor_update(EditorMessage::Reset("region".into()));
+        assert!(!editor(&app).region_changed());
+        // A value typed on the custom tab is reflected on the basic tab.
+        app.editor_update(EditorMessage::Tab(Tab::Custom));
+        app.editor_update(EditorMessage::Input(rollback_key(7), "5".into()));
+        assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Custom);
+    }
 }
