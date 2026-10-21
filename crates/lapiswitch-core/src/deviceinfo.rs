@@ -1,4 +1,5 @@
 //! TB520FU QSEECom DeviceInfo layout, independent of transport.
+pub mod map;
 use crate::region::Region;
 use serde::{Deserialize, Serialize};
 
