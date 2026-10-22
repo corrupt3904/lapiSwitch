@@ -463,8 +463,8 @@ impl App {
             )
         } else if self.options().is_none() {
             self.t(
-                "국가 코드 또는 변경 안 함을 선택하고 적용해 주세요.",
-                "Apply a country code or Do not change.",
+                "국가 코드 또는 변경 안 함을 선택해 주세요.",
+                "Choose a country code or Do not change.",
             )
         } else if !self.agreed {
             self.t(
@@ -2427,7 +2427,9 @@ mod theme_tests {
     #[test]
     fn the_theme_follows_windows_unless_light_or_dark_is_chosen() {
         let mut app = App::base(false);
-        assert_eq!(app.preferences.theme, ThemeChoice::System);
+        // Start from the default, whatever this machine has saved.
+        app.preferences.theme = ThemeChoice::System;
+        app.system_dark = false;
         assert!(!app.dark());
         let _ = app.update(Message::SystemTheme(iced::theme::Mode::Dark));
         assert!(app.dark());
