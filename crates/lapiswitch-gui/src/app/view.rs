@@ -1375,10 +1375,6 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "기기의 DeviceInfo를 TWRP에서 읽은 뒤 원하는 값을 직접 수정합니다.",
             "Read the device's DeviceInfo in TWRP, then edit the values directly."
         ),
-        warning_note(app.t(
-            "보안·구조 필드를 잘못 바꾸면 부팅이 되지 않을 수 있습니다. 쓰기 전 변경 목록을 반드시 확인하세요. 편집 창에서 취소하면 DeviceInfo를 바꾸지 않고 원본 구성을 자동으로 복구합니다.",
-            "Wrong security/structure values can stop the tablet from booting. Always review the change list before writing. Cancelling in the editor leaves DeviceInfo unchanged and restores the original configuration automatically.",
-        )),
         action(
             app.t("EDL 로더 선택", "Choose EDL loader"),
             Message::Pick(Picker::Loader),
@@ -1390,45 +1386,11 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     if let Some(path) = &app.loader {
         content = content.push(small(path.display().to_string()));
     }
-    let wrapped =
-        |text: &'static str| -> Element<'_, Message> { label(text).size(14).color(muted()).into() };
     content = content
-        .push(
-            column![
-                label(app.t("Region 변경과 펌웨어 설치", "Region change and firmware"))
-                    .size(16),
-                group(vec![
-                    group_row(
-                        app.t("Region 유지", "Region kept"),
-                        wrapped(app.t(
-                            "펌웨어를 설치하지 않으며, 사용자 데이터도 그대로 유지됩니다.",
-                            "No firmware is installed and user data is kept.",
-                        )),
-                        None,
-                    ),
-                    group_row(
-                        app.t("Region 변경", "Region changed"),
-                        wrapped(app.t(
-                            "편집 창에서 바꿀 Region의 공식 펌웨어 폴더를 선택해야 합니다. 펌웨어의 vendor_boot Region이 선택한 Region과 같아야 하며, DeviceInfo를 쓴 뒤 그 펌웨어를 설치합니다.",
-                            "Choose the official firmware folder for the new region in the editor. Its vendor_boot region must match the chosen region; the firmware is installed after DeviceInfo is written.",
-                        )),
-                        None,
-                    ),
-                    group_row(
-                        app.t("사용자 데이터", "User data"),
-                        label(app.t(
-                            "Region을 바꾸면 반드시 초기화됩니다. 중요한 파일은 미리 백업하세요.",
-                            "A region change always erases it. Back up important files first.",
-                        ))
-                        .size(14)
-                        .color(danger())
-                        .into(),
-                        None,
-                    ),
-                ]),
-            ]
-            .spacing(8),
-        )
+        .push(warning_note(app.t(
+            "보안·구조 필드를 잘못 바꾸면 부팅이 되지 않을 수 있습니다. 쓰기 전 변경 목록을 반드시 확인하세요. 편집 창에서 취소하면 DeviceInfo를 바꾸지 않고 원본 구성을 자동으로 복구합니다.",
+            "Wrong security/structure values can stop the tablet from booting. Always review the change list before writing. Cancelling in the editor leaves DeviceInfo unchanged and restores the original configuration automatically.",
+        )))
         .push(
             checkbox(app.agreed)
                 .label(app.t(
