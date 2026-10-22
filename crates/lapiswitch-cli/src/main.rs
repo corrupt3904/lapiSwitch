@@ -129,7 +129,8 @@ fn check(args: &[String]) -> Result<(), String> {
         "row" => Region::Row,
         _ => return Err(format!("bad region `{region}`")),
     };
-    let report = check_firmware(Path::new(folder), target).map_err(|error| error.to_string())?;
+    let report =
+        check_firmware(Path::new(folder), Some(target)).map_err(|error| error.to_string())?;
     println!("image folder : {}", report.image_dir.display());
     println!("loader       : {}", report.loader.display());
     println!("region       : {}", report.region.token());
@@ -175,7 +176,7 @@ fn check(args: &[String]) -> Result<(), String> {
 /// --output must be new so device transcripts cannot overwrite older runs.
 fn prepare_device(args: &[String]) -> Result<(), String> {
     let (folder, region, output) = parse_prepare_args(args)?;
-    let firmware = check_firmware(&folder, region).map_err(|error| error.to_string())?;
+    let firmware = check_firmware(&folder, Some(region)).map_err(|error| error.to_string())?;
     std::fs::create_dir(&output).map_err(|error| {
         format!(
             "{}: {error} (새 출력 폴더를 지정해 주세요)",

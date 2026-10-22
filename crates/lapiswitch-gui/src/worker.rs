@@ -67,10 +67,6 @@ pub enum Action {
 #[derive(Debug, Clone)]
 pub enum Event {
     Validated(Result<FirmwareReport, String>),
-    FirmwareRegionMismatch {
-        firmware: Region,
-        target: Region,
-    },
     ConfirmEdlStart(Sender<bool>),
     ConfirmUnrecognizedFirmware(Sender<bool>),
     /// Keep mode in TWRP: firmware indices are below DeviceInfo. `true`
@@ -96,12 +92,11 @@ pub enum Event {
     Finished(Result<Vec<String>, String>),
 }
 
-pub fn validate(tx: Sender<Event>, folder: PathBuf, region: Region) {
+/// The firmware flashing flow: the package's own region (vendor_boot DTB)
+/// becomes the target region.
+pub fn validate(tx: Sender<Event>, folder: PathBuf) {
     std::thread::spawn(move || {
-        let event = match std::panic::catch_unwind(|| check_firmware(&folder, region)) {
-            Ok(Err(lapiswitch_core::firmware::FirmwareError::WrongRegion { firmware, target })) => {
-                Event::FirmwareRegionMismatch { firmware, target }
-            }
+        let event = match std::panic::catch_unwind(|| check_firmware(&folder, None)) {
             Ok(result) => Event::Validated(result.map_err(|e| e.to_string())),
             Err(_) => {
                 Event::Validated(Err("펌웨어 검사 작업이 예기치 않게 종료되었습니다.".into()))
@@ -114,7 +109,7 @@ pub fn validate(tx: Sender<Event>, folder: PathBuf, region: Region) {
 /// The editor's region change needs that region's firmware.
 pub fn validate_editor_firmware(tx: Sender<Event>, folder: PathBuf, region: Region) {
     std::thread::spawn(move || {
-        let result = std::panic::catch_unwind(|| check_firmware(&folder, region))
+        let result = std::panic::catch_unwind(|| check_firmware(&folder, Some(region)))
             .unwrap_or_else(|_| {
                 Err(lapiswitch_core::firmware::FirmwareError::XmlSelection(
                     "펌웨어 검사 작업이 예기치 않게 종료되었습니다.".into(),
@@ -317,7 +312,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                     log,
                     "시작 전 펌웨어를 다시 검사하고 파일 해시를 기록합니다. 대용량 패키지는 시간이 걸릴 수 있습니다."
                 );
-                let firmware = check_firmware(&approved.image_dir, approved.region)
+                let firmware = check_firmware(&approved.image_dir, Some(approved.region))
                     .map_err(|e| e.to_string())?;
                 confirm_approval(&approved, &firmware)?;
                 let builder = BackupBuilder::create(&output, Some(firmware.device))?;
@@ -375,7 +370,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 }
                 let firmware = match &state.firmware {
                     Some(binding) => Some(
-                        check_firmware(&binding.firmware_dir, binding.region)
+                        check_firmware(&binding.firmware_dir, Some(binding.region))
                             .map_err(|e| e.to_string())?,
                     ),
                     None => None,

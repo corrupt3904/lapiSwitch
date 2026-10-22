@@ -680,7 +680,7 @@ fn choose_edits(
                         target.token()
                     )
                 })?;
-                let checked = crate::firmware::check_firmware(&dir, target)
+                let checked = crate::firmware::check_firmware(&dir, Some(target))
                     .map_err(|error| error.to_string())?;
                 if checked.device != state.device()? {
                     return Err(format!(

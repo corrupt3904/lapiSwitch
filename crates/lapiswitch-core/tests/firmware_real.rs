@@ -27,7 +27,7 @@ fn real_packages_pass_s0_for_their_own_region_only() {
             continue;
         };
         ran = true;
-        let report = check_firmware(&folder, region).unwrap_or_else(|e| panic!("{var}: {e}"));
+        let report = check_firmware(&folder, Some(region)).unwrap_or_else(|e| panic!("{var}: {e}"));
         assert_eq!(report.region, region);
         assert!(report.fingerprint.ends_with(":user/release-keys"));
         assert!(report.loader.ends_with("xbl_s_devprg_ns.melf"));
@@ -60,7 +60,7 @@ fn real_packages_pass_s0_for_their_own_region_only() {
             report.missing_images
         );
         assert!(matches!(
-            check_firmware(&folder, other),
+            check_firmware(&folder, Some(other)),
             Err(FirmwareError::WrongRegion { .. })
         ));
     }

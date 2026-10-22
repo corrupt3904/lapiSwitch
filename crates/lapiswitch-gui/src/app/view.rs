@@ -154,7 +154,7 @@ pub(super) fn title<'a>(
 fn nav_section(app: &App) -> usize {
     match app.page {
         Page::Dashboard | Page::Resume => 0,
-        Page::Region | Page::Firmware | Page::Options | Page::Confirm => 1,
+        Page::Firmware | Page::Options | Page::Confirm => 1,
         Page::Edit => 2,
         Page::Recovery => 3,
         Page::Settings => 4,
@@ -317,26 +317,142 @@ fn navigation(app: &App) -> Element<'_, Message> {
     .padding([20, 12])
     .into()
 }
+/// The firmware flashing steps; each page's title is its step name.
+fn flash_steps(app: &App) -> [&'static str; 4] {
+    [
+        app.t("펌웨어 검사", "Firmware check"),
+        app.t("플래싱 설정", "Flashing options"),
+        app.t("최종 확인", "Final check"),
+        app.t("진행 / 결과", "Progress / result"),
+    ]
+}
+/// Fluent settings group: rows in one card, separated by hairlines.
+fn group<'a>(rows: Vec<Element<'a, Message>>) -> Element<'a, Message> {
+    let mut content = column![];
+    for (i, row) in rows.into_iter().enumerate() {
+        if i > 0 {
+            content = content.push(container(space().width(Fill).height(1)).style(|_| {
+                container::Style {
+                    background: Some(line().into()),
+                    ..Default::default()
+                }
+            }));
+        }
+        content = content.push(row);
+    }
+    container(content)
+        .width(Fill)
+        .style(fluent::card_style)
+        .into()
+}
+/// A row of a group: name, value and an optional control on the right.
+fn group_row<'a>(
+    name: &'static str,
+    value: Element<'a, Message>,
+    control: Option<Element<'a, Message>>,
+) -> Element<'a, Message> {
+    let mut content = row![
+        label(name).size(14).width(FIELD_KEY),
+        container(value).width(Fill)
+    ]
+    .spacing(16)
+    .align_y(Alignment::Center);
+    if let Some(control) = control {
+        content = content.push(control);
+    }
+    container(content).padding([14, 16]).width(Fill).into()
+}
+/// A group row that opens a choice: the whole row is the button.
+fn link_row<'a>(
+    name: &'static str,
+    value: String,
+    message: Message,
+    enabled: bool,
+) -> Element<'a, Message> {
+    button(
+        row![
+            label(name).size(14).width(FIELD_KEY),
+            label(value).size(14).color(muted()).width(Fill),
+            icon(glyph::CHEVRON).size(12).color(muted())
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center),
+    )
+    .padding([14, 16])
+    .width(Fill)
+    .on_press_maybe(enabled.then_some(message))
+    .style(|theme, status| {
+        let mut style = fluent::subtle_style(theme, status);
+        style.border.radius = 0.0.into();
+        style
+    })
+    .into()
+}
+/// Reset or keep the rollback indices: a two-button segmented control.
+fn rollback_choice(app: &App) -> Element<'_, Message> {
+    use lapiswitch_core::deviceinfo::RollbackMode;
+    let mut choices = row![].spacing(4);
+    for (mode, name) in [
+        (
+            RollbackMode::Reset,
+            app.t("초기화 (32개 → 0)", "Reset (32 → 0)"),
+        ),
+        (RollbackMode::Keep, app.t("유지", "Keep")),
+    ] {
+        let selected = app.rollback_mode == mode;
+        choices = choices.push(
+            button(label(name).size(13).color(if selected {
+                fluent::p().on_accent
+            } else {
+                ink()
+            }))
+            .padding([6, 14])
+            .on_press_maybe((!app.busy()).then_some(Message::Rollback(mode)))
+            .style(if selected {
+                fluent::accent_style
+            } else {
+                fluent::standard_style
+            }),
+        );
+    }
+    choices.into()
+}
+/// The chosen country code for the flashing options and final check.
+fn country_value(app: &App) -> String {
+    match app.country.as_deref() {
+        None => app.t("선택하세요", "Choose").into(),
+        Some("—") => app.t("변경 안 함", "Do not change").into(),
+        Some(code) => match crate::countries::find(code) {
+            Some(country) => format!("{} · {}", country.code, country.name),
+            None => code.into(),
+        },
+    }
+}
+/// Why the run cannot start, in bold red under the final check.
+fn blocker_text<'a>(reason: &'a str) -> Element<'a, Message> {
+    label(reason)
+        .size(14)
+        .color(danger())
+        .font(iced::Font {
+            family: iced::font::Family::Name("Malgun Gothic"),
+            weight: iced::font::Weight::Bold,
+            ..iced::Font::DEFAULT
+        })
+        .into()
+}
 /// Region conversion steps as a Fluent breadcrumb above the page.
 fn stepper(app: &App) -> Element<'_, Message> {
-    let steps = [
-        app.t("리전 선택", "Target region"),
-        app.t("펌웨어 검사", "Firmware"),
-        app.t("플래싱 설정", "Flashing options"),
-        app.t("최종 확인", "Review"),
-        app.t("진행 / 결과", "Progress / result"),
-    ];
+    let steps = flash_steps(app);
     let page = if app.page == Page::Settings {
         app.return_page
     } else {
         app.page
     };
     let active = match page {
-        Page::Region => 0,
-        Page::Firmware => 1,
-        Page::Options => 2,
-        Page::Confirm => 3,
-        _ => 4,
+        Page::Firmware => 0,
+        Page::Options => 1,
+        Page::Confirm => 2,
+        _ => 3,
     };
     let mut crumbs = row![].spacing(8).align_y(Alignment::Center);
     let flow = label(app.t(
@@ -419,7 +535,6 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
     let (content, footer) = match app.page {
         Page::Dashboard => dashboard_view::dashboard(app),
         Page::Edit => edit(app),
-        Page::Region => region(app),
         Page::Firmware => firmware(app),
         Page::Options => options(app),
         Page::Confirm => confirm(app),
@@ -590,78 +705,41 @@ pub(super) fn footer<'a>(app: &App, next: Option<(Message, bool)>) -> Element<'a
     }
     buttons.into()
 }
-fn region(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
-    let mut choices = row![].spacing(16);
-    for (region, name, description) in [
-        (
-            Region::Row,
-            "ROW",
-            app.t("글로벌 펌웨어", "Global firmware"),
-        ),
-        (Region::Prc, "PRC", app.t("중국 펌웨어", "China firmware")),
-    ] {
-        let selected = app.region == Some(region);
-        choices = choices.push(
-            button(
-                column![
-                    small(if selected {
-                        app.t("선택됨", "SELECTED")
-                    } else {
-                        " "
-                    }),
-                    label(name).size(38),
-                    label(description)
-                ]
-                .spacing(15),
-            )
-            .padding(26)
-            .width(Fill)
-            .on_press_maybe((!app.busy()).then_some(Message::Region(region)))
-            .style(move |theme, status| {
-                let mut style = button::secondary(theme, status);
-                style.background = Some(if selected { pale() } else { card_color() }.into());
-                style.border = Border {
-                    color: if selected { accent() } else { line() },
-                    width: if selected { 2.0 } else { 1.0 },
-                    radius: fluent::CARD_RADIUS.into(),
-                };
-                style
-            }),
-        );
-    }
-    (column![title(app, "변경할 리전을 선택하세요", "Choose the target region", "선택한 리전과 일치하는 공식 펌웨어를 사용합니다.", "Use official firmware matching your target region."), choices,
-        note(app.t("지원 모델: {models}. 롤백인덱스 초기화 여부는 플래싱 설정에서 선택합니다.", "Supported models: {models}. Choose whether to reset rollback indices in Flashing options.").replace("{models}", &super::supported_models()), false),
-        small(app.t("현재 기기의 리전과 관계없이 선택한 목표 리전으로 진행합니다.", "The selected target is used regardless of the device's current region."))].spacing(26).into(),
-        row![small(app.t("01 / 04 · 준비", "01 / 04 · PREPARATION")), space().width(Fill), action(app.t("펌웨어 선택", "Choose firmware"), Message::Next, !app.busy() && app.region.is_some())].align_y(Alignment::Center).into())
-}
 fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
+    let steps = flash_steps(app);
     let mut content = column![
-        title(
-            app,
-            "펌웨어를 확인합니다",
-            "Check your firmware",
-            "폴더를 선택하면 모델·리전·필수 파일을 검사합니다.",
-            "Select a folder to validate its model, region and required files."
-        ),
-        row![
-            action(
-                app.t("폴더 선택", "Choose folder"),
-                Message::Pick(Picker::Firmware),
-                !app.busy()
-            ),
-            small(format!(
-                "{}: {}",
-                app.t("목표", "Target"),
-                app.region.map_or("—", Region::token)
+        column![
+            label(steps[0]).size(28),
+            label(app.t(
+                "펌웨어 폴더를 선택하면 모델·필수 파일을 검사하고, vendor_boot의 DTB에서 리전을 확인합니다.",
+                "Choose the firmware folder: the model and required files are checked and the region is read from the vendor_boot DTB.",
             ))
+            .size(14)
+            .color(muted())
         ]
-        .spacing(18)
-        .align_y(Alignment::Center)
+        .spacing(4),
+        group(vec![group_row(
+            app.t("펌웨어 폴더", "Firmware folder"),
+            label(
+                app.folder
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| app.t("선택되지 않음", "Not selected").into())
+            )
+            .size(14)
+            .color(muted())
+            .into(),
+            Some(
+                action(
+                    app.t("폴더 선택", "Choose folder"),
+                    Message::Pick(Picker::Firmware),
+                    !app.busy()
+                )
+                .into()
+            ),
+        )]),
     ]
-    .spacing(20);
-    if let Some(folder) = &app.folder {
-        content = content.push(small(folder.display().to_string()));
-    }
+    .spacing(12);
     if app.busy() {
         content = content.push(note(
             app.t("펌웨어를 검사하고 있습니다…", "Checking firmware…"),
@@ -670,24 +748,45 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     }
     if let Some(report) = &app.report {
         content = content
-            .push(note(
-                app.t("펌웨어 검사를 통과했습니다", "Firmware validation passed"),
-                false,
+            .push(infobar(
+                Severity::Success,
+                app.t(
+                    "펌웨어 검사를 통과했습니다. 플래싱하면 기기 리전이 이 펌웨어의 리전으로 바뀝니다.",
+                    "Firmware check passed. Flashing changes the device region to this firmware's region.",
+                ),
             ))
-            .push(field(
-                app.t("모델 / 리전", "Model / region"),
-                format!("{} / {}", report.device, report.region.token()),
-            ))
-            .push(field("Build fingerprint", &report.fingerprint))
-            .push(field(
-                app.t("서명 키", "Signing key"),
-                format!("{:?}", report.key_class),
-            ))
-            .push(field("boot", report.indices.boot.to_string()))
-            .push(field(
-                "vbmeta_system",
-                report.indices.vbmeta_system.to_string(),
-            ));
+            .push(group(vec![
+                group_row(
+                    app.t("리전 (vendor_boot DTB)", "Region (vendor_boot DTB)"),
+                    label(report.region.token()).size(18).color(accent()).into(),
+                    None,
+                ),
+                group_row(
+                    app.t("모델", "Model"),
+                    label(report.device.model()).size(14).into(),
+                    None,
+                ),
+                group_row(
+                    "Build fingerprint",
+                    label(report.fingerprint.clone()).size(13).color(muted()).into(),
+                    None,
+                ),
+                group_row(
+                    app.t("서명 키", "Signing key"),
+                    label(format!("{:?}", report.key_class)).size(14).into(),
+                    None,
+                ),
+                group_row(
+                    app.t("롤백인덱스", "Rollback indices"),
+                    label(format!(
+                        "boot {} · vbmeta_system {}",
+                        report.indices.boot, report.indices.vbmeta_system
+                    ))
+                    .size(14)
+                    .into(),
+                    None,
+                ),
+            ]));
         if !report.missing_images.is_empty() {
             content = content.push(note(
                 format!(
@@ -717,26 +816,57 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     )
 }
 fn options(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
-    let mut content = column![title(app, "플래싱 설정", "Flashing options", "국가 코드를 선택하고 백업 위치를 확인하세요.", "Choose the country code and review the backup location."),
-        row![small(app.t("사용자 데이터", "User data")).width(FIELD_KEY), label(app.t("초기화 필수", "Erasure required")).color(danger()).width(Fill)].spacing(12),
-        warning_note(app.t("펌웨어 플래싱 시 사용자 데이터는 반드시 초기화됩니다. 앱·사진·계정이 삭제되므로 중요한 파일은 먼저 별도로 백업하세요.", "Firmware flashing always erases user data. Apps, photos and accounts will be deleted. Back up important files separately first.")),
-        field(app.t("롤백인덱스", "Rollback indices"), app.t("초기화가 기본값입니다. 미초기화는 기존 값을 유지하며, 펌웨어 롤백인덱스가 더 낮으면 TWRP 단계에서 초기화 또는 작업 취소를 묻습니다.", "Reset is the default. Keep preserves the values; if the firmware indices are lower, TWRP asks whether to reset them or cancel.")),
-        row![
-            button(label(app.t("초기화 · 32개 인덱스 → 0", "Reset · 32 indices → 0")).color(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {fluent::p().on_accent}else{ink()})).padding(14).on_press_maybe((!app.busy()).then_some(Message::Rollback(lapiswitch_core::deviceinfo::RollbackMode::Reset))).style(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {super::fluent::accent_style}else{soft_style}),
-            button(label(app.t("미초기화 · 기존 값 유지", "Keep · Preserve values")).color(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Keep {fluent::p().on_accent}else{ink()})).padding(14).on_press_maybe((!app.busy()).then_some(Message::Rollback(lapiswitch_core::deviceinfo::RollbackMode::Keep))).style(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Keep {super::fluent::accent_style}else{soft_style}),
-        ].spacing(12),
-        country_view::selected(app),
-        small(app.t("국가명·코드로 검색한 뒤 적용하세요. ‘변경 안 함’도 선택할 수 있습니다.", "Search by country or code and apply. You can also choose Do not change.")),
-    ].spacing(22);
-    content = content
-        .push(field(
-            app.t("로그 및 백업 위치", "Logs and backup location"),
-            app.output.display().to_string(),
-        ))
-        .push(small(app.t(
-            "백업 폴더 위치는 상단 설정에서 변경할 수 있습니다.",
-            "Change the backup folder in Settings above.",
-        )));
+    let steps = flash_steps(app);
+    let content = column![
+        column![
+            label(steps[1]).size(28),
+            label(app.t(
+                "플래싱 후 적용할 국가 코드와 롤백인덱스 처리 방식을 정합니다.",
+                "Choose the country code applied after flashing and how rollback indices are handled.",
+            ))
+            .size(14)
+            .color(muted())
+        ]
+        .spacing(4),
+        group(vec![
+            link_row(
+                app.t("국가 코드", "Country code"),
+                country_value(app),
+                Message::CountryOpen,
+                !app.busy(),
+            ),
+            group_row(
+                app.t("롤백인덱스", "Rollback indices"),
+                label(match app.rollback_mode {
+                    lapiswitch_core::deviceinfo::RollbackMode::Reset => app.t(
+                        "32개 모두 0으로 기록합니다. 더 낮은 펌웨어도 설치할 수 있습니다.",
+                        "All 32 are written as 0, so lower firmware can be installed.",
+                    ),
+                    lapiswitch_core::deviceinfo::RollbackMode::Keep => app.t(
+                        "기존 값을 유지합니다. 펌웨어가 더 낮으면 TWRP에서 초기화 또는 취소를 묻습니다.",
+                        "Values are kept; if the firmware is lower, TWRP asks to reset or cancel.",
+                    ),
+                })
+                .size(13)
+                .color(muted())
+                .into(),
+                Some(rollback_choice(app)),
+            ),
+            group_row(
+                app.t("로그 및 백업 위치", "Logs and backup location"),
+                label(app.output.display().to_string())
+                    .size(13)
+                    .color(muted())
+                    .into(),
+                None,
+            ),
+        ]),
+        small(app.t(
+            "로그 및 백업 위치는 설정에서 바꿀 수 있습니다.",
+            "Change the log and backup location in Settings.",
+        )),
+    ]
+    .spacing(12);
     (
         content.into(),
         footer(app, Some((Message::Next, app.options().is_some()))),
@@ -795,23 +925,83 @@ fn summary<'a>(
                 .filter(|c| *c != "—")
                 .unwrap_or(app.t("변경 안 함", "Unchanged"))
         ),
-        field(app.t("펌웨어", "Firmware"), firmware)
+        field(app.t("펌웨어 폴더", "Firmware folder"), firmware)
     ]
     .spacing(17)
     .into()
 }
 fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
-    let content = column![title(app, "시작 전 마지막 확인", "Ready to convert", "기기 한 대를 연결하고 USB 연결을 유지하세요.", "Connect one device and keep USB connected."),
-        dashboard_view::connection_note(app),
-        summary(app, app.region, app.country.as_deref(), app.folder.as_ref().map(|p| p.display().to_string()).unwrap_or_default()),
-        note(app.t("원본 GPT·활성 슬롯 Recovery·vendor_boot·misc 및 고유 파티션을 먼저 백업합니다. 작업이 시작되면 케이블을 빼거나 앱을 종료하지 마세요.", "Original GPT, active-slot Recovery and vendor_boot, misc and device-specific partitions are backed up first. Keep the cable connected and the app open throughout the operation."), true),
-        field(app.t("롤백인덱스", "Rollback indices"), if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {app.t("초기화 · 32개 → 0 / 낮은 펌웨어 index 허용", "Reset · 32 → 0 / lower firmware indices allowed")} else {app.t("미초기화 · 펌웨어가 더 낮으면 TWRP에서 확인", "Keep · asked in TWRP if firmware indices are lower")}),
-        checkbox(app.agreed).label(app.t("사용자 데이터가 반드시 초기화되는 것과 위 안내를 확인했습니다.", "I understand that user data will be erased and have read the instructions.")).on_toggle(Message::Agree),
-    ].spacing(24);
+    let steps = flash_steps(app);
+    let idle = !app.busy();
+    let content = column![
+        column![
+            label(steps[2]).size(28),
+            label(app.t(
+                "기기 한 대를 연결하고 USB 연결을 유지하세요. 항목을 눌러 바꿀 수 있습니다.",
+                "Connect one device and keep USB connected. Select an item to change it.",
+            ))
+            .size(14)
+            .color(muted())
+        ]
+        .spacing(4),
+        warning_note(app.t(
+            "펌웨어 플래싱 시 사용자 데이터는 반드시 초기화됩니다. 앱·사진·계정이 삭제되므로 중요한 파일은 먼저 별도로 백업하세요.",
+            "Firmware flashing always erases user data. Apps, photos and accounts will be deleted. Back up important files separately first.",
+        )),
+        group(vec![
+            group_row(
+                app.t("목표 리전", "Target region"),
+                label(format!(
+                    "{}  ·  {}",
+                    app.region.map_or("—", Region::token),
+                    app.t("펌웨어 vendor_boot 기준", "from the firmware's vendor_boot")
+                ))
+                .size(14)
+                .into(),
+                None,
+            ),
+            group_row(
+                app.t("사용자 데이터", "User data"),
+                label(app.t("초기화", "Erased")).size(14).color(danger()).into(),
+                None,
+            ),
+            link_row(
+                app.t("국가 코드", "Country code"),
+                country_value(app),
+                Message::CountryOpen,
+                idle,
+            ),
+            link_row(
+                app.t("펌웨어 폴더", "Firmware folder"),
+                app.folder
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default(),
+                Message::Pick(Picker::Firmware),
+                idle,
+            ),
+            group_row(
+                app.t("롤백인덱스", "Rollback indices"),
+                space().into(),
+                Some(rollback_choice(app)),
+            ),
+        ]),
+        checkbox(app.agreed)
+            .label(app.t(
+                "사용자 데이터가 반드시 초기화되는 것과 위 안내를 확인했습니다.",
+                "I understand that user data will be erased and have read the instructions."
+            ))
+            .on_toggle(Message::Agree),
+    ]
+    .spacing(12);
     (
         content.into(),
         row![
-            small(app.start_blocker().unwrap_or("")).width(Fill),
+            container(
+                app.start_blocker()
+                    .map_or_else(|| space().into(), blocker_text)
+            )
+            .width(Fill),
             action(app.t("이전", "Back"), Message::Back, true).style(soft_style),
             action(
                 if app.activity == Some(Activity::Archive) {
@@ -826,6 +1016,7 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             )
         ]
         .spacing(12)
+        .align_y(Alignment::Center)
         .into(),
     )
 }
@@ -959,10 +1150,10 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     } else {
         title(
             app,
-            "펌웨어 플래싱을 진행하고 있습니다",
-            "Firmware flashing in progress",
-            "연결을 유지해 주세요. 단계가 끝나면 자동으로 넘어갑니다.",
-            "Keep USB connected. Each step advances automatically.",
+            "진행 / 결과",
+            "Progress / result",
+            "펌웨어 플래싱을 진행하고 있습니다. 연결을 유지해 주세요. 단계가 끝나면 자동으로 넘어갑니다.",
+            "Firmware flashing in progress. Keep USB connected; each step advances automatically.",
         )
     };
     let mut content = column![heading].spacing(18);
@@ -1052,7 +1243,18 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     } else {
         app.t("작업이 중단되었습니다", "Operation stopped")
     };
-    let mut content = column![label(heading).size(29), overall_progress(app, false)].spacing(20);
+    let header: Element<'_, Message> = if matches!(app.run_kind, RunKind::Convert | RunKind::Resume)
+    {
+        column![
+            label(flash_steps(app)[3]).size(28),
+            label(heading).size(14).color(muted())
+        ]
+        .spacing(4)
+        .into()
+    } else {
+        label(heading).size(28).into()
+    };
+    let mut content = column![header, overall_progress(app, false)].spacing(20);
     match &app.result {
         Some(Ok(warnings)) => {
             content = content.push(infobar(Severity::Success, match app.run_kind {

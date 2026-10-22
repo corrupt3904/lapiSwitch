@@ -90,32 +90,3 @@ pub(super) fn modal(app: &App) -> widget::Container<'_, Message> {
     )
     .max_width(590)
 }
-pub(super) fn selected(app: &App) -> Element<'_, Message> {
-    let mut content = row![].spacing(12).align_y(Alignment::Center);
-    if let Some(country) = app.country.as_deref().and_then(crate::countries::find) {
-        content = content
-            .push(
-                svg(crate::countries::flag(country.code))
-                    .width(30)
-                    .height(23),
-            )
-            .push(label(format!("{} · {}", country.code, country.name)));
-    } else {
-        content = content.push(label(if app.country.is_some() {
-            app.t("국가 코드 변경 안 함", "Country code unchanged")
-        } else {
-            app.t("국가 코드를 선택하세요", "Choose a country code")
-        }));
-    }
-    content
-        .push(
-            action(app.t("선택", "Choose"), Message::CountryOpen, !app.busy()).style(
-                if app.country.is_none() {
-                    super::fluent::accent_style
-                } else {
-                    soft_style
-                },
-            ),
-        )
-        .into()
-}

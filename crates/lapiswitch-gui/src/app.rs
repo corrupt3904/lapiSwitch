@@ -26,7 +26,6 @@ enum Page {
     Dashboard,
     /// DeviceInfo edit setup: EDL loader and consent.
     Edit,
-    Region,
     Firmware,
     Options,
     Confirm,
@@ -72,7 +71,6 @@ enum Message {
     Recovery,
     Settings,
     Resume,
-    Region(Region),
     Pick(Picker),
     Picked(Picker, Option<PathBuf>),
     Country(String),
@@ -176,6 +174,9 @@ struct App {
     rollback_confirmation: Option<(String, Sender<bool>)>,
     /// The live DeviceInfo editor while the tablet waits in TWRP.
     editor: Option<editor::Editor>,
+    /// The country picker opened by Continue on the firmware page; Cancel
+    /// returns there.
+    country_from_next: bool,
     /// Windows is in dark mode; used when the theme follows the system.
     system_dark: bool,
     logs: VecDeque<String>,
@@ -256,6 +257,7 @@ impl App {
             firmware_confirmation: None,
             rollback_confirmation: None,
             editor: None,
+            country_from_next: false,
             system_dark: false,
             logs: VecDeque::new(),
             log_path: None,
@@ -363,7 +365,7 @@ impl App {
             self.page
         };
         match page {
-            Page::Region | Page::Firmware | Page::Options | Page::Confirm | Page::Resume => true,
+            Page::Firmware | Page::Options | Page::Confirm | Page::Resume => true,
             Page::Progress | Page::Result => {
                 !matches!(self.run_kind, RunKind::Restore | RunKind::Edit)
             }
@@ -397,8 +399,8 @@ impl App {
             )
         } else if !self.device.reachable() {
             self.t(
-                "기기가 연결되어 있지 않거나 준비되지 않았습니다. 연결 안내를 확인해 주세요.",
-                "The device is disconnected or not ready. Check the connection guidance.",
+                "기기 연결이 확인되지 않았습니다. 연결 상태를 확인해 주세요.",
+                "The device connection could not be confirmed. Check the connection.",
             )
         } else if self.device.unsupported_model() {
             self.t(
@@ -438,8 +440,8 @@ impl App {
                 .is_some_and(|f| Some(f.region) == self.region)
         {
             self.t(
-                "선택한 리전의 펌웨어 검사를 완료해 주세요.",
-                "Complete the firmware check for the selected region.",
+                "펌웨어 폴더를 선택해 검사를 완료해 주세요.",
+                "Choose a firmware folder and complete its check.",
             )
         } else if self.options().is_none() {
             self.t(
@@ -785,18 +787,18 @@ impl App {
                 ) => {}
             Message::CancelArchiveRun => self.archive_confirmation = None,
             Message::ConfirmArchiveRun => return self.confirm_archive_run(),
-            Message::Region(region) if self.region != Some(region) => {
-                self.region = Some(region);
-                self.report = None;
-                self.folder = None;
-                self.agreed = false;
-                self.error = None;
-            }
             Message::Next => {
                 self.error = None;
                 self.page = match self.page {
-                    Page::Region if self.region.is_some() => Page::Firmware,
-                    Page::Firmware if self.report.is_some() => Page::Options,
+                    Page::Firmware if self.report.is_some() => {
+                        // The country code is the first choice of the
+                        // options; cancelling it returns to the firmware.
+                        self.country_open = true;
+                        self.country_search.clear();
+                        self.country_draft = self.country.clone();
+                        self.country_from_next = true;
+                        Page::Options
+                    }
                     Page::Options if self.options().is_some() => {
                         self.agreed = false;
                         Page::Confirm
@@ -808,8 +810,7 @@ impl App {
                 self.error = None;
                 self.agreed = false;
                 self.page = match self.page {
-                    Page::Region => Page::Dashboard,
-                    Page::Firmware => Page::Region,
+                    Page::Firmware => Page::Dashboard,
                     Page::Options => Page::Firmware,
                     Page::Confirm => Page::Options,
                     Page::Settings => self.return_page,
@@ -823,7 +824,7 @@ impl App {
                 self.error = None;
             }
             Message::Convert if !self.device.unsupported_model() => {
-                self.page = Page::Region;
+                self.page = Page::Firmware;
                 self.agreed = false;
                 self.error = None;
             }
@@ -870,10 +871,14 @@ impl App {
             Message::CountryCancel => {
                 self.country_open = false;
                 self.country_draft = None;
+                if std::mem::take(&mut self.country_from_next) {
+                    self.page = Page::Firmware;
+                }
             }
             Message::CountryApply if self.country_open && self.country_draft.is_some() => {
                 self.country = self.country_draft.take();
                 self.country_open = false;
+                self.country_from_next = false;
                 self.agreed = false;
             }
             Message::Agree(agreed) => self.agreed = agreed,
@@ -996,14 +1001,12 @@ impl App {
         self.notice = None;
         match picker {
             Picker::Firmware => {
-                let Some(region) = self.region else {
-                    return Task::none();
-                };
                 self.folder = Some(path.clone());
                 self.report = None;
+                self.region = None;
                 self.agreed = false;
                 self.activity = Some(Activity::Inspect);
-                worker::validate(self.tx.clone(), path, region);
+                worker::validate(self.tx.clone(), path);
             }
             Picker::Output if self.page == Page::Settings => {
                 let previous = self.preferences.storage_root.replace(path.clone());
@@ -1071,22 +1074,14 @@ impl App {
                     self.edl_confirmation = Some(tx);
                 }
             }
-            Event::FirmwareRegionMismatch { firmware, target } => {
-                self.activity = None;
-                self.report = None;
-                self.error = Some(
-                    self.t(
-                        "선택한 리전은 {target}이지만 펌웨어의 리전은 {firmware}입니다. 선택한 리전과 같은 펌웨어를 선택하세요.",
-                        "The selected region is {target}, but the firmware region is {firmware}. Choose firmware for the selected region.",
-                    )
-                    .replace("{target}", target.token())
-                    .replace("{firmware}", firmware.token()),
-                );
-            }
             Event::Validated(result) => {
                 self.activity = None;
                 match result {
-                    Ok(report) => self.report = Some(report),
+                    Ok(report) => {
+                        // The package's vendor_boot DTB decides the target.
+                        self.region = Some(report.region);
+                        self.report = Some(report);
+                    }
                     Err(error) => {
                         self.report = None;
                         self.error = Some(error);
@@ -1231,7 +1226,8 @@ impl App {
     fn demo_pick(&mut self, picker: Picker) {
         match picker {
             Picker::Firmware => {
-                let region = *self.region.get_or_insert(Region::Row);
+                let region = self.region.unwrap_or(Region::Row);
+                self.region = Some(region);
                 self.folder = Some("Demo/firmware/image".into());
                 self.report = Some(demo_report(region));
             }
@@ -1334,7 +1330,7 @@ impl App {
                 self.country_search = "ko".into();
             }
             "region" => {
-                self.page = Page::Region;
+                self.page = Page::Firmware;
                 self.region = None;
                 self.report = None;
                 self.folder = None;
@@ -1413,12 +1409,9 @@ impl App {
                 }
                 self.transfer_line = Some("쓰기 super: 42% (4.2 GB / 10 GB)".into());
             }
-            "firmware-mismatch" => {
+            "options-country" => {
                 self.page = Page::Firmware;
-                self.event(Event::FirmwareRegionMismatch {
-                    firmware: Region::Prc,
-                    target: Region::Row,
-                });
+                let _ = self.update(Message::Next);
             }
             "custom-firmware-warning" => {
                 self.reset_progress(RunKind::Convert);
@@ -1915,28 +1908,23 @@ mod tests {
             assert!(app.edl_confirmation.is_none());
         }
     }
-    #[test]
-    fn firmware_mismatch_is_localized_in_both_directions_and_clears_old_report() {
-        for language in [Language::Korean, Language::English] {
-            for (firmware, target) in [(Region::Prc, Region::Row), (Region::Row, Region::Prc)] {
-                let mut app = App::base(true);
-                app.seed_preview("options");
-                app.preferences.language = language;
-                app.event(Event::FirmwareRegionMismatch { firmware, target });
-                let error = app.error.as_ref().unwrap();
-                assert!(error.contains(firmware.token()) && error.contains(target.token()));
-                assert!(error.contains(if language == Language::Korean {
-                    "선택한 리전"
-                } else {
-                    "selected region"
-                }));
-                assert!(app.report.is_none());
-                assert!(app.activity.is_none());
-            }
-        }
-    }
     fn saved(stage: Stage) -> lapiswitch_core::state::RunState {
         demo_saved_state(stage)
+    }
+    #[test]
+    fn the_checked_firmware_decides_the_target_region() {
+        let mut app = App::base(true);
+        app.seed_preview("firmware");
+        app.region = None;
+        app.report = None;
+        app.activity = Some(Activity::Inspect);
+        for region in [Region::Prc, Region::Row] {
+            app.event(Event::Validated(Ok(demo_report(region))));
+            assert_eq!(app.region, Some(region));
+            assert!(app.activity.is_none());
+        }
+        app.event(Event::Validated(Err("bad".into())));
+        assert!(app.report.is_none());
     }
     #[test]
     fn rollback_prompt_needs_an_explicit_answer_and_is_cleared_on_finish() {
@@ -1985,13 +1973,7 @@ mod tests {
             app.page = Page::Settings;
             assert!(!app.conversion_steps_visible());
         }
-        for page in [
-            Page::Region,
-            Page::Firmware,
-            Page::Options,
-            Page::Confirm,
-            Page::Resume,
-        ] {
+        for page in [Page::Firmware, Page::Options, Page::Confirm, Page::Resume] {
             app.page = page;
             assert!(app.conversion_steps_visible());
             app.return_page = page;
@@ -2088,11 +2070,7 @@ mod tests {
     fn running_job_freezes_navigation_region_and_settings() {
         let mut app = App::base(true);
         app.seed_preview("twrp-wait");
-        for message in [
-            Message::Recovery,
-            Message::Region(Region::Prc),
-            Message::Settings,
-        ] {
+        for message in [Message::Recovery, Message::Convert, Message::Settings] {
             let _ = app.update(message);
         }
         assert_eq!(app.page, Page::Progress);
@@ -2100,26 +2078,41 @@ mod tests {
         assert!(app.options().is_some());
     }
     #[test]
-    fn region_has_no_default_and_must_be_chosen_first() {
+    fn flashing_starts_at_the_firmware_check_and_continue_opens_the_country_picker() {
         let mut app = App::base(true);
         assert_eq!(app.region, None);
-        assert_eq!(app.page, Page::Dashboard);
         let _ = app.update(Message::Convert);
-        let _ = app.update(Message::Next);
-        assert_eq!(app.page, Page::Region);
-        let _ = app.update(Message::Region(Region::Prc));
-        assert_eq!(app.region, Some(Region::Prc));
+        assert_eq!(app.page, Page::Firmware);
+        // Continue needs a checked firmware.
         let _ = app.update(Message::Next);
         assert_eq!(app.page, Page::Firmware);
-    }
-    #[test]
-    fn region_change_invalidates_checked_firmware_and_consent() {
-        let mut app = App::base(true);
-        app.seed_preview("confirm");
-        app.agreed = true;
-        let _ = app.update(Message::Region(Region::Prc));
-        assert!(app.report.is_none());
-        assert!(!app.agreed);
+        assert!(!app.country_open);
+        app.event(Event::Validated(Ok(demo_report(Region::Prc))));
+        assert_eq!(app.region, Some(Region::Prc));
+        // Continue opens the options with the country picker on top.
+        let _ = app.update(Message::Next);
+        assert_eq!(app.page, Page::Options);
+        assert!(app.country_open);
+        // Cancel returns to the firmware check.
+        let _ = app.update(Message::CountryCancel);
+        assert_eq!(app.page, Page::Firmware);
+        assert!(!app.country_open);
+        // Applying a code stays on the options.
+        let _ = app.update(Message::Next);
+        let _ = app.update(Message::Country("KR".into()));
+        let _ = app.update(Message::CountryApply);
+        assert_eq!(app.page, Page::Options);
+        assert_eq!(app.country.as_deref(), Some("KR"));
+        // A picker opened from the options only closes on cancel.
+        let _ = app.update(Message::CountryOpen);
+        let _ = app.update(Message::CountryCancel);
+        assert_eq!(app.page, Page::Options);
+        let _ = app.update(Message::Next);
+        assert_eq!(app.page, Page::Confirm);
+        let _ = app.update(Message::Back);
+        let _ = app.update(Message::Back);
+        let _ = app.update(Message::Back);
+        assert_eq!(app.page, Page::Dashboard);
     }
     #[test]
     fn resume_gate_blocks_recovery_uncertain_or_corrupt_state() {
@@ -2171,7 +2164,7 @@ mod tests {
                 "software-fix-confirm",
                 "rollback-confirm",
                 "preflight",
-                "firmware-mismatch",
+                "options-country",
                 "edl-start-warning",
                 "deviceinfo-edit",
                 "deviceinfo-editor",

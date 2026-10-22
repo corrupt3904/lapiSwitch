@@ -90,9 +90,14 @@ pub struct FirmwareReport {
     pub lun4_gpt_in_package: bool,
 }
 
-/// Validate `folder` as firmware for `target`. Decrypts `.x` rawprograms in
-/// place first, exactly as LTBox does; nothing else is written.
-pub fn check_firmware(folder: &Path, target: Region) -> Result<FirmwareReport, FirmwareError> {
+/// Validate `folder` as firmware. Its region comes from the vendor_boot DTB;
+/// with `target`, a package for another region is rejected. Decrypts `.x`
+/// rawprograms in place first, exactly as LTBox does; nothing else is
+/// written.
+pub fn check_firmware(
+    folder: &Path,
+    target: Option<Region>,
+) -> Result<FirmwareReport, FirmwareError> {
     let dir = resolve_image_dir(folder)?;
     if let Some(zst) = find_zst(&dir, 0)? {
         return Err(FirmwareError::CompressedImage(zst.display().to_string()));
@@ -139,7 +144,9 @@ pub fn check_firmware(folder: &Path, target: Region) -> Result<FirmwareReport, F
             fingerprint: fingerprint_region,
         });
     }
-    if firmware_region != target {
+    if let Some(target) = target
+        && firmware_region != target
+    {
         return Err(FirmwareError::WrongRegion {
             firmware: firmware_region,
             target,
