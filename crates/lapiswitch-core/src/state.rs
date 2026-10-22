@@ -72,7 +72,7 @@ pub struct FlashOptions {
 impl FlashOptions {
     pub fn new(country: Option<&str>) -> Result<Self, String> {
         Ok(Self {
-            country: country.map(country::validate).transpose()?,
+            country: country.map(country::validate_choice).transpose()?,
         })
     }
 }

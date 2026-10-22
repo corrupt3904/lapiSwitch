@@ -1440,6 +1440,16 @@ impl App {
         self.country = Some("KR".into());
         match screen {
             "dashboard" => self.page = Page::Dashboard,
+            "dashboard-dump-only" | "dashboard-unsupported" => {
+                self.page = Page::Dashboard;
+                let (model, name) = if screen == "dashboard-dump-only" {
+                    ("TB522FU", "Lenovo Legion Y900")
+                } else {
+                    ("TB321FU", "Unsupported tablet")
+                };
+                self.device.snapshot.model = model.into();
+                self.device.snapshot.name = name.into();
+            }
             "drivers" => {
                 self.page = Page::Dashboard;
                 self.driver_status = Some(ltbox_device::driver::DriverStatus::KernelDriverMissing);
@@ -2450,6 +2460,8 @@ mod tests {
                 "deviceinfo-edit",
                 "dump",
                 "dump-only",
+                "dashboard-dump-only",
+                "dashboard-unsupported",
                 "dump-result",
                 "deviceinfo-editor",
                 "deviceinfo-editor-custom",

@@ -32,6 +32,8 @@ pub(crate) struct Palette {
     pub danger_bg: Color,
     pub warning: Color,
     pub warning_bg: Color,
+    /// Yellow outline of a partly supported device.
+    pub caution: Color,
     pub success: Color,
     pub success_bg: Color,
     /// Dialog scrim over the page.
@@ -63,6 +65,7 @@ pub(crate) const LIGHT: Palette = Palette {
     danger_bg: rgb(0xFD, 0xE7, 0xE9),
     warning: rgb(0x9D, 0x5D, 0x00),
     warning_bg: rgb(0xFF, 0xF4, 0xCE),
+    caution: rgb(0xE8, 0xB0, 0x00),
     success: rgb(0x0F, 0x7B, 0x0F),
     success_bg: rgb(0xDF, 0xF6, 0xDD),
     scrim: Color::from_rgba8(0, 0, 0, 0.3),
@@ -89,6 +92,7 @@ pub(crate) const DARK: Palette = Palette {
     danger_bg: rgb(0x44, 0x27, 0x26),
     warning: rgb(0xFC, 0xE1, 0x00),
     warning_bg: rgb(0x43, 0x35, 0x19),
+    caution: rgb(0xFC, 0xE1, 0x00),
     success: rgb(0x6C, 0xCB, 0x5F),
     success_bg: rgb(0x39, 0x3D, 0x1B),
     scrim: Color::from_rgba8(0, 0, 0, 0.5),

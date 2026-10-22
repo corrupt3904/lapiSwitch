@@ -6,22 +6,48 @@ use sha2::{Digest, Sha256};
 
 pub mod oemowninfo;
 
+/// Codes recognized in devinfo, persist and oemowninfo: LTBox's canonical
+/// list first, so existing devices detect as before, then the other codes
+/// that can be chosen, so a chosen code is found again later.
 pub const KNOWN_CODES: &[&str] = &[
     "CN", "KR", "JP", "US", "GB", "DE", "FR", "IT", "ES", "NL", "AT", "BE", "BG", "HR", "CY", "CZ",
     "DK", "EE", "FI", "GR", "HU", "IE", "LV", "LT", "LU", "MT", "PL", "PT", "RO", "SK", "SI", "SE",
-    "AU", "CA", "IN", "RU", "BR", "MX", "SA", "AE", "WW",
+    "AU", "CA", "IN", "RU", "BR", "MX", "SA", "AE", "WW", "AM", "AR", "AZ", "BH", "CH", "CL", "CO",
+    "CR", "EC", "EG", "GE", "GH", "GT", "HK", "ID", "IL", "IS", "JO", "KE", "KG", "KW", "KZ", "LB",
+    "MA", "MD", "MY", "MZ", "NG", "NO", "NZ", "OM", "PA", "PE", "PH", "PK", "QA", "RS", "SG", "SV",
+    "TH", "TJ", "TN", "TR", "TW", "TZ", "UA", "UG", "UY", "UZ", "VE", "VN", "ZA",
+];
+/// Codes the user can choose: LTBox's country picker (`COUNTRY_CODES`).
+pub const CHOICE_CODES: &[&str] = &[
+    "AE", "AM", "AR", "AT", "AU", "AZ", "BE", "BG", "BH", "BR", "CA", "CH", "CL", "CN", "CO", "CR",
+    "CY", "CZ", "DE", "DK", "EC", "EE", "EG", "ES", "FI", "FR", "GB", "GE", "GH", "GR", "GT", "HK",
+    "HR", "HU", "ID", "IL", "IN", "IS", "IT", "JO", "JP", "KE", "KG", "KR", "KW", "KZ", "LB", "LT",
+    "LV", "MA", "MD", "MX", "MY", "MZ", "NG", "NL", "NO", "NZ", "OM", "PA", "PE", "PH", "PK", "PL",
+    "PT", "QA", "RO", "RS", "RU", "SA", "SE", "SG", "SI", "SK", "SV", "TH", "TJ", "TN", "TR", "TW",
+    "TZ", "UA", "UG", "US", "UY", "UZ", "VE", "VN", "ZA",
 ];
 pub const EU_CODES: &[&str] = &[
     "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV",
     "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
 ];
 
+/// A code found on the device or chosen before: any recognized code.
 pub fn validate(code: &str) -> Result<String, String> {
     let code = code.to_ascii_uppercase();
     if KNOWN_CODES.contains(&code.as_str()) {
         Ok(code)
     } else {
         Err(format!("지원하지 않는 국가 코드: {code}"))
+    }
+}
+
+/// A new code to apply: only the choices of the country picker.
+pub fn validate_choice(code: &str) -> Result<String, String> {
+    let code = code.to_ascii_uppercase();
+    if CHOICE_CODES.contains(&code.as_str()) {
+        Ok(code)
+    } else {
+        Err(format!("선택할 수 없는 국가 코드: {code}"))
     }
 }
 
@@ -107,6 +133,24 @@ pub fn persist_fingerprint(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn choices_follow_the_ltbox_picker_and_every_choice_is_detected_again() {
+        assert_eq!(CHOICE_CODES.len(), 89);
+        for code in CHOICE_CODES {
+            assert!(KNOWN_CODES.contains(code), "{code}");
+        }
+        for code in ["IE", "LU", "MT", "WW"] {
+            assert!(validate_choice(code).is_err());
+            // A device may still carry it; it is found and replaced.
+            assert_eq!(validate(code).unwrap(), code);
+        }
+        assert_eq!(validate_choice("no").unwrap(), "NO");
+        let data = b"\0IEXE\0";
+        assert_eq!(detect(data, true), Some("IE"));
+        let patched = patch(data, "IE", "NO", true).unwrap();
+        assert_eq!(&patched, b"\0NOXX\0");
+        assert_eq!(detect(&patched, true), Some("NO"));
+    }
     #[test]
     fn persist_edits_real_fields_and_preserves_log_decoys() {
         let data = b"xx Update country code CNXX\0junk\0CNXX\0\0";

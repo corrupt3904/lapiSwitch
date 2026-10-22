@@ -204,12 +204,35 @@ fn value(value: &str) -> &str {
     if value.is_empty() { "—" } else { value }
 }
 /// One device detail as a compact card: name above, value below.
-fn detail<'a>(name: &'static str, value: String) -> Element<'a, Message> {
+/// A detail card, optionally outlined in a status color.
+fn detail<'a>(
+    name: &'static str,
+    value: String,
+    outline: Option<iced::Color>,
+) -> Element<'a, Message> {
     container(column![small(name).size(12), label(value).size(14)].spacing(2))
         .padding([10, 14])
         .width(Fill)
-        .style(super::fluent::card_style)
+        .style(move |theme| {
+            let mut style = super::fluent::card_style(theme);
+            if let Some(color) = outline {
+                style.border.color = color;
+                style.border.width = 2.0;
+            }
+            style
+        })
         .into()
+}
+/// Support outline: green when DeviceInfo can be written, yellow when it
+/// can only be dumped, red for an unsupported model; none without a model.
+fn support_outline(app: &App) -> Option<iced::Color> {
+    let p = super::fluent::p();
+    match app.device.supported() {
+        Some(device) if device.writable() => Some(p.success),
+        Some(_) => Some(p.caution),
+        None if app.device.unsupported_model() => Some(p.danger),
+        None => None,
+    }
 }
 pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let d = &app.device.snapshot;
@@ -270,12 +293,22 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
         ),
         (app.t("지원 상태", "Support"), support),
     ];
+    let support_name = app.t("지원 상태", "Support");
+    let cell = |name: &'static str, text: String| {
+        detail(
+            name,
+            text,
+            (name == support_name)
+                .then(|| support_outline(app))
+                .flatten(),
+        )
+    };
     let mut grid = column![].spacing(4);
     let mut pairs = details.into_iter();
     while let Some((name, text)) = pairs.next() {
-        let mut line = row![detail(name, text)].spacing(4);
+        let mut line = row![cell(name, text)].spacing(4);
         if let Some((name, text)) = pairs.next() {
-            line = line.push(detail(name, text));
+            line = line.push(cell(name, text));
         }
         grid = grid.push(line);
     }

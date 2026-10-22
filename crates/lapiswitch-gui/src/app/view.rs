@@ -616,11 +616,28 @@ fn stepper(app: &App) -> Element<'_, Message> {
     }
     column![flow, crumbs].spacing(4).into()
 }
+/// The DeviceInfo edit and dump pages and their runs, whose titles line
+/// up with the flashing pages below the step breadcrumb.
+fn deviceinfo_task(app: &App) -> bool {
+    match app.page {
+        Page::Edit | Page::Dump => true,
+        Page::Progress | Page::Result => matches!(app.run_kind, RunKind::Edit | RunKind::Dump),
+        _ => false,
+    }
+}
+/// Empty space as tall as the stepper: the same two text lines.
+fn stepper_space<'a>() -> Element<'a, Message> {
+    column![label(" ").size(13), label(" ").size(14)]
+        .spacing(4)
+        .into()
+}
 pub(super) fn view(app: &App) -> Element<'_, Message> {
     fluent::set_dark(app.dark());
     let mut body = column![].spacing(12);
     if app.conversion_steps_visible() {
         body = body.push(stepper(app));
+    } else if deviceinfo_task(app) {
+        body = body.push(stepper_space());
     }
     if app.demo {
         body = body.push(notification_note(app.t(
