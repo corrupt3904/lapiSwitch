@@ -11,7 +11,7 @@ use adb_client::{ADBDeviceExt, usb::ADBUSBDevice};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 const HELPER: &[u8] = include_bytes!("../../../../assets/lapiswitch_deviceinfo");
-const HELPER_SHA: &str = "73151d164adf34bf2ebe94fbd88e2fb56f85678213621885e9561e33d21c2a88";
+const HELPER_SHA: &str = "20cea8f88299ce4762802973ab34840d50c7d7eea32d1a57acbca3d88f1728af";
 const EXIT: &str = "__LAPISWITCH_EXIT__:";
 
 struct Output {
@@ -188,13 +188,13 @@ impl Recovery {
     fn shell(&mut self, command: &str, stream: bool) -> Result<String, String> {
         command_result(&self.shell_output(command, stream)?)
     }
-    /// The helper only enforces the model's shared tail; the PC verified the
-    /// field plan before this command is built.
+    /// The helper only enforces the shared tail after the logical size from
+    /// deviceinfo.toml; the PC verified the field plan before this command.
     fn helper_command(&self, ta: &str, tag: u32) -> String {
         format!(
-            "{remote}/deviceinfo --profile {model} --ta {ta} --expected {remote}/expected{tag}.bin --planned {remote}/planned{tag}.bin",
+            "{remote}/deviceinfo --logical-size 0x{size:X} --ta {ta} --expected {remote}/expected{tag}.bin --planned {remote}/planned{tag}.bin",
             remote = self.remote,
-            model = crate::firmware::MODEL,
+            size = deviceinfo::layout().logical_size(),
         )
     }
     fn pull(&mut self, remote: &str, out: &Path, expected: Option<u64>) -> Result<Vec<u8>, String> {
@@ -235,8 +235,14 @@ impl Recovery {
         }
         let model = self.shell("getprop ro.product.model", false)?;
         let product = self.shell("getprop ro.product.device", false)?;
-        if !crate::prepare::supported_model(&model) || !product.eq_ignore_ascii_case("lapis") {
-            return Err("TWRP 기기가 TB520FU/lapis로 확인되지 않았습니다.".into());
+        if !crate::prepare::supported_model(&model)
+            || !product.eq_ignore_ascii_case(crate::device::codename())
+        {
+            return Err(format!(
+                "TWRP 기기가 {}/{}로 확인되지 않았습니다.",
+                crate::device::model(),
+                crate::device::codename()
+            ));
         }
         if self.shell("getprop ro.product.cpu.abi", false)? != "arm64-v8a" {
             return Err("ARM64 Recovery가 아닙니다.".into());
@@ -321,9 +327,9 @@ impl DeviceInfoIo for Recovery {
         let prefix = format!("{}/read{}", self.remote, self.reads);
         self.shell(
             &format!(
-                "{}/deviceinfo --profile {} --read --ta {} --out-prefix {prefix}",
+                "{}/deviceinfo --logical-size 0x{:X} --read --ta {} --out-prefix {prefix}",
                 self.remote,
-                crate::firmware::MODEL,
+                deviceinfo::layout().logical_size(),
                 ta
             ),
             true,
@@ -345,7 +351,7 @@ impl DeviceInfoIo for Recovery {
     ) -> Result<(), String> {
         self.prepared = None;
         let ta = self.active_keymaster()?;
-        map::check_plan(deviceinfo::LAYOUT, before, planned)?;
+        map::check_plan(deviceinfo::layout(), before, planned)?;
         self.reads += 1;
         let tag = self.reads;
         let (before_hash, planned_hash) =

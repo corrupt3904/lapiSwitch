@@ -7,7 +7,6 @@ use ltbox_core::live;
 
 use crate::avb_info::AvbSummary;
 use crate::backup::{self, BackupBuilder, VerifiedBackup};
-use crate::firmware::MODEL;
 use crate::prepare::PrepareReport;
 use crate::slot::Slot;
 use crate::storage::{self, Partition};
@@ -60,7 +59,7 @@ fn identify<D: StageIo>(
     let active = active.ok_or("활성 슬롯의 vbmeta_system 정보를 읽을 수 없습니다.")?;
     active
         .build_fingerprint()
-        .filter(|fp| ltbox_core::model::fingerprint_model_match(fp, MODEL))
+        .filter(|fp| ltbox_core::model::fingerprint_model_match(fp, crate::device::model()))
         .ok_or("EDL 활성 슬롯의 기기 모델이 TB520FU로 확인되지 않았습니다.")?;
     let fingerprint = active.version_fingerprint().unwrap_or_default();
     Ok((fingerprint, format!("{:?}", active.key_class())))

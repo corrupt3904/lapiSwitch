@@ -1,0 +1,40 @@
+# TB520FU 기기 정보. 폴더 이름과 model이 같아야 합니다.
+
+model = "TB520FU"
+# ADB/EDL에서 모델명 대신 보일 수 있는 코드네임 (선택)
+codename = "lapis"
+# true: 이 기기로 백업·TWRP·DeviceInfo 수정·복구 흐름을 실행합니다.
+# false: DeviceInfo 필드 정의만 있고 작업 흐름에는 연결하지 않습니다.
+flow = true
+
+# 공식 펌웨어 폴더 검사 (flow = true일 때 필수)
+[firmware]
+loader = "xbl_s_devprg_ns.melf"
+required_images = ["vbmeta_system.img", "vendor_boot.img", "boot.img", "vbmeta.img"]
+
+# 현재 기기에 설치된 펌웨어의 허용 범위 (flow = true일 때 필수).
+# region과 family가 맞는 항목만 허용하고, max가 있으면 그 버전 이하만 허용합니다.
+[[installed_firmware]]
+region = "PRC"
+family = "ZUXOS"
+max = "1.5.10.186"
+label = "ZUXOS_1.5.10.186"
+
+# 이전 PRC ZUI 계열은 버전 제한 없이 허용합니다.
+[[installed_firmware]]
+region = "PRC"
+family = "ZUI"
+
+[[installed_firmware]]
+region = "ROW"
+family = "ZUI"
+max = "18.5.10.37"
+label = "ZUI_18.5.10.037"
+
+# 사용할 TWRP 공식 Release (flow = true일 때 필수). 사용할 때마다 크기와 SHA-256을 확인합니다.
+[twrp]
+tag = "v3.7.1_16-20261014"
+name = "TWRP-3.7.1_16-lapis-20261014-landscape.img"
+size = 104857600
+sha256 = "310ff2ecfc4c52060f9b6a0ad6f6e466a63a36d8ae87bc39f0c5408d2dcf24a4"
+url = "https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/download/v3.7.1_16-20261014/TWRP-3.7.1_16-lapis-20261014-landscape.img"

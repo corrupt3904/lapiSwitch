@@ -1,0 +1,278 @@
+# TB522FU DeviceInfo 필드 맵.
+#
+# 모든 필드가 0부터 logical_size까지 빈틈·겹침 없이 덮어야 합니다. 빌드할 때 검사합니다.
+# kind:  flag (1바이트 0/1) · uint (리틀엔디언 1/2/4/8바이트) · region (PRC/ROW, 16바이트)
+#        text (ASCII, NUL 채움) · text_nul (ASCII, 마지막 1바이트는 NUL 유지) · bytes (16진수)
+# class: basic · advanced · protected (보안·구조 필드: 사용자지정 탭에서 바꾸면 위험 확인 필요)
+# count/stride: 같은 모양이 반복되는 필드. key의 {n}이 0..count-1로 바뀌고 offset은 stride씩 증가합니다.
+# 필수 필드: magic, is_unlocked, is_unlock_critical, region, rollback_index[0..31]
+
+logical_size = 0x0D20
+
+[[field]]
+key = "magic"
+offset = 0x0000
+size = 0x0D
+kind = "text"
+class = "protected"
+description = "DeviceInfo 매직"
+
+[[field]]
+key = "is_unlocked"
+offset = 0x000D
+size = 1
+kind = "uint"
+class = "protected"
+description = "부트로더 잠금 해제 상태"
+
+[[field]]
+key = "is_unlock_critical"
+offset = 0x000E
+size = 1
+kind = "uint"
+class = "protected"
+description = "critical 잠금 해제 상태"
+
+[[field]]
+key = "charger_screen_enabled"
+offset = 0x000F
+size = 1
+kind = "flag"
+class = "basic"
+description = "충전 화면 사용"
+
+[[field]]
+key = "bootloader_version"
+offset = 0x0010
+size = 0x40
+kind = "text_nul"
+class = "advanced"
+description = "부트로더 버전 문자열"
+
+[[field]]
+key = "radio_version"
+offset = 0x0050
+size = 0x40
+kind = "text_nul"
+class = "advanced"
+description = "라디오/베이스밴드 버전 문자열"
+
+[[field]]
+key = "verity_mode"
+offset = 0x0090
+size = 1
+kind = "uint"
+class = "protected"
+description = "verity 모드"
+
+[[field]]
+key = "reserved_0091"
+offset = 0x0091
+size = 3
+kind = "bytes"
+class = "advanced"
+description = "정렬/예약"
+
+[[field]]
+key = "user_public_key_length"
+offset = 0x0094
+size = 4
+kind = "uint"
+class = "protected"
+description = "사용자 공개키 길이"
+
+[[field]]
+key = "user_public_key"
+offset = 0x0098
+size = 0x800
+kind = "bytes"
+class = "protected"
+description = "사용자 공개키"
+
+[[field]]
+key = "rollback_index[{n}]"
+offset = 0x0898
+size = 8
+count = 32
+stride = 8
+kind = "uint"
+class = "basic"
+description = "롤백인덱스"
+
+[[field]]
+key = "persistent[{n}].valid"
+offset = 0x0998
+size = 2
+count = 8
+stride = 0x5E
+kind = "uint"
+class = "protected"
+description = "AVB persistent value 사용 여부"
+
+[[field]]
+key = "persistent[{n}].name_length"
+offset = 0x099A
+size = 2
+count = 8
+stride = 0x5E
+kind = "uint"
+class = "protected"
+description = "AVB persistent value 이름 길이"
+
+[[field]]
+key = "persistent[{n}].value_length"
+offset = 0x099C
+size = 2
+count = 8
+stride = 0x5E
+kind = "uint"
+class = "protected"
+description = "AVB persistent value 값 길이"
+
+[[field]]
+key = "persistent[{n}].name"
+offset = 0x099E
+size = 0x38
+count = 8
+stride = 0x5E
+kind = "text"
+class = "protected"
+description = "AVB persistent value 이름"
+
+[[field]]
+key = "persistent[{n}].value"
+offset = 0x09D6
+size = 0x20
+count = 8
+stride = 0x5E
+kind = "bytes"
+class = "protected"
+description = "AVB persistent value 값"
+
+[[field]]
+key = "golden_snapshot"
+offset = 0x0C88
+size = 8
+kind = "uint"
+class = "advanced"
+description = "golden snapshot (추정)"
+
+[[field]]
+key = "audio_framework"
+offset = 0x0C90
+size = 0x10
+kind = "bytes"
+class = "advanced"
+description = "audio framework 버퍼"
+
+[[field]]
+key = "fdr_frs_uds_flag"
+offset = 0x0CA0
+size = 1
+kind = "uint"
+class = "protected"
+description = "FDR/FRS-UDS 상태"
+
+[[field]]
+key = "reserved_0CA1"
+offset = 0x0CA1
+size = 3
+kind = "bytes"
+class = "advanced"
+description = "정렬/예약"
+
+[[field]]
+key = "frs_uds_cache_length"
+offset = 0x0CA4
+size = 4
+kind = "uint"
+class = "protected"
+description = "FRS/UDS 캐시 길이"
+
+[[field]]
+key = "frs_uds_cache"
+offset = 0x0CA8
+size = 0x20
+kind = "bytes"
+class = "protected"
+description = "FRS/UDS 캐시 (기기 고유)"
+
+[[field]]
+key = "region_magic_1"
+offset = 0x0CC8
+size = 8
+kind = "text"
+class = "protected"
+description = "리전 레코드 매직 1"
+
+[[field]]
+key = "region_info_version"
+offset = 0x0CD0
+size = 4
+kind = "uint"
+class = "protected"
+description = "리전 레코드 버전"
+
+[[field]]
+key = "region"
+offset = 0x0CD4
+size = 0x10
+kind = "region"
+class = "basic"
+description = "리전"
+
+[[field]]
+key = "region_magic_2"
+offset = 0x0CE4
+size = 8
+kind = "text"
+class = "protected"
+description = "리전 레코드 매직 2"
+
+[[field]]
+key = "region_reserved"
+offset = 0x0CEC
+size = 0x28
+kind = "bytes"
+class = "advanced"
+description = "리전 레코드 후미 (미확인)"
+
+[[field]]
+key = "fastboot_mode"
+offset = 0x0D14
+size = 1
+kind = "uint"
+class = "advanced"
+description = "fastboot 부팅 모드 플래그"
+
+[[field]]
+key = "recovery_mode"
+offset = 0x0D15
+size = 1
+kind = "uint"
+class = "advanced"
+description = "recovery 부팅 모드 플래그"
+
+[[field]]
+key = "factory_mode"
+offset = 0x0D16
+size = 1
+kind = "uint"
+class = "advanced"
+description = "factory 부팅 모드 플래그"
+
+[[field]]
+key = "deviceinfo_format_version"
+offset = 0x0D17
+size = 4
+kind = "text_nul"
+class = "protected"
+description = "DeviceInfo 형식 버전"
+
+[[field]]
+key = "reserved_end"
+offset = 0x0D1B
+size = 5
+kind = "bytes"
+class = "advanced"
+description = "후미 예약"

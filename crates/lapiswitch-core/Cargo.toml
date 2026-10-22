@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 ltbox-core = { workspace = true }
+lapiswitch-devices = { workspace = true }
 ltbox-device = { workspace = true }
 avbtool-rs = { workspace = true }
 thiserror = { workspace = true }

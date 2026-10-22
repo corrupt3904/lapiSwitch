@@ -3,6 +3,7 @@ members = [
     "crates/lapiswitch-core",
     "crates/lapiswitch-cli",
     "crates/lapiswitch-gui",
+    "crates/lapiswitch-devices",
     "tools/deviceinfo",
     "tools/xtask",
     # Vendored from LTBox v3.3.4 (730b30d), unmodified. They read their
@@ -56,6 +57,7 @@ avbtool-rs = { git = "https://github.com/miner7222/avbtool-rs", tag = "v0.2.0" }
 ltbox-core = { path = "vendor/ltbox-core" }
 ltbox-device = { path = "vendor/ltbox-device" }
 lapiswitch-core = { path = "crates/lapiswitch-core" }
+lapiswitch-devices = { path = "crates/lapiswitch-devices" }
 
 [profile.release]
 lto = "thin"

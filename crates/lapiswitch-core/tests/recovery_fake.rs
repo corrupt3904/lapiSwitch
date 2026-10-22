@@ -150,7 +150,7 @@ impl recovery_flow::Ui for Ui {
         layout: map::Layout,
         before: &[u8],
     ) -> Result<Option<EditRequest>, String> {
-        assert_eq!(layout, deviceinfo::LAYOUT);
+        assert_eq!(layout, deviceinfo::layout());
         layout.check_buffer(before)?;
         self.edits_shown += 1;
         Ok(self.edit.clone())
@@ -239,7 +239,7 @@ impl DeviceInfoIo for Info {
         // No durable write intent may exist while transfers can still fail.
         assert_eq!(self.phase(), Phase::Planned);
         assert_eq!(before, self.bytes);
-        map::check_plan(deviceinfo::LAYOUT, before, planned)?;
+        map::check_plan(deviceinfo::layout(), before, planned)?;
         if self.fail_prepare {
             return Err("push/dry-run failed".into());
         }
@@ -278,7 +278,7 @@ impl DeviceInfoIo for Info {
         );
         assert_eq!(before, self.bytes);
         let p = planned.to_vec();
-        map::check_plan(deviceinfo::LAYOUT, &self.bytes, &p)?;
+        map::check_plan(deviceinfo::layout(), &self.bytes, &p)?;
         if self.fail_before_write {
             self.fail_reads = self.lose_usb_on_write;
             return Err("DeviceInfo helper가 쓰기 요청 전에 종료했습니다 (exit 1).".into());
@@ -499,7 +499,7 @@ fn reset_backs_up_before_one_write_and_preserves_all_other_bytes() {
 /// Region and optional rollback reset only; every other byte as read.
 fn conversion(before: &[u8], s: &Setup, mode: RollbackMode) -> Vec<u8> {
     let edits = deviceinfo::conversion_edits(before, s.firmware.region, mode).unwrap();
-    let planned = map::apply(deviceinfo::LAYOUT, before, &edits).unwrap();
+    let planned = map::apply(deviceinfo::layout(), before, &edits).unwrap();
     for (n, (a, b)) in before.iter().zip(&planned).enumerate() {
         if a != b {
             assert!(
@@ -1341,7 +1341,7 @@ impl DeviceInfoIo for RestoreInfo {
         let j: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&self.journal).unwrap()).unwrap();
         assert_eq!(j["phase"], "BootRequested");
-        map::check_plan(deviceinfo::LAYOUT, b, p)
+        map::check_plan(deviceinfo::layout(), b, p)
     }
     fn apply(
         &mut self,
@@ -2042,7 +2042,7 @@ fn edit_without_region_change_writes_once_binds_no_firmware_and_never_flashes() 
         assert_eq!(s.info.writes, 1);
         assert_eq!(deviceinfo::indices(&s.info.bytes)[5], 7);
         // Only the edited field differs.
-        let field = deviceinfo::LAYOUT.field("rollback_index[5]").unwrap();
+        let field = deviceinfo::layout().field("rollback_index[5]").unwrap();
         for (n, (a, b)) in before.iter().zip(&s.info.bytes).enumerate() {
             if a != b {
                 assert!(field.range().contains(&n), "{n:#x}");

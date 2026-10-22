@@ -62,10 +62,10 @@ fn proof(backup: &VerifiedBackup, p: &Progress) -> Result<(Vec<u8>, Vec<u8>), St
         return Err("DeviceInfo 원본 백업 해시 불일치".into());
     }
     let before = std::fs::read(before_path).map_err(|e| e.to_string())?;
-    if deviceinfo::LAYOUT.region(&before) != a.original_region {
+    if deviceinfo::layout().region(&before) != a.original_region {
         return Err("원래 리전 기록 불일치".into());
     }
-    let planned = map::apply(deviceinfo::LAYOUT, &before, &a.edits)?;
+    let planned = map::apply(deviceinfo::layout(), &before, &a.edits)?;
     if backup::digest_bytes(&planned) != a.planned_sha256 {
         return Err("DeviceInfo 예정 값 해시 불일치".into());
     }
@@ -136,8 +136,8 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
     let after = std::fs::read(final_path).map_err(|e| e.to_string())?;
     deviceinfo::verify(&planned, &after, &after)?;
     Ok(Assessment::Verified {
-        original: deviceinfo::LAYOUT.region(&before),
-        current: deviceinfo::LAYOUT.region(&after),
+        original: deviceinfo::layout().region(&before),
+        current: deviceinfo::layout().region(&after),
         changed: before != after,
     })
 }

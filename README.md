@@ -106,6 +106,8 @@ cargo run --locked -p lapiswitch-gui -- --demo
 
 See [`tools/deviceinfo/README.md`](tools/deviceinfo/README.md) for the Android helper and its validation scope.
 
+Supported-device data (model names, firmware checks, accepted installed firmware, TWRP and the DeviceInfo field map) lives in per-device files under [`devices/`](devices/README.md); the build validates and embeds them.
+
 ## Credits
 
 - **[LTBox](https://github.com/miner7222/LTBox) — [@miner7222](https://github.com/miner7222):** the foundation for device communication, EDL flashing, driver and firmware handling, and selected GUI assets. Its vendored `ltbox-core` and `ltbox-device` sources are retained unmodified. AVB parsing uses [avbtool-rs](https://github.com/miner7222/avbtool-rs).

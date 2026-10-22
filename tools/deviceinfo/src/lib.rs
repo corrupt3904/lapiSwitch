@@ -10,32 +10,32 @@ use std::{
 pub type State = [u8; SHARED_SIZE];
 pub type Result<T> = std::result::Result<T, String>;
 
-/// Logical DeviceInfo size of each supported model; the rest of the 4096-byte
-/// shared buffer is never part of a write plan.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Profile {
-    Tb520fu,
-    Tb522fu,
-}
-impl Profile {
-    pub fn parse(value: &str) -> Result<Self> {
-        match value {
-            "TB520FU" => Ok(Self::Tb520fu),
-            "TB522FU" => Ok(Self::Tb522fu),
-            _ => Err(format!("Unsupported --profile {value}")),
-        }
+/// Smallest logical DeviceInfo: the 13-byte `ANDROID-BOOT!` magic.
+pub const MIN_LOGICAL_SIZE: usize = 0x0D;
+
+/// The model's logical DeviceInfo size (`logical_size` in its
+/// deviceinfo.toml); the rest of the 4096-byte shared buffer is never part
+/// of a write plan. Hex with `0x`, or decimal.
+pub fn parse_logical_size(value: &str) -> Result<usize> {
+    let size = match value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        Some(hex) => usize::from_str_radix(hex, 16),
+        None => value.parse(),
     }
-    pub const fn logical_size(self) -> usize {
-        match self {
-            Self::Tb520fu => 0xEA8,
-            Self::Tb522fu => 0xD20,
-        }
+    .map_err(|_| format!("Invalid --logical-size {value}"))?;
+    if !(MIN_LOGICAL_SIZE..=SHARED_SIZE).contains(&size) {
+        return Err(format!(
+            "--logical-size must be 0x{MIN_LOGICAL_SIZE:X}..=0x{SHARED_SIZE:X}, got {value}"
+        ));
     }
+    Ok(size)
 }
 
 #[derive(Debug)]
 pub struct Options {
-    pub profile: Profile,
+    pub logical_size: usize,
     pub ta: PathBuf,
     pub prefix: PathBuf,
     pub expected: Option<PathBuf>,
@@ -47,12 +47,12 @@ impl Options {
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self> {
         let mut args = args.into_iter();
         let (mut ta, mut prefix, mut expected, mut planned) = (None, None, None, None);
-        let (mut read_only, mut apply, mut profile) = (false, false, None);
+        let (mut read_only, mut apply, mut logical_size) = (false, false, None);
         while let Some(arg) = args.next() {
             match arg.to_str() {
-                Some("--profile") => {
-                    let value = args.next().ok_or("Missing --profile value")?;
-                    profile = Some(Profile::parse(&value.to_string_lossy())?);
+                Some("--logical-size") => {
+                    let value = args.next().ok_or("Missing --logical-size value")?;
+                    logical_size = Some(parse_logical_size(&value.to_string_lossy())?);
                 }
                 Some("--ta") => ta = Some(PathBuf::from(args.next().ok_or("Missing --ta value")?)),
                 Some("--out-prefix") => {
@@ -90,7 +90,8 @@ impl Options {
             return Err("Unsupported Keymaster path; use the confirmed active-slot keymaster_a or keymaster_b".into());
         }
         Ok(Self {
-            profile: profile.ok_or("--profile must name the device model (TB520FU or TB522FU)")?,
+            logical_size: logical_size
+                .ok_or("--logical-size must give the device's logical DeviceInfo size")?,
             ta,
             prefix: prefix.ok_or("Missing --out-prefix")?,
             expected,
@@ -110,11 +111,10 @@ pub fn valid_state(data: &State) -> bool {
 /// The PC reads the current state, the user chooses every field value and
 /// the PC verifies the plan. Here only the read state's magic and the shared
 /// tail after the logical structure are enforced.
-pub fn validate_plan(profile: Profile, before: &State, planned: &State) -> Result<()> {
+pub fn validate_plan(logical: usize, before: &State, planned: &State) -> Result<()> {
     if !valid_state(before) {
         return Err("Invalid DeviceInfo magic in the read state".into());
     }
-    let logical = profile.logical_size();
     if let Some(i) = (logical..SHARED_SIZE).find(|&i| before[i] != planned[i]) {
         return Err(format!(
             "Shared-buffer byte outside the logical DeviceInfo changed at 0x{i:X}"
@@ -182,7 +182,7 @@ pub fn execute(
     let run = (|| -> Result<()> {
         if !options.read_only {
             validate_plan(
-                options.profile,
+                options.logical_size,
                 expected.ok_or("Missing original")?,
                 planned.ok_or("Missing plan")?,
             )?;
@@ -240,19 +240,19 @@ pub fn execute(
     })
 }
 pub fn self_test() -> Result<()> {
-    for profile in [Profile::Tb520fu, Profile::Tb522fu] {
+    // Known models (TB520FU 0xEA8, TB522FU 0xD20) and both bounds.
+    for logical in [0xEA8, 0xD20, MIN_LOGICAL_SIZE, SHARED_SIZE] {
         let mut before = std::array::from_fn(|i| (i.wrapping_mul(17).wrapping_add(5)) as u8);
         before[..13].copy_from_slice(b"ANDROID-BOOT!");
-        let logical = profile.logical_size();
         // Any byte of the logical structure may be planned, even the magic.
         let mut planned = before;
         for byte in &mut planned[..logical] {
             *byte ^= 0xFF;
         }
-        validate_plan(profile, &before, &planned)?;
+        validate_plan(logical, &before, &planned)?;
         for i in logical..SHARED_SIZE {
             planned[i] ^= 1;
-            let wrongly_accepted = validate_plan(profile, &before, &planned).is_ok();
+            let wrongly_accepted = validate_plan(logical, &before, &planned).is_ok();
             planned[i] ^= 1;
             if wrongly_accepted {
                 return Err(format!("Shared-tail self-test failed at 0x{i:X}"));
@@ -260,7 +260,7 @@ pub fn self_test() -> Result<()> {
         }
         let mut invalid = before;
         invalid[0] = b'X';
-        if validate_plan(profile, &invalid, &invalid).is_ok() {
+        if validate_plan(logical, &invalid, &invalid).is_ok() {
             return Err("Read-state magic self-test failed".into());
         }
     }
@@ -281,7 +281,7 @@ mod tests {
     }
     fn options(apply: bool) -> Options {
         Options {
-            profile: Profile::Tb520fu,
+            logical_size: 0xEA8,
             ta: "/dev/block/bootdevice/by-name/keymaster_b".into(),
             prefix: "unused".into(),
             expected: Some("before".into()),
@@ -484,17 +484,22 @@ mod tests {
         for slot in ["a", "b"] {
             let ta = format!("/dev/block/bootdevice/by-name/keymaster_{slot}");
             let read = ["--read", "--ta", &ta, "--out-prefix", "/tmp/a"];
-            // The model is always explicit: it fixes the protected shared tail.
+            // The logical size is always explicit: it fixes the protected tail.
             assert!(Options::parse(args(&read)).is_err());
             let mut items = args(&read);
-            items.extend(args(&["--profile", "TB522FU"]));
-            assert_eq!(
-                Options::parse(items.clone()).unwrap().profile,
-                Profile::Tb522fu
-            );
-            let mut wrong = args(&read);
-            wrong.extend(args(&["--profile", "TB999FU"]));
-            assert!(Options::parse(wrong).is_err());
+            items.extend(args(&["--logical-size", "0xD20"]));
+            assert_eq!(Options::parse(items.clone()).unwrap().logical_size, 0xD20);
+            for wrong in ["0xC", "0x1001", "TB520FU", "-1", ""] {
+                let mut wrong_items = args(&read);
+                wrong_items.extend(args(&["--logical-size", wrong]));
+                assert!(Options::parse(wrong_items).is_err(), "{wrong}");
+            }
+            let mut decimal = args(&read);
+            decimal.extend(args(&["--logical-size", "3752"]));
+            assert_eq!(Options::parse(decimal).unwrap().logical_size, 0xEA8);
+            let mut removed_profile = args(&read);
+            removed_profile.extend(args(&["--profile", "TB520FU"]));
+            assert!(Options::parse(removed_profile).is_err());
             let mut removed = items.clone();
             removed.push("--reset-rollback".into());
             assert!(Options::parse(removed).is_err());

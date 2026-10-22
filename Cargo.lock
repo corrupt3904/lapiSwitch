@@ -2098,6 +2098,7 @@ dependencies = [
  "chrono",
  "crc32fast",
  "dirs",
+ "lapiswitch-devices",
  "ltbox-core",
  "ltbox-device",
  "roxmltree 0.21.1",
@@ -2114,6 +2115,13 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tempfile",
+]
+
+[[package]]
+name = "lapiswitch-devices"
+version = "0.1.0"
+dependencies = [
+ "toml_edit",
 ]
 
 [[package]]

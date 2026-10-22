@@ -11,14 +11,10 @@ use crate::avb_info::{self, KeyClass};
 use crate::region::Region;
 use crate::rollback::RollbackIndices;
 
-pub const MODEL: &str = "TB520FU";
-const LOADER_NAME: &str = "xbl_s_devprg_ns.melf";
-const REQUIRED_IMAGES: [&str; 4] = [
-    "vbmeta_system.img",
-    "vendor_boot.img",
-    "boot.img",
-    "vbmeta.img",
-];
+/// The EDL programmer named in `devices/<MODEL>/device.toml`.
+fn loader_name() -> &'static str {
+    crate::device::flow().firmware.loader
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum FirmwareError {
@@ -29,8 +25,8 @@ pub enum FirmwareError {
     },
     #[error("no rawprogram*.xml / rawprogram*.x in {0} or its image/ folder")]
     NotFirmwareFolder(String),
-    #[error("EDL loader ({LOADER_NAME}) not found in {0} or its parent")]
-    LoaderMissing(String),
+    #[error("EDL loader ({0}) not found in {1} or its parent")]
+    LoaderMissing(&'static str, String),
     #[error("required image missing: {0}")]
     ImageMissing(String),
     #[error("compressed images (.zst) are not supported: {0}")]
@@ -100,12 +96,12 @@ pub struct FirmwareReport {
 /// place first, exactly as LTBox does; nothing else is written.
 pub fn check_firmware(folder: &Path, target: Region) -> Result<FirmwareReport, FirmwareError> {
     let dir = resolve_image_dir(folder)?;
-    let loader =
-        find_loader(&dir).ok_or_else(|| FirmwareError::LoaderMissing(dir.display().to_string()))?;
+    let loader = find_loader(&dir)
+        .ok_or_else(|| FirmwareError::LoaderMissing(loader_name(), dir.display().to_string()))?;
     if let Some(zst) = find_zst(&dir, 0)? {
         return Err(FirmwareError::CompressedImage(zst.display().to_string()));
     }
-    for name in REQUIRED_IMAGES {
+    for name in crate::device::flow().firmware.required_images {
         if !dir.join(name).is_file() {
             return Err(FirmwareError::ImageMissing(name.to_string()));
         }
@@ -115,7 +111,7 @@ pub fn check_firmware(folder: &Path, target: Region) -> Result<FirmwareReport, F
     let fingerprint = vbs
         .build_fingerprint()
         .ok_or(FirmwareError::NoFingerprint)?;
-    if !ltbox_core::model::fingerprint_model_match(&fingerprint, MODEL) {
+    if !ltbox_core::model::fingerprint_model_match(&fingerprint, crate::device::model()) {
         return Err(FirmwareError::WrongModel(fingerprint));
     }
     let key_class = vbs.key_class();
@@ -253,7 +249,7 @@ fn find_loader_in(dir: &Path) -> Option<PathBuf> {
     }
     entries.into_iter().find(|p| {
         p.file_name()
-            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(LOADER_NAME))
+            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(loader_name()))
     })
 }
 
@@ -490,8 +486,8 @@ mod tests {
         assert_eq!(find_loader(&image), None);
         std::fs::write(root.path().join("XBL_S_DEVPRG_NS.melf"), b"").unwrap();
         assert!(find_loader(&image).is_some());
-        std::fs::write(image.join(LOADER_NAME), b"").unwrap();
-        assert_eq!(find_loader(&image), Some(image.join(LOADER_NAME)));
+        std::fs::write(image.join(loader_name()), b"").unwrap();
+        assert_eq!(find_loader(&image), Some(image.join(loader_name())));
     }
 
     #[test]

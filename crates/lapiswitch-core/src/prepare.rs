@@ -7,7 +7,6 @@ use std::path::Path;
 use ltbox_core::live;
 
 use crate::avb_info::{AvbSummary, KeyClass};
-use crate::firmware::MODEL;
 use crate::slot::Slot;
 
 pub mod native;
@@ -105,8 +104,8 @@ fn operation<T>(step: &'static str, result: Result<T, String>) -> Result<T, Prep
 /// Shared by the GUI readiness gate and the hardware preflight.
 pub fn supported_model(model: &str) -> bool {
     let model = model.trim();
-    ltbox_core::model::fingerprint_model_match(&model.to_ascii_uppercase(), MODEL)
-        || model.eq_ignore_ascii_case("lapis")
+    ltbox_core::model::fingerprint_model_match(&model.to_ascii_uppercase(), crate::device::model())
+        || model.eq_ignore_ascii_case(crate::device::codename())
 }
 
 fn check_model(model: Option<&str>) -> Result<(), PrepareError> {
@@ -121,7 +120,8 @@ fn check_model(model: Option<&str>) -> Result<(), PrepareError> {
 /// The identity record binds the later TWRP session to the same device.
 pub fn identity_record(slot: Slot, serial: &str) -> String {
     format!(
-        "transport: adb\nmodelname: {MODEL}\nserialno: {serial}\ncurrent-slot: {}\n",
+        "transport: adb\nmodelname: {}\nserialno: {serial}\ncurrent-slot: {}\n",
+        crate::device::model(),
         slot.suffix()
     )
 }
@@ -238,7 +238,7 @@ fn probe_edl<D: DeviceIo>(
         .iter()
         .flatten()
         .filter_map(AvbSummary::build_fingerprint)
-        .any(|fp| ltbox_core::model::fingerprint_model_match(&fp, MODEL));
+        .any(|fp| ltbox_core::model::fingerprint_model_match(&fp, crate::device::model()));
     if !matches_model {
         return Err(PrepareError::WrongModel("EDL vbmeta_system_a/b".into()));
     }
@@ -246,7 +246,7 @@ fn probe_edl<D: DeviceIo>(
     if !vbs[active]
         .as_ref()
         .and_then(AvbSummary::build_fingerprint)
-        .is_some_and(|fp| ltbox_core::model::fingerprint_model_match(&fp, MODEL))
+        .is_some_and(|fp| ltbox_core::model::fingerprint_model_match(&fp, crate::device::model()))
     {
         return Err(PrepareError::WrongModel(
             "EDL 활성 슬롯 vbmeta_system".into(),

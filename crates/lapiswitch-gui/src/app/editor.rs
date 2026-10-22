@@ -450,7 +450,7 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
             label(app.t("롤백인덱스 32개", "32 rollback indices")).size(15),
             small(format!(
                 "rollback_index[0..31] · 0x{:04X} · 8B × 32",
-                map::ROLLBACK_START
+                editor.layout.rollback_start()
             )),
         ]
         .spacing(10)
@@ -784,7 +784,7 @@ mod tests {
         let mut app = App::base(true);
         let (tx, rx) = std::sync::mpsc::channel();
         app.editor = Some(Editor::new(
-            lapiswitch_core::deviceinfo::LAYOUT,
+            lapiswitch_core::deviceinfo::layout(),
             super::super::demo_deviceinfo(),
             tx,
         ));

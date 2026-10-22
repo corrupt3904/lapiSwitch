@@ -4,6 +4,7 @@
 pub mod avb_info;
 pub mod backup;
 pub mod country;
+pub mod device;
 pub mod device_version;
 pub mod firmware;
 pub mod gpt;

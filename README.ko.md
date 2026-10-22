@@ -106,6 +106,8 @@ cargo run --locked -p lapiswitch-gui -- --demo
 
 Android helper와 해당 검증 범위는 [`tools/deviceinfo/README.md`](tools/deviceinfo/README.md)를 참고하세요.
 
+지원 기기 정보(모델명, 펌웨어 검사, 설치 펌웨어 허용 범위, TWRP, DeviceInfo 필드 맵)는 [`devices/`](devices/README.md) 폴더의 기기별 파일에 있으며, 빌드할 때 검사해 프로그램에 포함합니다.
+
 ## 크레딧
 
 - **[LTBox](https://github.com/miner7222/LTBox) — [@miner7222](https://github.com/miner7222):** 기기 통신, EDL 플래시, 드라이버·펌웨어 처리와 일부 GUI 자산의 기반입니다. 포함된 `ltbox-core`·`ltbox-device` 소스는 수정 없이 유지합니다. AVB 분석에는 [avbtool-rs](https://github.com/miner7222/avbtool-rs)를 사용합니다.

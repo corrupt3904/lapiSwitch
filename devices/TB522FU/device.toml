@@ -1,0 +1,5 @@
+# TB522FU 기기 정보. 폴더 이름과 model이 같아야 합니다.
+
+model = "TB522FU"
+# DeviceInfo 필드 정의만 있습니다. 작업 흐름은 아직 연결하지 않았습니다.
+flow = false

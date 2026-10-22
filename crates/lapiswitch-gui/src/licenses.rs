@@ -71,7 +71,9 @@ mod tests {
             .iter()
             .find(|c| c.name == "TWRP / TeamWin")
             .unwrap();
-        assert!(twrp.version.contains(lapiswitch_core::recovery_asset::TAG));
+        // The license notice must name the TWRP pinned in device.toml.
+        let pinned = &lapiswitch_core::device::flow().twrp;
+        assert!(twrp.version.contains(pinned.tag));
         let notices = twrp
             .notices
             .iter()
@@ -79,9 +81,9 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         for expected in [
-            lapiswitch_core::recovery_asset::NAME,
-            lapiswitch_core::recovery_asset::SHA256,
-            lapiswitch_core::recovery_asset::URL,
+            pinned.name,
+            pinned.sha256,
+            pinned.url,
             "Copyright (c) 2011-2016, Dees_Troy, bigbiff, Team Win",
             "GNU GENERAL PUBLIC LICENSE",
             "SPDX-License-Identifier: Apache-2.0",

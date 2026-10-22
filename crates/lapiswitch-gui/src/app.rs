@@ -1406,8 +1406,11 @@ impl App {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
-                let mut editor =
-                    editor::Editor::new(lapiswitch_core::deviceinfo::LAYOUT, demo_deviceinfo(), tx);
+                let mut editor = editor::Editor::new(
+                    lapiswitch_core::deviceinfo::layout(),
+                    demo_deviceinfo(),
+                    tx,
+                );
                 if screen == "deviceinfo-editor-custom" {
                     editor.tab = editor::Tab::Custom;
                 }
@@ -1567,15 +1570,17 @@ impl App {
         }
     }
 }
-/// Synthetic TB520FU-shaped DeviceInfo for previews (no real dump data).
+/// Synthetic DeviceInfo shaped like the flow device's map (no real dump data).
 fn demo_deviceinfo() -> Vec<u8> {
-    use lapiswitch_core::deviceinfo::{SHARED_SIZE, map};
+    use lapiswitch_core::deviceinfo::{SHARED_SIZE, layout};
+    let layout = layout();
     let mut b = vec![0u8; SHARED_SIZE];
     b[..13].copy_from_slice(b"ANDROID-BOOT!");
     b[0xCC8..0xCD0].copy_from_slice(b"deadbeef");
-    b[0xD10..0xD13].copy_from_slice(b"PRC");
-    b[0xD20..0xD28].copy_from_slice(b"beefdead");
-    b[map::ROLLBACK_START + 8] = 1;
+    let region = layout.region_offset();
+    b[region..region + 3].copy_from_slice(b"PRC");
+    b[region + 0x10..region + 0x18].copy_from_slice(b"beefdead");
+    b[layout.rollback_start() + 8] = 1;
     b
 }
 fn demo_saved_state(stage: Stage) -> lapiswitch_core::state::RunState {

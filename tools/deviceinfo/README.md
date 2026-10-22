@@ -25,13 +25,14 @@ cargo run -p lapiswitch-deviceinfo -- --self-test
 cargo test -p lapiswitch-deviceinfo
 ```
 
-Device commands require an explicit `--profile TB520FU|TB522FU` and `--ta`
+Device commands require an explicit `--logical-size` (the model's
+`logical_size` from `devices/<MODEL>/deviceinfo.toml`, e.g. `0xEA8`) and `--ta`
 selection of the confirmed active slot's `keymaster_a` or `keymaster_b`; there
 is no default or alternate-slot fallback. Read uses `--read --out-prefix PATH`.
 A dry run uses `--expected`, `--planned`, `--out-prefix`; only explicit
 `--apply-once` issues command 0x203. The read state must carry the
-`ANDROID-BOOT!` magic. Every byte of the profile's logical DeviceInfo
-(TB520FU `0x000..0xEA7`, TB522FU `0x000..0xD1F`) may be planned; the field
+`ANDROID-BOOT!` magic. Every byte of the logical DeviceInfo
+(e.g. TB520FU `0x000..0xEA7`, TB522FU `0x000..0xD1F`) may be planned; the field
 values are chosen and verified on the PC against the structure maps. The
 shared-buffer tail after it must be preserved. DeviceInfo and plan files are
 exactly 4096 bytes.

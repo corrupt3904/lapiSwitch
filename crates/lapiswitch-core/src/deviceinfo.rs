@@ -5,9 +5,11 @@ use crate::region::Region;
 use serde::{Deserialize, Serialize};
 
 pub const SHARED_SIZE: usize = 0x1000;
-/// The model this build converts and edits. TB522FU's layout is defined in
-/// `map` but not connected to a device flow yet.
-pub const LAYOUT: map::Layout = map::Layout::Tb520fu;
+/// The layout of the device the workflow runs for (`flow = true` in
+/// `devices/<MODEL>/device.toml`). Other devices only define their maps.
+pub fn layout() -> map::Layout {
+    map::Layout::of(lapiswitch_devices::flow_device())
+}
 
 /// Load the TA from the device's confirmed active slot. Firmware-specific
 /// hashes/signatures do not determine DeviceInfo compatibility.
@@ -28,21 +30,22 @@ pub enum RollbackMode {
 
 /// PRC/ROW of a buffer with the DeviceInfo magic.
 pub fn region(bytes: &[u8]) -> Result<Region, String> {
-    LAYOUT.check_buffer(bytes)?;
-    LAYOUT
+    layout().check_buffer(bytes)?;
+    layout()
         .region(bytes)
         .ok_or_else(|| "DeviceInfo 리전 필드가 PRC/ROW가 아닙니다.".into())
 }
 
 pub fn indices(bytes: &[u8]) -> [u64; map::ROLLBACK_COUNT] {
-    LAYOUT.rollback_indices(bytes)
+    layout().rollback_indices(bytes)
 }
 
 /// Set all 32 rollback indices to zero on top of existing edits.
 pub fn with_rollback_reset(before: &[u8], edits: &map::Edits) -> Result<map::Edits, String> {
-    let mut planned = map::apply(LAYOUT, before, edits)?;
-    planned[map::ROLLBACK_START..map::ROLLBACK_START + map::ROLLBACK_COUNT * 8].fill(0);
-    Ok(map::edits_between(LAYOUT, before, &planned))
+    let mut planned = map::apply(layout(), before, edits)?;
+    let start = layout().rollback_start();
+    planned[start..start + map::ROLLBACK_COUNT * 8].fill(0);
+    Ok(map::edits_between(layout(), before, &planned))
 }
 
 /// Region conversion preset: the target region, optionally all rollback
@@ -53,10 +56,10 @@ pub fn conversion_edits(
     mode: RollbackMode,
 ) -> Result<map::Edits, String> {
     region(before)?;
-    let field = LAYOUT.field("region")?;
+    let field = layout().field("region")?;
     let mut planned = before.to_vec();
     planned[field.range()].copy_from_slice(&map::encode(&field, target.token())?);
-    let edits = map::edits_between(LAYOUT, before, &planned);
+    let edits = map::edits_between(layout(), before, &planned);
     match mode {
         RollbackMode::Keep => Ok(edits),
         RollbackMode::Reset => with_rollback_reset(before, &edits),
@@ -104,7 +107,7 @@ mod tests {
                 for mode in [RollbackMode::Keep, RollbackMode::Reset] {
                     let b = sample(current);
                     let edits = conversion_edits(&b, target, mode).unwrap();
-                    let p = map::apply(LAYOUT, &b, &edits).unwrap();
+                    let p = map::apply(layout(), &b, &edits).unwrap();
                     assert_eq!(region(&p).unwrap(), target);
                     if mode == RollbackMode::Reset {
                         assert_eq!(indices(&p), [0; 32]);

@@ -56,13 +56,15 @@ pub fn check(fingerprint: &str) -> Result<String, VersionError> {
         })
         .collect::<Result<_, _>>()?;
     let version: [u32; 4] = numbers.try_into().map_err(|_| unknown())?;
-    let limit = match (region, family) {
-        (Region::Prc, "ZUXOS") => Some(([1, 5, 10, 186], "ZUXOS_1.5.10.186")),
-        // The user explicitly permits PRC's preceding ZUI firmware family.
-        (Region::Prc, "ZUI") => None,
-        (Region::Row, "ZUI") => Some(([18, 5, 10, 37], "ZUI_18.5.10.037")),
-        _ => return Err(unknown()),
-    };
+    // Accepted families and ceilings: `[[installed_firmware]]` in device.toml.
+    let limit = crate::device::flow()
+        .installed_firmware
+        .iter()
+        .find(|accepted| {
+            crate::device::region(accepted.region) == region && accepted.family == family
+        })
+        .ok_or_else(unknown)?
+        .max;
     let display = format!("{} {family}_{raw}", region.token());
     if let Some((ceiling, label)) = limit
         && version > ceiling

@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::firmware::MODEL;
 use crate::prepare::{Connection, PrepareReport};
 use crate::slot::Slot;
 use crate::storage::{self, Partition};
@@ -224,7 +223,11 @@ impl BackupBuilder {
     pub fn create(output_root: &Path) -> Result<Self, String> {
         let parent = output_root.join("backup").join("region_change");
         std::fs::create_dir_all(&parent).map_err(|error| error.to_string())?;
-        let stem = format!("{MODEL}_{}", chrono::Local::now().format("%Y-%m-%d_%H%M%S"));
+        let stem = format!(
+            "{}_{}",
+            crate::device::model(),
+            chrono::Local::now().format("%Y-%m-%d_%H%M%S")
+        );
         for attempt in 1..u32::MAX {
             let name = if attempt == 1 {
                 stem.clone()
@@ -318,7 +321,7 @@ impl BackupBuilder {
         let manifest = BackupManifest {
             version: MANIFEST_VERSION,
             operation: MANIFEST_OPERATION.into(),
-            model: MODEL.into(),
+            model: crate::device::model().into(),
             fingerprint,
             recorded_at: chrono::Local::now().to_rfc3339(),
             slot: prepared.slot,
@@ -388,7 +391,7 @@ impl VerifiedBackup {
         let manifest = &self.manifest;
         if manifest.version != MANIFEST_VERSION
             || manifest.operation != MANIFEST_OPERATION
-            || manifest.model != MODEL
+            || manifest.model != crate::device::model()
         {
             return Err(
                 "지원하지 않는 백업 형식 또는 모델입니다. 이 버전에서 만든 백업만 사용할 수 있습니다."

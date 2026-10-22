@@ -1,20 +1,25 @@
-//! DeviceInfo field maps (TB520FU / TB522FU structure maps) and typed,
+//! DeviceInfo field maps (from `devices/<MODEL>/deviceinfo.toml`) and typed,
 //! exact-size value encoding. Every byte of the logical structure belongs to
 //! exactly one field; the shared-buffer tail after it is never editable.
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
-
 use super::SHARED_SIZE;
 use crate::region::Region;
 
-/// Field layouts of the supported models' DeviceInfo.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Layout {
-    #[serde(rename = "TB520FU")]
-    Tb520fu,
-    #[serde(rename = "TB522FU")]
-    Tb522fu,
+/// A device's DeviceInfo field layout, from `devices/<MODEL>/deviceinfo.toml`.
+#[derive(Clone, Copy)]
+pub struct Layout(&'static lapiswitch_devices::Device);
+
+impl PartialEq for Layout {
+    fn eq(&self, other: &Self) -> bool {
+        self.model() == other.model()
+    }
+}
+impl Eq for Layout {}
+impl std::fmt::Debug for Layout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.model())
+    }
 }
 
 /// How a field's bytes are shown and entered.
@@ -32,17 +37,8 @@ pub enum Kind {
     Bytes,
 }
 
-/// Editing tier shown in the UI. Every tier is editable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Class {
-    /// Region, rollback indices and plain options.
-    Basic,
-    /// Version strings, boot-mode bytes and reserved areas.
-    Advanced,
-    /// Structure markers and security state: changes can prevent booting,
-    /// change the lock/verity state or invalidate device-unique data.
-    Protected,
-}
+/// Editing tier of a field. Every tier is editable.
+pub use lapiswitch_devices::Class;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
@@ -61,372 +57,62 @@ impl Field {
     }
 }
 
-const PERSISTENT_START: usize = 0x0998;
-const PERSISTENT_SLOT: usize = 0x5E;
-pub const ROLLBACK_START: usize = 0x0898;
+/// Every device file has exactly 32 contiguous 8-byte rollback indices.
 pub const ROLLBACK_COUNT: usize = 32;
 
 impl Layout {
-    pub const fn model(self) -> &'static str {
-        match self {
-            Self::Tb520fu => "TB520FU",
-            Self::Tb522fu => "TB522FU",
-        }
+    pub fn of(device: &'static lapiswitch_devices::Device) -> Self {
+        Self(device)
     }
-    pub const fn logical_size(self) -> usize {
-        match self {
-            Self::Tb520fu => 0x0EA8,
-            Self::Tb522fu => 0x0D20,
-        }
+    /// The layout of a device in `devices/`, by model name.
+    pub fn find(model: &str) -> Option<Self> {
+        lapiswitch_devices::find(model).map(Self)
     }
-    pub const fn region_offset(self) -> usize {
-        match self {
-            Self::Tb520fu => 0x0D10,
-            Self::Tb522fu => 0x0CD4,
-        }
+    pub fn model(self) -> &'static str {
+        self.0.model
+    }
+    pub fn logical_size(self) -> usize {
+        self.0.deviceinfo.logical_size
+    }
+    fn offset(self, key: &str) -> usize {
+        self.0
+            .deviceinfo
+            .fields
+            .iter()
+            .find(|field| field.key == key)
+            .map(|field| field.offset)
+            .expect("required field, checked at build time")
+    }
+    pub fn region_offset(self) -> usize {
+        self.offset("region")
+    }
+    pub fn rollback_start(self) -> usize {
+        self.offset("rollback_index[0]")
     }
 
     /// The whole logical structure in offset order, without gaps.
     pub fn fields(self) -> Vec<Field> {
-        use Class::*;
-        use Kind::*;
-        let mut fields = vec![];
-        let mut add = |key: String, offset, size, kind, class, description| {
-            fields.push(Field {
-                key,
-                offset,
-                size,
-                kind,
-                class,
-                description,
+        use lapiswitch_devices::Kind as K;
+        self.0
+            .deviceinfo
+            .fields
+            .iter()
+            .map(|field| Field {
+                key: field.key.to_owned(),
+                offset: field.offset,
+                size: field.size,
+                kind: match field.kind {
+                    K::Flag => Kind::Flag,
+                    K::Uint => Kind::Uint,
+                    K::Region => Kind::Region,
+                    K::Text => Kind::Text { nul: false },
+                    K::TextNul => Kind::Text { nul: true },
+                    K::Bytes => Kind::Bytes,
+                },
+                class: field.class,
+                description: field.description,
             })
-        };
-        add(
-            "magic".into(),
-            0x0000,
-            0x0D,
-            Text { nul: false },
-            Protected,
-            "DeviceInfo 매직",
-        );
-        add(
-            "is_unlocked".into(),
-            0x000D,
-            1,
-            Uint,
-            Protected,
-            "부트로더 잠금 해제 상태",
-        );
-        add(
-            "is_unlock_critical".into(),
-            0x000E,
-            1,
-            Uint,
-            Protected,
-            "critical 잠금 해제 상태",
-        );
-        add(
-            "charger_screen_enabled".into(),
-            0x000F,
-            1,
-            Flag,
-            Basic,
-            "충전 화면 사용",
-        );
-        add(
-            "bootloader_version".into(),
-            0x0010,
-            0x40,
-            Text { nul: true },
-            Advanced,
-            "부트로더 버전 문자열",
-        );
-        add(
-            "radio_version".into(),
-            0x0050,
-            0x40,
-            Text { nul: true },
-            Advanced,
-            "라디오/베이스밴드 버전 문자열",
-        );
-        add(
-            "verity_mode".into(),
-            0x0090,
-            1,
-            Uint,
-            Protected,
-            "verity 모드",
-        );
-        add(
-            "reserved_0091".into(),
-            0x0091,
-            3,
-            Bytes,
-            Advanced,
-            "정렬/예약",
-        );
-        add(
-            "user_public_key_length".into(),
-            0x0094,
-            4,
-            Uint,
-            Protected,
-            "사용자 공개키 길이",
-        );
-        add(
-            "user_public_key".into(),
-            0x0098,
-            0x800,
-            Bytes,
-            Protected,
-            "사용자 공개키",
-        );
-        for n in 0..ROLLBACK_COUNT {
-            add(
-                format!("rollback_index[{n}]"),
-                ROLLBACK_START + n * 8,
-                8,
-                Uint,
-                Basic,
-                "롤백인덱스",
-            );
-        }
-        for n in 0..8 {
-            let base = PERSISTENT_START + n * PERSISTENT_SLOT;
-            add(
-                format!("persistent[{n}].valid"),
-                base,
-                2,
-                Uint,
-                Protected,
-                "AVB persistent value 사용 여부",
-            );
-            add(
-                format!("persistent[{n}].name_length"),
-                base + 2,
-                2,
-                Uint,
-                Protected,
-                "AVB persistent value 이름 길이",
-            );
-            add(
-                format!("persistent[{n}].value_length"),
-                base + 4,
-                2,
-                Uint,
-                Protected,
-                "AVB persistent value 값 길이",
-            );
-            add(
-                format!("persistent[{n}].name"),
-                base + 6,
-                0x38,
-                Text { nul: false },
-                Protected,
-                "AVB persistent value 이름",
-            );
-            add(
-                format!("persistent[{n}].value"),
-                base + 0x3E,
-                0x20,
-                Bytes,
-                Protected,
-                "AVB persistent value 값",
-            );
-        }
-        add(
-            "golden_snapshot".into(),
-            0x0C88,
-            8,
-            Uint,
-            Advanced,
-            "golden snapshot (추정)",
-        );
-        add(
-            "audio_framework".into(),
-            0x0C90,
-            0x10,
-            Bytes,
-            Advanced,
-            "audio framework 버퍼",
-        );
-        add(
-            "fdr_frs_uds_flag".into(),
-            0x0CA0,
-            1,
-            Uint,
-            Protected,
-            "FDR/FRS-UDS 상태",
-        );
-        add(
-            "reserved_0CA1".into(),
-            0x0CA1,
-            3,
-            Bytes,
-            Advanced,
-            "정렬/예약",
-        );
-        add(
-            "frs_uds_cache_length".into(),
-            0x0CA4,
-            4,
-            Uint,
-            Protected,
-            "FRS/UDS 캐시 길이",
-        );
-        add(
-            "frs_uds_cache".into(),
-            0x0CA8,
-            0x20,
-            Bytes,
-            Protected,
-            "FRS/UDS 캐시 (기기 고유)",
-        );
-        add(
-            "region_magic_1".into(),
-            0x0CC8,
-            8,
-            Text { nul: false },
-            Protected,
-            "리전 레코드 매직 1",
-        );
-        match self {
-            Self::Tb520fu => {
-                add(
-                    "oem_reserved_1".into(),
-                    0x0CD0,
-                    0x40,
-                    Bytes,
-                    Advanced,
-                    "OEM 예약 (미확인)",
-                );
-                add("region".into(), 0x0D10, 0x10, Region, Basic, "리전");
-                add(
-                    "region_magic_2".into(),
-                    0x0D20,
-                    8,
-                    Text { nul: false },
-                    Protected,
-                    "리전 레코드 매직 2",
-                );
-                add(
-                    "region_padding".into(),
-                    0x0D28,
-                    8,
-                    Bytes,
-                    Advanced,
-                    "리전 후미 (미확인)",
-                );
-                add(
-                    "oem_reserved_2".into(),
-                    0x0D30,
-                    0x170,
-                    Bytes,
-                    Advanced,
-                    "OEM 예약 (미확인)",
-                );
-                add(
-                    "fastboot_mode".into(),
-                    0x0EA0,
-                    1,
-                    Uint,
-                    Advanced,
-                    "fastboot 부팅 모드 플래그",
-                );
-                add(
-                    "recovery_mode".into(),
-                    0x0EA1,
-                    1,
-                    Uint,
-                    Advanced,
-                    "recovery 부팅 모드 플래그",
-                );
-                add(
-                    "factory_mode".into(),
-                    0x0EA2,
-                    1,
-                    Uint,
-                    Advanced,
-                    "factory 부팅 모드 플래그",
-                );
-                add(
-                    "reserved_end".into(),
-                    0x0EA3,
-                    5,
-                    Bytes,
-                    Advanced,
-                    "후미 예약",
-                );
-            }
-            Self::Tb522fu => {
-                add(
-                    "region_info_version".into(),
-                    0x0CD0,
-                    4,
-                    Uint,
-                    Protected,
-                    "리전 레코드 버전",
-                );
-                add("region".into(), 0x0CD4, 0x10, Region, Basic, "리전");
-                add(
-                    "region_magic_2".into(),
-                    0x0CE4,
-                    8,
-                    Text { nul: false },
-                    Protected,
-                    "리전 레코드 매직 2",
-                );
-                add(
-                    "region_reserved".into(),
-                    0x0CEC,
-                    0x28,
-                    Bytes,
-                    Advanced,
-                    "리전 레코드 후미 (미확인)",
-                );
-                add(
-                    "fastboot_mode".into(),
-                    0x0D14,
-                    1,
-                    Uint,
-                    Advanced,
-                    "fastboot 부팅 모드 플래그",
-                );
-                add(
-                    "recovery_mode".into(),
-                    0x0D15,
-                    1,
-                    Uint,
-                    Advanced,
-                    "recovery 부팅 모드 플래그",
-                );
-                add(
-                    "factory_mode".into(),
-                    0x0D16,
-                    1,
-                    Uint,
-                    Advanced,
-                    "factory 부팅 모드 플래그",
-                );
-                add(
-                    "deviceinfo_format_version".into(),
-                    0x0D17,
-                    4,
-                    Text { nul: true },
-                    Protected,
-                    "DeviceInfo 형식 버전",
-                );
-                add(
-                    "reserved_end".into(),
-                    0x0D1B,
-                    5,
-                    Bytes,
-                    Advanced,
-                    "후미 예약",
-                );
-            }
-        }
-        fields
+            .collect()
     }
 
     pub fn field(self, key: &str) -> Result<Field, String> {
@@ -454,8 +140,9 @@ impl Layout {
     }
 
     pub fn rollback_indices(self, bytes: &[u8]) -> [u64; ROLLBACK_COUNT] {
+        let start = self.rollback_start();
         std::array::from_fn(|n| {
-            let at = ROLLBACK_START + n * 8;
+            let at = start + n * 8;
             u64::from_le_bytes(bytes[at..at + 8].try_into().expect("fixed size"))
         })
     }
@@ -653,6 +340,13 @@ pub fn edits_between(layout: Layout, before: &[u8], planned: &[u8]) -> Edits {
 mod tests {
     use super::*;
 
+    fn tb520() -> Layout {
+        Layout::find("TB520FU").unwrap()
+    }
+    fn tb522() -> Layout {
+        Layout::find("TB522FU").unwrap()
+    }
+
     /// Synthetic buffer shaped like the structure maps (no real dump data).
     pub(crate) fn sample(layout: Layout) -> Vec<u8> {
         let mut b = vec![0u8; SHARED_SIZE];
@@ -661,11 +355,12 @@ mod tests {
         let r = layout.region_offset();
         b[r..r + 3].copy_from_slice(b"PRC");
         b[r + 0x10..r + 0x18].copy_from_slice(b"beefdead");
-        b[ROLLBACK_START + 8] = 1;
-        b[ROLLBACK_START + 16..ROLLBACK_START + 20].copy_from_slice(&0x6A727D00u32.to_le_bytes());
+        let rollback = layout.rollback_start();
+        b[rollback + 8] = 1;
+        b[rollback + 16..rollback + 20].copy_from_slice(&0x6A727D00u32.to_le_bytes());
         b[0xCA4] = 0x20;
         b[0xCA8..0xCC8].fill(0xA5);
-        if layout == Layout::Tb522fu {
+        if layout == tb522() {
             b[0xCD0] = 1;
             b[0xD17..0xD1B].copy_from_slice(b"1.0\0");
         }
@@ -674,7 +369,7 @@ mod tests {
 
     #[test]
     fn both_maps_cover_the_logical_structure_exactly_once() {
-        for layout in [Layout::Tb520fu, Layout::Tb522fu] {
+        for layout in [tb520(), tb522()] {
             let mut next = 0;
             for field in layout.fields() {
                 assert_eq!(field.offset, next, "{layout:?} {}", field.key);
@@ -694,14 +389,14 @@ mod tests {
             assert_eq!(at("region"), layout.region_offset());
         }
         let at = |layout: Layout, key: &str| layout.field(key).unwrap().offset;
-        assert_eq!(at(Layout::Tb520fu, "factory_mode"), 0x0EA2);
-        assert_eq!(at(Layout::Tb522fu, "factory_mode"), 0x0D16);
-        assert_eq!(at(Layout::Tb522fu, "deviceinfo_format_version"), 0x0D17);
+        assert_eq!(at(tb520(), "factory_mode"), 0x0EA2);
+        assert_eq!(at(tb522(), "factory_mode"), 0x0D16);
+        assert_eq!(at(tb522(), "deviceinfo_format_version"), 0x0D17);
     }
 
     #[test]
     fn every_field_round_trips_its_canonical_display() {
-        for layout in [Layout::Tb520fu, Layout::Tb522fu] {
+        for layout in [tb520(), tb522()] {
             let b = sample(layout);
             for field in layout.fields() {
                 let shown = display(&field, &b);
@@ -718,7 +413,7 @@ mod tests {
 
     #[test]
     fn inputs_must_fit_the_field_type_and_size_exactly() {
-        let layout = Layout::Tb520fu;
+        let layout = tb520();
         let f = |key: &str| layout.field(key).unwrap();
         // Flags and integers.
         assert_eq!(encode(&f("charger_screen_enabled"), "1").unwrap(), [1]);
@@ -759,7 +454,7 @@ mod tests {
 
     #[test]
     fn apply_changes_only_edited_fields_and_never_the_shared_tail() {
-        for layout in [Layout::Tb520fu, Layout::Tb522fu] {
+        for layout in [tb520(), tb522()] {
             let mut before = sample(layout);
             before[layout.logical_size()..].fill(0x33);
             let edits = Edits::from([
@@ -800,41 +495,37 @@ mod tests {
             tail[SHARED_SIZE - 1] ^= 1;
             assert!(check_plan(layout, &before, &tail).is_err());
         }
-        let b = sample(Layout::Tb520fu);
+        let b = sample(tb520());
         let unknown = Edits::from([("nonexistent".into(), "1".into())]);
-        assert!(apply(Layout::Tb520fu, &b, &unknown).is_err());
+        assert!(apply(tb520(), &b, &unknown).is_err());
         let mut no_magic = b.clone();
         no_magic[0] = b'X';
-        assert!(apply(Layout::Tb520fu, &no_magic, &Edits::new()).is_err());
+        assert!(apply(tb520(), &no_magic, &Edits::new()).is_err());
     }
 
     #[test]
     fn layouts_place_region_and_tail_fields_differently() {
-        let b520 = sample(Layout::Tb520fu);
-        let b522 = sample(Layout::Tb522fu);
-        assert_eq!(Layout::Tb520fu.region(&b520), Some(Region::Prc));
-        assert_eq!(Layout::Tb522fu.region(&b522), Some(Region::Prc));
-        assert_eq!(Layout::Tb520fu.region(&b522), None);
-        let f = Layout::Tb522fu.field("deviceinfo_format_version").unwrap();
+        let b520 = sample(tb520());
+        let b522 = sample(tb522());
+        assert_eq!(tb520().region(&b520), Some(Region::Prc));
+        assert_eq!(tb522().region(&b522), Some(Region::Prc));
+        assert_eq!(tb520().region(&b522), None);
+        let f = tb522().field("deviceinfo_format_version").unwrap();
         assert_eq!(display(&f, &b522), "1.0");
         assert_eq!(
-            display(
-                &Layout::Tb522fu.field("region_info_version").unwrap(),
-                &b522
-            ),
+            display(&tb522().field("region_info_version").unwrap(), &b522),
             "0x1"
         );
     }
 
     /// Real dumps stay outside the repository; set the env vars to check them.
     #[test]
-    #[ignore = "Set LAPISWITCH_DEVICEINFO_TB520FU / LAPISWITCH_DEVICEINFO_TB522FU to local dumps."]
+    #[ignore = "Set LAPISWITCH_DEVICEINFO_<MODEL> (e.g. LAPISWITCH_DEVICEINFO_TB520FU) to local dumps."]
     fn real_dumps_match_the_structure_maps() {
-        for (layout, var) in [
-            (Layout::Tb520fu, "LAPISWITCH_DEVICEINFO_TB520FU"),
-            (Layout::Tb522fu, "LAPISWITCH_DEVICEINFO_TB522FU"),
-        ] {
-            let Some(path) = std::env::var_os(var) else {
+        for device in lapiswitch_devices::DEVICES {
+            let layout = Layout::of(device);
+            let var = format!("LAPISWITCH_DEVICEINFO_{}", layout.model());
+            let Some(path) = std::env::var_os(&var) else {
                 continue;
             };
             let bytes = std::fs::read(path).unwrap();
