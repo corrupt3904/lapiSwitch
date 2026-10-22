@@ -616,12 +616,15 @@ fn stepper(app: &App) -> Element<'_, Message> {
     }
     column![flow, crumbs].spacing(4).into()
 }
-/// The DeviceInfo edit and dump pages and their runs, whose titles line
-/// up with the flashing pages below the step breadcrumb.
+/// The DeviceInfo edit, dump and restore pages and their runs, whose
+/// titles line up with the flashing pages below the step breadcrumb.
 fn deviceinfo_task(app: &App) -> bool {
     match app.page {
-        Page::Edit | Page::Dump => true,
-        Page::Progress | Page::Result => matches!(app.run_kind, RunKind::Edit | RunKind::Dump),
+        Page::Edit | Page::Dump | Page::Recovery => true,
+        Page::Progress | Page::Result => matches!(
+            app.run_kind,
+            RunKind::Edit | RunKind::Dump | RunKind::Restore
+        ),
         _ => false,
     }
 }
@@ -1100,6 +1103,18 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 Message::RollbackOpen,
                 idle,
             ),
+            group_row(
+                app.t("백업 위치", "Backup location"),
+                label(short_path(
+                    &app.output.join("backup").join("region_change"),
+                    value_width(app, 150.0),
+                ))
+                .size(14)
+                .color(muted())
+                .wrapping(iced::widget::text::Wrapping::None)
+                .into(),
+                Some(small(app.t("설정에서 변경", "Change in Settings")).into()),
+            ),
         ]),
         checkbox(app.agreed)
             .label(app.t(
@@ -1574,19 +1589,20 @@ fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "백업한 기기 한 대를 EDL로 연결하세요.",
             "Connect the backed-up device in EDL mode."
         ),
-        action(
-            app.t("백업 폴더 선택", "Choose backup folder"),
-            Message::Pick(Picker::Backup),
-            !app.busy()
-        )
-        .style(soft_style)
+        group(vec![
+            path_row(
+                app,
+                app.t("백업 폴더", "Backup folder"),
+                app.recovery_folder.as_deref(),
+                app.t("폴더 선택", "Choose folder"),
+                Picker::Backup,
+            ),
+            loader_row(app),
+        ]),
     ]
-    .spacing(20);
+    .spacing(16);
     if app.device.unsupported_model() {
         content = content.push(dashboard_view::connection_note(app));
-    }
-    if let Some(path) = &app.recovery_folder {
-        content = content.push(small(path.display().to_string()));
     }
     if let Some(summary) = &app.recovery_summary {
         content = content.push(note(
@@ -1604,17 +1620,6 @@ fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         content = content.push(small(
             app.t("백업을 검사하고 있습니다…", "Verifying backup…"),
         ));
-    }
-    content = content.push(
-        action(
-            app.t("호환 loader 선택", "Choose compatible loader"),
-            Message::Pick(Picker::Loader),
-            !app.busy(),
-        )
-        .style(soft_style),
-    );
-    if let Some(path) = &app.loader {
-        content = content.push(small(path.display().to_string()));
     }
     content = content.push(warning_note(app.t("이 작업은 설치된 전체 펌웨어를 이전 버전으로 되돌리는 기능이 아닙니다. DeviceInfo 변경이 검증되면 TWRP에서 작업 전 DeviceInfo 전체를 다시 기록한 뒤 원본 vendor_boot·Recovery·GPT를 복구합니다. 쓰기 결과가 불명확하면 자동 복구를 진행하지 않습니다.", "This does not roll back the entire installed firmware. Verified DeviceInfo changes are reversed in TWRP by writing back the complete original DeviceInfo before restoring original vendor_boot, Recovery and GPT. Unknown write results block automatic restoration.")))
         .push(checkbox(app.agreed).label(app.t("이 백업을 만든 기기이며 원본 복구를 진행하겠습니다.", "This is the device that created the backup; restore its original region and configuration.")).on_toggle(Message::Agree));

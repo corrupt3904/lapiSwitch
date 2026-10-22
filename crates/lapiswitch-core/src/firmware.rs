@@ -19,37 +19,39 @@ pub enum FirmwareError {
         path: String,
         source: std::io::Error,
     },
-    #[error("no rawprogram*.xml / rawprogram*.x in {0} or its image/ folder")]
+    #[error(
+        "펌웨어 폴더가 아닙니다. {0} 또는 그 안의 image 폴더에 rawprogram*.xml(또는 rawprogram*.x) 파일이 없습니다."
+    )]
     NotFirmwareFolder(String),
-    #[error("EDL loader ({0}) not found in {1} or its parent")]
+    #[error("EDL 로더({0})를 {1} 또는 그 상위 폴더에서 찾을 수 없습니다.")]
     LoaderMissing(&'static str, String),
-    #[error("required image missing: {0}")]
+    #[error("필수 이미지가 없습니다: {0}")]
     ImageMissing(String),
-    #[error("compressed images (.zst) are not supported: {0}")]
+    #[error("압축된 이미지(.zst)는 지원하지 않습니다. 압축을 푼 펌웨어를 선택하세요: {0}")]
     CompressedImage(String),
-    #[error("cannot decrypt {path}: {message}")]
+    #[error("{path} 파일을 복호화할 수 없습니다: {message}")]
     Decrypt { path: String, message: String },
     #[error(transparent)]
     Avb(#[from] avb_info::AvbReadError),
-    #[error("vbmeta_system.img carries no build fingerprint")]
+    #[error("vbmeta_system.img에 빌드 지문(build fingerprint)이 없습니다.")]
     NoFingerprint,
-    #[error("firmware is for another model: {0}")]
+    #[error("지원하지 않는 모델의 펌웨어입니다: {0}")]
     WrongModel(String),
-    #[error("vbmeta_system.img is signed with an unknown key ({0})")]
+    #[error("vbmeta_system.img가 알 수 없는 키로 서명되어 있습니다 ({0}).")]
     UnknownKey(String),
-    #[error("vendor_boot.img 리전을 확인할 수 없습니다: {0}")]
+    #[error("vendor_boot.img의 Region을 확인할 수 없습니다: {0}")]
     RegionUndetermined(String),
-    #[error("vendor_boot.img says {marker:?} but the fingerprint says {fingerprint:?}")]
+    #[error("vendor_boot.img의 Region은 {}이지만 빌드 지문의 Region은 {}입니다.", marker.token(), fingerprint.token())]
     RegionMismatch { marker: Region, fingerprint: Region },
     #[error("선택한 리전은 {}이지만 펌웨어의 리전은 {}입니다. 선택한 리전과 같은 펌웨어를 선택하세요.", target.token(), firmware.token())]
     WrongRegion { firmware: Region, target: Region },
-    #[error("XML selection failed: {0}")]
+    #[error("플래싱할 XML을 고르지 못했습니다: {0}")]
     XmlSelection(String),
-    #[error("excluded XML variant was selected: {0}")]
+    #[error("제외해야 하는 XML이 선택되었습니다: {0}")]
     ExcludedXmlSelected(String),
     #[error("{xml}: {message}")]
     Xml { xml: String, message: String },
-    #[error("split super image missing: {0}")]
+    #[error("분할된 super 이미지가 없습니다: {0}")]
     SuperImageMissing(String),
 }
 
