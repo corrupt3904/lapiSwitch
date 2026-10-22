@@ -408,53 +408,87 @@ impl App {
         self.start_blocker().is_none()
     }
     fn start_blocker(&self) -> Option<&'static str> {
-        let reason = if self.busy() {
-            self.t(
-                "진행 중인 작업이 끝날 때까지 기다려 주세요.",
-                "Wait for the current operation to finish.",
+        self.start_issue().map(|(_, reason)| reason)
+    }
+    /// Why the run cannot start. A problem with the device, drivers or
+    /// firmware carries the severity of the InfoBar shown above the
+    /// buttons; a step not done yet (`None`) is only a quiet hint.
+    fn start_issue(&self) -> Option<(Option<fluent::Severity>, &'static str)> {
+        use fluent::Severity::{Error, Warning};
+        let issue = if self.busy() {
+            (
+                None,
+                self.t(
+                    "진행 중인 작업이 끝날 때까지 기다려 주세요.",
+                    "Wait for the current operation to finish.",
+                ),
             )
         } else if self.deferred.is_some() {
-            self.t(
-                "시작 전 기기 연결을 다시 확인하고 있습니다.",
-                "Rechecking the device before starting.",
+            (
+                None,
+                self.t(
+                    "시작 전 기기 연결을 다시 확인하고 있습니다.",
+                    "Rechecking the device before starting.",
+                ),
             )
         } else if self.startup_error.is_some() {
-            self.t(
-                "이전 작업 기록을 확인할 수 없습니다. 위 오류를 확인해 주세요.",
-                "The saved run cannot be checked. Review the error above.",
+            (
+                Some(Error),
+                self.t(
+                    "이전 작업 기록을 확인할 수 없습니다. 위 오류를 확인해 주세요.",
+                    "The saved run cannot be checked. Review the error above.",
+                ),
             )
         } else if !self.device.reachable() {
-            self.t(
-                "기기 연결이 확인되지 않았습니다. 연결 상태를 확인해 주세요.",
-                "The device connection could not be confirmed. Check the connection.",
+            (
+                Some(Warning),
+                self.t(
+                    "기기 연결이 확인되지 않았습니다. 연결 상태를 확인해 주세요.",
+                    "The device connection could not be confirmed. Check the connection.",
+                ),
             )
         } else if self.device.unsupported_model() {
-            self.t(
-                "지원하지 않는 기기입니다. 지원 기기를 연결해 주세요.",
-                "Unsupported device. Connect a supported device.",
+            (
+                Some(Error),
+                self.t(
+                    "지원하지 않는 기기입니다. 지원 기기를 연결해 주세요.",
+                    "Unsupported device. Connect a supported device.",
+                ),
             )
         } else if self.device.fastboot() {
-            self.fastboot_start_text()
+            (Some(Warning), self.fastboot_start_text())
         } else if !self.device.startable() {
-            self.t(
-                "기기 모델을 확인할 수 없습니다. 기기 연결 상태를 확인해 주세요.",
-                "The device model is unknown. Check the device connection.",
+            (
+                Some(Warning),
+                self.t(
+                    "기기 모델을 확인할 수 없습니다. 기기 연결 상태를 확인해 주세요.",
+                    "The device model is unknown. Check the device connection.",
+                ),
             )
         } else if !self.drivers_ready() {
-            self.t(
-                "필요한 드라이버를 확인하거나 설치해 주세요.",
-                "Check or install the required drivers.",
+            (
+                Some(Warning),
+                self.t(
+                    "필요한 드라이버를 확인하거나 설치해 주세요.",
+                    "Check or install the required drivers.",
+                ),
             )
         } else if self.page == Page::Edit {
             if self.loader.is_none() {
-                self.t(
-                    "EDL 로더 파일을 선택해 주세요.",
-                    "Select the EDL loader file.",
+                (
+                    None,
+                    self.t(
+                        "EDL 로더 파일을 선택해 주세요.",
+                        "Select the EDL loader file.",
+                    ),
                 )
             } else if !self.agreed {
-                self.t(
-                    "DeviceInfo 수정 안내를 확인하고 동의 항목을 체크해 주세요.",
-                    "Read the DeviceInfo edit notice and select the consent checkbox.",
+                (
+                    None,
+                    self.t(
+                        "DeviceInfo 수정 안내를 확인하고 동의 항목을 체크해 주세요.",
+                        "Read the DeviceInfo edit notice and select the consent checkbox.",
+                    ),
                 )
             } else {
                 return None;
@@ -465,29 +499,41 @@ impl App {
                 .as_ref()
                 .is_some_and(|f| Some(f.region) == self.region)
         {
-            self.t(
-                "펌웨어 폴더를 선택해 검사를 완료해 주세요.",
-                "Choose a firmware folder and complete its check.",
+            (
+                None,
+                self.t(
+                    "펌웨어 폴더를 선택해 검사를 완료해 주세요.",
+                    "Choose a firmware folder and complete its check.",
+                ),
             )
         } else if self.firmware_model_differs() {
-            self.t(
-                "기기와 펌웨어의 모델이 다릅니다. 기기에 맞는 펌웨어 폴더를 선택해 주세요.",
-                "The firmware is for a different model than the connected device. Choose firmware for this model.",
+            (
+                Some(Error),
+                self.t(
+                    "기기와 펌웨어의 모델이 다릅니다. 기기에 맞는 펌웨어 폴더를 선택해 주세요.",
+                    "The firmware is for a different model than the connected device. Choose firmware for this model.",
+                ),
             )
         } else if self.options().is_none() {
-            self.t(
-                "국가 코드 또는 변경 안 함을 선택해 주세요.",
-                "Choose a country code or Do not change.",
+            (
+                None,
+                self.t(
+                    "국가 코드 또는 변경 안 함을 선택해 주세요.",
+                    "Choose a country code or Do not change.",
+                ),
             )
         } else if !self.agreed {
-            self.t(
-                "사용자 데이터 초기화 안내를 확인하고 동의 항목을 체크해 주세요.",
-                "Read the data-erasure notice and select the consent checkbox.",
+            (
+                None,
+                self.t(
+                    "사용자 데이터 초기화 안내를 확인하고 동의 항목을 체크해 주세요.",
+                    "Read the data-erasure notice and select the consent checkbox.",
+                ),
             )
         } else {
             return None;
         };
-        Some(reason)
+        Some(issue)
     }
     fn can_restore(&self) -> bool {
         !self.busy()

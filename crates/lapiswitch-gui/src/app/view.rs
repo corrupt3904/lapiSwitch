@@ -547,16 +547,25 @@ fn country_value(app: &App) -> String {
         },
     }
 }
-/// Why the run cannot start, in bold red under the final check.
-fn blocker_text<'a>(reason: &'a str) -> Element<'a, Message> {
-    label(reason)
-        .size(14)
-        .color(danger())
-        .font(iced::Font {
-            family: iced::font::Family::Name("Malgun Gothic"),
-            weight: iced::font::Weight::Bold,
-            ..iced::Font::DEFAULT
-        })
+/// The start footer: a problem in an InfoBar right above the buttons, or
+/// a step not done yet as a muted hint beside them.
+fn start_footer<'a>(app: &'a App, buttons: [Element<'a, Message>; 2]) -> Element<'a, Message> {
+    let issue = app.start_issue();
+    let hint: Element<'a, Message> = match issue {
+        Some((None, reason)) => label(reason).size(13).color(muted()).into(),
+        _ => space().into(),
+    };
+    let [back, start] = buttons;
+    let mut footer = column![].spacing(12);
+    if let Some((Some(severity), reason)) = issue {
+        footer = footer.push(infobar(severity, reason));
+    }
+    footer
+        .push(
+            row![container(hint).width(Fill), back, start]
+                .spacing(12)
+                .align_y(Alignment::Center),
+        )
         .into()
 }
 /// Region conversion steps as a Fluent breadcrumb above the page.
@@ -1060,28 +1069,26 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     .spacing(12);
     (
         content.into(),
-        row![
-            container(
-                app.start_blocker()
-                    .map_or_else(|| space().into(), blocker_text)
-            )
-            .width(Fill),
-            action(app.t("이전", "Back"), Message::Back, true).style(soft_style),
-            action(
-                if app.activity == Some(Activity::Archive) {
-                    app.t("기록 보관 중…", "Archiving…")
-                } else if app.deferred.is_some() {
-                    app.t("연결 확인 중…", "Checking connection…")
-                } else {
-                    app.t("플래싱 시작", "Start flashing")
-                },
-                Message::Start,
-                app.can_start()
-            )
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center)
-        .into(),
+        start_footer(
+            app,
+            [
+                action(app.t("이전", "Back"), Message::Back, true)
+                    .style(soft_style)
+                    .into(),
+                action(
+                    if app.activity == Some(Activity::Archive) {
+                        app.t("기록 보관 중…", "Archiving…")
+                    } else if app.deferred.is_some() {
+                        app.t("연결 확인 중…", "Checking connection…")
+                    } else {
+                        app.t("플래싱 시작", "Start flashing")
+                    },
+                    Message::Start,
+                    app.can_start(),
+                )
+                .into(),
+            ],
+        ),
     )
 }
 pub(super) fn logs(app: &App) -> Element<'_, Message> {
@@ -1401,21 +1408,20 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         );
     (
         content.into(),
-        row![
-            container(
-                app.start_blocker()
-                    .map_or_else(|| space().into(), blocker_text)
-            )
-            .width(Fill),
-            action(app.t("이전", "Back"), Message::Back, !app.busy()).style(soft_style),
-            action(
-                app.t("DeviceInfo 수정 시작", "Start DeviceInfo edit"),
-                Message::Start,
-                app.can_start()
-            )
-        ]
-        .spacing(12)
-        .into(),
+        start_footer(
+            app,
+            [
+                action(app.t("이전", "Back"), Message::Back, !app.busy())
+                    .style(soft_style)
+                    .into(),
+                action(
+                    app.t("DeviceInfo 수정 시작", "Start DeviceInfo edit"),
+                    Message::Start,
+                    app.can_start(),
+                )
+                .into(),
+            ],
+        ),
     )
 }
 fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
