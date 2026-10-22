@@ -224,7 +224,7 @@ mod tests {
         assert_eq!(s.build_fingerprint().as_deref(), Some(ext));
         assert_eq!(s.version_fingerprint().as_deref(), Some(ext));
         assert_eq!(
-            crate::device_version::check(ext).unwrap(),
+            crate::device_version::check(crate::device::tb520fu(), ext).unwrap(),
             "ROW ZUI_18.5.10.037"
         );
     }
@@ -240,7 +240,7 @@ mod tests {
         // Model evidence remains independent from ROM-version admission.
         assert_eq!(s.build_fingerprint().as_deref(), Some(system));
         assert_eq!(s.version_fingerprint().as_deref(), Some(custom));
-        assert!(crate::device_version::check(custom).is_err());
+        assert!(crate::device_version::check(crate::device::tb520fu(), custom).is_err());
         assert_eq!(
             summary(&[("com.android.build.system.fingerprint", system)])
                 .version_fingerprint()

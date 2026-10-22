@@ -49,13 +49,13 @@ Interface languages: 한국어, English, 简体中文, 日本語 and Русск�
 | Item | Requirement |
 |---|---|
 | Host OS | **Windows x64 only** |
-| Tablet | **Lenovo TB520FU (`lapis`)**; other models are blocked |
-| Installed PRC firmware | `ZUXOS_1.5.10.186` or earlier; preceding PRC ZUI builds are also allowed |
-| Installed ROW firmware | `ZUI_18.5.10.037` or earlier |
+| Tablet | **Lenovo TB520FU (`lapis`)** and **TB522FU (`mojito`, not yet validated on hardware)**; other models are blocked |
+| Installed PRC firmware | TB520FU: `ZUXOS_1.5.10.186` or earlier; preceding PRC ZUI builds are also allowed · TB522FU: build date 2026-09-24 (`…260924C`) or earlier |
+| Installed ROW firmware | TB520FU: `ZUI_18.5.10.037` or earlier · TB522FU: build date 2026-09-04 (`…260904W`) or earlier |
 | Installation package | Unpacked official firmware matching the **target region** |
 | Connection | Reliable USB cable, adequate battery charge and internet access for required downloads |
 
-The version limits above apply to firmware **already installed on the tablet**. The app checks the selected installation package separately. Identified stock firmware above these limits blocks conversion. If the stock version or region cannot be identified, the app warns about a possible custom ROM, GSI or test build and requires an explicit choice to continue. Connection waits in STEP 5 and STEP 7 allow stopping after 30 seconds and time out after 3 minutes, preserving the saved state. Check the [release notes](https://github.com/corrupt3904/lapiSwitch/releases) for the validation scope and limitations of each prerelease.
+Per-device values (model, version limits, TWRP, country-code location and DeviceInfo field map) live in [`devices/`](devices/README.md). The version limits above apply to firmware **already installed on the tablet**. The app checks the selected installation package separately. Identified stock firmware above these limits blocks conversion. If the stock version or region cannot be identified, the app warns about a possible custom ROM, GSI or test build and requires an explicit choice to continue. Connection waits in STEP 5 and STEP 7 allow stopping after 30 seconds and time out after 3 minutes, preserving the saved state. Check the [release notes](https://github.com/corrupt3904/lapiSwitch/releases) for the validation scope and limitations of each prerelease.
 
 ## Getting started
 
@@ -111,7 +111,7 @@ Supported-device data (model names, firmware checks, accepted installed firmware
 ## Credits
 
 - **[LTBox](https://github.com/miner7222/LTBox) — [@miner7222](https://github.com/miner7222):** the foundation for device communication, EDL flashing, driver and firmware handling, and selected GUI assets. Its vendored `ltbox-core` and `ltbox-device` sources are retained unmodified. AVB parsing uses [avbtool-rs](https://github.com/miner7222/avbtool-rs).
-- **[TeamWin / TWRP](https://twrp.me/), TWRP-Test and lapis contributors:** the [TB520FU recovery build](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014) is published by [@wnduddld0513](https://github.com/wnduddld0513) under [lenovo-sm8650](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp).
+- **[TeamWin / TWRP](https://twrp.me/), TWRP-Test and lapis contributors:** the [TB520FU recovery build](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014) is published by [@wnduddld0513](https://github.com/wnduddld0513) under [lenovo-sm8650](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp). The [TB522FU recovery build](https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16) is published by lanweikayu.
 - **Other components:** [qdlrs](https://github.com/qualcomm/qdlrs), [flag-icons](https://github.com/lipis/flag-icons), [Noto Sans KR](https://github.com/notofonts/noto-cjk), [iced](https://github.com/iced-rs/iced) and the Rust dependencies recorded in [`Cargo.lock`](Cargo.lock).
 
 ## License

@@ -5,11 +5,6 @@ use crate::region::Region;
 use serde::{Deserialize, Serialize};
 
 pub const SHARED_SIZE: usize = 0x1000;
-/// The layout of the device the workflow runs for (`flow = true` in
-/// `devices/<MODEL>/device.toml`). Other devices only define their maps.
-pub fn layout() -> map::Layout {
-    map::Layout::of(lapiswitch_devices::flow_device())
-}
 
 /// Load the TA from the device's confirmed active slot. Firmware-specific
 /// hashes/signatures do not determine DeviceInfo compatibility.
@@ -29,40 +24,45 @@ pub enum RollbackMode {
 }
 
 /// PRC/ROW of a buffer with the DeviceInfo magic.
-pub fn region(bytes: &[u8]) -> Result<Region, String> {
-    layout().check_buffer(bytes)?;
-    layout()
+pub fn region(layout: map::Layout, bytes: &[u8]) -> Result<Region, String> {
+    layout.check_buffer(bytes)?;
+    layout
         .region(bytes)
         .ok_or_else(|| "DeviceInfo 리전 필드가 PRC/ROW가 아닙니다.".into())
 }
 
-pub fn indices(bytes: &[u8]) -> [u64; map::ROLLBACK_COUNT] {
-    layout().rollback_indices(bytes)
+pub fn indices(layout: map::Layout, bytes: &[u8]) -> [u64; map::ROLLBACK_COUNT] {
+    layout.rollback_indices(bytes)
 }
 
 /// Set all 32 rollback indices to zero on top of existing edits.
-pub fn with_rollback_reset(before: &[u8], edits: &map::Edits) -> Result<map::Edits, String> {
-    let mut planned = map::apply(layout(), before, edits)?;
-    let start = layout().rollback_start();
+pub fn with_rollback_reset(
+    layout: map::Layout,
+    before: &[u8],
+    edits: &map::Edits,
+) -> Result<map::Edits, String> {
+    let mut planned = map::apply(layout, before, edits)?;
+    let start = layout.rollback_start();
     planned[start..start + map::ROLLBACK_COUNT * 8].fill(0);
-    Ok(map::edits_between(layout(), before, &planned))
+    Ok(map::edits_between(layout, before, &planned))
 }
 
 /// Region conversion preset: the target region, optionally all rollback
 /// indices reset. Every other field stays as read.
 pub fn conversion_edits(
+    layout: map::Layout,
     before: &[u8],
     target: Region,
     mode: RollbackMode,
 ) -> Result<map::Edits, String> {
-    region(before)?;
-    let field = layout().field("region")?;
+    region(layout, before)?;
+    let field = layout.field("region")?;
     let mut planned = before.to_vec();
     planned[field.range()].copy_from_slice(&map::encode(&field, target.token())?);
-    let edits = map::edits_between(layout(), before, &planned);
+    let edits = map::edits_between(layout, before, &planned);
     match mode {
         RollbackMode::Keep => Ok(edits),
-        RollbackMode::Reset => with_rollback_reset(before, &edits),
+        RollbackMode::Reset => with_rollback_reset(layout, before, &edits),
     }
 }
 
@@ -91,6 +91,9 @@ pub fn recovery_misc(original: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn layout() -> map::Layout {
+        crate::device::tb520fu().layout()
+    }
     pub fn sample(r: Region) -> Vec<u8> {
         let mut b: Vec<u8> = (0..SHARED_SIZE).map(|i| (i * 17 + 5) as u8).collect();
         b[..13].copy_from_slice(b"ANDROID-BOOT!");
@@ -106,13 +109,13 @@ mod tests {
             for target in [Region::Prc, Region::Row] {
                 for mode in [RollbackMode::Keep, RollbackMode::Reset] {
                     let b = sample(current);
-                    let edits = conversion_edits(&b, target, mode).unwrap();
+                    let edits = conversion_edits(layout(), &b, target, mode).unwrap();
                     let p = map::apply(layout(), &b, &edits).unwrap();
-                    assert_eq!(region(&p).unwrap(), target);
+                    assert_eq!(region(layout(), &p).unwrap(), target);
                     if mode == RollbackMode::Reset {
-                        assert_eq!(indices(&p), [0; 32]);
+                        assert_eq!(indices(layout(), &p), [0; 32]);
                     } else {
-                        assert_eq!(indices(&p), indices(&b));
+                        assert_eq!(indices(layout(), &p), indices(layout(), &b));
                     }
                     for (i, (a, c)) in b.iter().zip(&p).enumerate() {
                         let allowed = (0xD10..0xD20).contains(&i)
@@ -131,11 +134,11 @@ mod tests {
     fn same_region_keep_is_empty_but_reset_still_clears_indices() {
         let b = sample(Region::Row);
         assert!(
-            conversion_edits(&b, Region::Row, RollbackMode::Keep)
+            conversion_edits(layout(), &b, Region::Row, RollbackMode::Keep)
                 .unwrap()
                 .is_empty()
         );
-        let reset = conversion_edits(&b, Region::Row, RollbackMode::Reset).unwrap();
+        let reset = conversion_edits(layout(), &b, Region::Row, RollbackMode::Reset).unwrap();
         assert!(reset.keys().all(|key| key.starts_with("rollback_index[")));
         assert!(!reset.is_empty());
     }

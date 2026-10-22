@@ -7,6 +7,7 @@ use std::path::Path;
 use ltbox_core::live;
 
 use crate::avb_info::{AvbSummary, KeyClass};
+use crate::device::Device;
 use crate::slot::Slot;
 
 pub mod native;
@@ -72,8 +73,10 @@ pub enum PrepareError {
     FastbootUnsupported,
     #[error("{step}: {message}")]
     Device { step: &'static str, message: String },
-    #[error("TB520FU 모델을 확인할 수 없습니다: {0}")]
+    #[error("지원 기기로 확인할 수 없습니다: {0}")]
     WrongModel(String),
+    #[error("연결된 기기({found})가 선택한 작업의 기기({expected})와 다릅니다.")]
+    OtherDevice { expected: Device, found: Device },
     #[error("ADB에서 활성 슬롯(a/b)을 읽을 수 없습니다.")]
     MissingSlot,
     #[error("ADB에서 기기 시리얼을 읽을 수 없습니다.")]
@@ -84,6 +87,8 @@ pub enum PrepareError {
 
 #[derive(Debug, Clone)]
 pub struct PrepareReport {
+    /// From the ADB model, or the active slot's fingerprint on EDL start.
+    pub device: Device,
     pub started_in: Connection,
     pub slot: Slot,
     pub device_key: Option<KeyClass>,
@@ -103,25 +108,21 @@ fn operation<T>(step: &'static str, result: Result<T, String>) -> Result<T, Prep
 
 /// Shared by the GUI readiness gate and the hardware preflight.
 pub fn supported_model(model: &str) -> bool {
-    let model = model.trim();
-    ltbox_core::model::fingerprint_model_match(&model.to_ascii_uppercase(), crate::device::model())
-        || model.eq_ignore_ascii_case(crate::device::codename())
+    Device::identify(model).is_some()
 }
 
-fn check_model(model: Option<&str>) -> Result<(), PrepareError> {
-    let model = model.unwrap_or("").trim();
-    if supported_model(model) {
-        Ok(())
-    } else {
-        Err(PrepareError::WrongModel(model.to_owned()))
+/// A run for a known device only continues on that device.
+fn check_expected(expected: Option<Device>, found: Device) -> Result<Device, PrepareError> {
+    match expected {
+        Some(expected) if expected != found => Err(PrepareError::OtherDevice { expected, found }),
+        _ => Ok(found),
     }
 }
 
 /// The identity record binds the later TWRP session to the same device.
-pub fn identity_record(slot: Slot, serial: &str) -> String {
+pub fn identity_record(device: Device, slot: Slot, serial: &str) -> String {
     format!(
-        "transport: adb\nmodelname: {}\nserialno: {serial}\ncurrent-slot: {}\n",
-        crate::device::model(),
+        "transport: adb\nmodelname: {device}\nserialno: {serial}\ncurrent-slot: {}\n",
         slot.suffix()
     )
 }
@@ -131,16 +132,20 @@ pub fn identity_record(slot: Slot, serial: &str) -> String {
 /// eventual backup location; no device identifiers enter the source tree.
 pub fn prepare<D: DeviceIo>(
     device: &mut D,
+    expected: Option<Device>,
     loader: &Path,
     save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
-    prepare_with_confirmation(device, loader, save_identity, &mut || Ok(()), log)
+    prepare_with_confirmation(device, expected, loader, save_identity, &mut || Ok(()), log)
 }
 
 /// The GUI must obtain an explicit answer before opening an EDL-start session.
+/// `expected` is the device a conversion's firmware names; an edit learns
+/// the device here.
 pub fn prepare_with_confirmation<D: DeviceIo>(
     device: &mut D,
+    expected: Option<Device>,
     loader: &Path,
     save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
     confirm_edl: &mut dyn FnMut() -> Result<(), String>,
@@ -156,27 +161,31 @@ pub fn prepare_with_confirmation<D: DeviceIo>(
             operation("EDL 시작 확인", confirm_edl())?;
             operation("USB 기기 확인", device.ensure_single_target())?;
             let session = operation("EDL 연결 (파티션 쓰기 전)", device.open_edl(loader, log))?;
-            probe_or_reset(device, session, None, log)
+            probe_or_reset(device, session, expected, None, log)
         }
-        Connection::Adb => prepare_adb(device, loader, save_identity, log),
+        Connection::Adb => prepare_adb(device, expected, loader, save_identity, log),
     }
 }
 
 fn prepare_adb<D: DeviceIo>(
     device: &mut D,
+    expected: Option<Device>,
     loader: &Path,
     save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
     let identity = operation("ADB 모델·슬롯 확인", device.adb_identity())?;
-    check_model(identity.model.as_deref())?;
+    let model = identity.model.as_deref().unwrap_or("").trim();
+    let found =
+        Device::identify(model).ok_or_else(|| PrepareError::WrongModel(model.to_owned()))?;
+    let found = check_expected(expected, found)?;
     let slot = identity.slot.ok_or(PrepareError::MissingSlot)?;
     let serial = operation("ADB 시리얼 확인", device.adb_serial())?;
     let serial = serial.trim();
     if serial.is_empty() || serial.chars().any(char::is_control) {
         return Err(PrepareError::MissingSerial);
     }
-    let raw = identity_record(slot, serial);
+    let raw = identity_record(found, slot, serial);
     save_identity(&raw).map_err(PrepareError::SaveIdentity)?;
     live!(
         log,
@@ -191,7 +200,7 @@ fn prepare_adb<D: DeviceIo>(
     operation("USB 기기 확인", device.ensure_single_target())?;
     operation("EDL 대기 (45초, 파티션 쓰기 전)", device.wait_edl())?;
     let session = operation("EDL 연결 (파티션 쓰기 전)", device.open_edl(loader, log))?;
-    let mut prepared = probe_or_reset(device, session, Some(slot), log)?;
+    let mut prepared = probe_or_reset(device, session, Some(found), Some(slot), log)?;
     prepared.report.started_in = Connection::Adb;
     prepared.report.identity = Some(raw);
     Ok(prepared)
@@ -201,10 +210,11 @@ fn prepare_adb<D: DeviceIo>(
 fn probe_or_reset<D: DeviceIo>(
     device: &mut D,
     mut session: D::Session,
+    expected: Option<Device>,
     expected_slot: Option<Slot>,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
-    match probe_edl(device, &mut session, expected_slot, log) {
+    match probe_edl(device, &mut session, expected, expected_slot, log) {
         Ok(report) => Ok(PreparedDevice { report, session }),
         Err(error) => {
             if let Err(reset) = device.reset_to_edl(&mut session, log) {
@@ -220,6 +230,7 @@ fn probe_or_reset<D: DeviceIo>(
 fn probe_edl<D: DeviceIo>(
     device: &mut D,
     session: &mut D::Session,
+    expected: Option<Device>,
     expected_slot: Option<Slot>,
     log: &mut Vec<String>,
 ) -> Result<PrepareReport, PrepareError> {
@@ -234,30 +245,22 @@ fn probe_edl<D: DeviceIo>(
             device.read_avb(session, &format!("vbmeta_system{}", slot.suffix()), log),
         )?;
     }
-    let matches_model = vbs
-        .iter()
-        .flatten()
-        .filter_map(AvbSummary::build_fingerprint)
-        .any(|fp| ltbox_core::model::fingerprint_model_match(&fp, crate::device::model()));
-    if !matches_model {
-        return Err(PrepareError::WrongModel("EDL vbmeta_system_a/b".into()));
-    }
+    // The active slot's fingerprint names the device; on ADB start it must
+    // be the device ADB reported.
     let active = usize::from(slot == Slot::B);
-    if !vbs[active]
+    let found = vbs[active]
         .as_ref()
         .and_then(AvbSummary::build_fingerprint)
-        .is_some_and(|fp| ltbox_core::model::fingerprint_model_match(&fp, crate::device::model()))
-    {
-        return Err(PrepareError::WrongModel(
-            "EDL 활성 슬롯 vbmeta_system".into(),
-        ));
-    }
+        .and_then(|fp| Device::identify(&fp))
+        .ok_or_else(|| PrepareError::WrongModel("EDL 활성 슬롯 vbmeta_system".into()))?;
+    let found = check_expected(expected, found)?;
     live!(
         log,
         "S1-E: GPT 슬롯 속성 확인 완료. 활성 슬롯 {}",
         slot.suffix()
     );
     Ok(PrepareReport {
+        device: found,
         started_in: Connection::Edl,
         slot,
         device_key: vbs[active].as_ref().map(AvbSummary::key_class),

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::backup::{self, TransactionStage, VerifiedBackup};
 use crate::country;
+use crate::device::Device;
 use crate::deviceinfo::RollbackMode;
 use crate::firmware::FirmwareReport;
 use crate::recovery_flow::Progress;
@@ -18,7 +19,7 @@ use crate::rollback::RollbackIndices;
 use crate::slot::Slot;
 
 /// The only state format this version reads or writes.
-pub const STATE_VERSION: u8 = 4;
+pub const STATE_VERSION: u8 = 5;
 
 /// Coarse step mirrored from the recovery `Phase` for status display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -208,6 +209,9 @@ pub struct RunState {
     pub run_id: String,
     pub stage: Stage,
     pub request: Request,
+    /// Known from the start for a conversion (its firmware) or an ADB edit;
+    /// an edit started in EDL learns it at S1 and binds it with the backup.
+    pub device: Option<Device>,
     /// The EDL programmer every session of this run uploads.
     pub loader: SealedFile,
     /// Present from the start for a conversion; bound in TWRP when an edit
@@ -234,6 +238,7 @@ impl RunState {
                 target: firmware.region,
                 rollback_mode,
             },
+            Some(firmware.device),
             &firmware.loader,
             Some(FirmwareBinding::new(firmware)?),
             options,
@@ -241,10 +246,12 @@ impl RunState {
         )
     }
 
-    /// A DeviceInfo edit: only the EDL loader is known before TWRP.
-    pub fn edit(loader: &Path, backup_dir: &Path) -> Result<Self, String> {
+    /// A DeviceInfo edit: only the EDL loader, and the device when ADB
+    /// reported it, are known before TWRP.
+    pub fn edit(device: Option<Device>, loader: &Path, backup_dir: &Path) -> Result<Self, String> {
         Self::build(
             Request::Edit,
+            device,
             loader,
             None,
             FlashOptions::new(None)?,
@@ -254,6 +261,7 @@ impl RunState {
 
     fn build(
         request: Request,
+        device: Option<Device>,
         loader: &Path,
         firmware: Option<FirmwareBinding>,
         options: FlashOptions,
@@ -269,6 +277,7 @@ impl RunState {
             ),
             stage: Stage::S1,
             request,
+            device,
             loader: seal_file(loader)?,
             firmware,
             options,
@@ -286,6 +295,12 @@ impl RunState {
         &self.loader.path
     }
 
+    /// The device of this run, bound with the backup at S3 at the latest.
+    pub fn device(&self) -> Result<Device, String> {
+        self.device
+            .ok_or_else(|| "저장된 작업에 기기 정보가 없습니다.".into())
+    }
+
     pub fn bind_backup(&mut self, backup: &VerifiedBackup) -> Result<(), String> {
         if self.backup_dir
             != backup
@@ -295,6 +310,10 @@ impl RunState {
         {
             return Err("백업과 실행 설정이 다릅니다.".into());
         }
+        if self.device.is_some_and(|device| device != backup.device()) {
+            return Err("백업의 기기가 작업의 기기와 다릅니다.".into());
+        }
+        self.device = Some(backup.device());
         self.backup_sha256 =
             Some(backup::hash_file(&backup.path().join(backup::MANIFEST_NAME), None)?.1);
         self.slot = Some(backup.manifest().slot);
@@ -316,6 +335,8 @@ impl RunState {
             || self.backup_sha256.as_deref()
                 != Some(&backup::hash_file(&backup.path().join(backup::MANIFEST_NAME), None)?.1)
             || self.slot != Some(backup.manifest().slot)
+            || self.device != Some(backup.device())
+            || firmware.is_some_and(|firmware| self.device != Some(firmware.device))
         {
             return Err("저장된 상태·백업이 일치하지 않습니다.".into());
         }

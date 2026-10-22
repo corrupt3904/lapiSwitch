@@ -266,7 +266,11 @@ pub fn recovery_name(slot: crate::slot::Slot) -> String {
 
 /// Reconstruct the exact durable plan from the original and the recorded
 /// target/mode. Its hash must match the intent saved before the only write.
-fn saved_plan(dir: &Path, record: &Attempt) -> Result<(Vec<u8>, Vec<u8>), String> {
+fn saved_plan(
+    layout: map::Layout,
+    dir: &Path,
+    record: &Attempt,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
     let original = dir.join("before_shared_1.bin");
     if backup::hash_file(&original, None)?
         != (deviceinfo::SHARED_SIZE as u64, record.before_sha256.clone())
@@ -274,7 +278,7 @@ fn saved_plan(dir: &Path, record: &Attempt) -> Result<(Vec<u8>, Vec<u8>), String
         return Err("DeviceInfo 원본 백업이 변경되었습니다.".into());
     }
     let before = std::fs::read(original).map_err(|e| e.to_string())?;
-    let planned = map::apply(deviceinfo::layout(), &before, &record.edits)?;
+    let planned = map::apply(layout, &before, &record.edits)?;
     if backup::digest_bytes(&planned) != record.planned_sha256 {
         return Err("DeviceInfo 변경 계획이 저장된 쓰기 의도와 다릅니다.".into());
     }
@@ -289,7 +293,7 @@ fn verify_evidence(backup: &VerifiedBackup, state: &RunState) -> Result<(), Stri
         .as_ref()
         .ok_or("DeviceInfo 검증 증거가 없습니다.")?;
     let dir = attempt_dir(backup, &record.directory)?;
-    let (before, planned) = saved_plan(&dir, record)?;
+    let (before, planned) = saved_plan(backup.device().layout(), &dir, record)?;
     let final_read = dir.join("after_independent.bin");
     if backup::hash_file(&final_read, None)?
         != (
@@ -300,7 +304,7 @@ fn verify_evidence(backup: &VerifiedBackup, state: &RunState) -> Result<(), Stri
         return Err("DeviceInfo 최종 재읽기 검증 증거가 변경되었습니다.".into());
     }
     let after = std::fs::read(final_read).map_err(|e| e.to_string())?;
-    map::check_plan(deviceinfo::layout(), &before, &after)?;
+    map::check_plan(backup.device().layout(), &before, &after)?;
     deviceinfo::verify(&planned, &after, &after)
 }
 
@@ -330,9 +334,9 @@ fn validate_staged(
         return Err("TWRP 재부팅 전 GPT가 준비 완료 상태와 다릅니다.".into());
     }
     let rec = part(backup, &recovery_name(backup.manifest().slot), 4)?
-        .prefix(crate::recovery_asset::size())?;
+        .prefix(crate::recovery_asset::size(backup.device()))?;
     data(device, &rec, &work.path().join("recovery.img"), log)?;
-    crate::recovery_asset::verify(&work.path().join("recovery.img"))?;
+    crate::recovery_asset::verify(backup.device(), &work.path().join("recovery.img"))?;
     let misc = part(backup, "misc", 0)?;
     let expected = deviceinfo::recovery_misc(&original_bytes(backup, "misc.img")?)?;
     if data(device, &misc, &work.path().join("misc.img"), log)? != expected {
@@ -359,7 +363,7 @@ pub fn stage(
     log: &mut Vec<String>,
 ) -> Result<(), String> {
     backup.verify()?;
-    crate::recovery_asset::verify(twrp)?;
+    crate::recovery_asset::verify(backup.device(), twrp)?;
     if state.recovery.phase != Phase::BackedUp
         || backup.transaction_stage()? != TransactionStage::BackupVerified
     {
@@ -372,7 +376,7 @@ pub fn stage(
     let gpt = storage::validate_gpt(&original)?;
     let geometry = storage::primary_geometry(&original)?;
     let rec = part(backup, &recovery_name(backup.manifest().slot), 4)?;
-    rec.prefix(crate::recovery_asset::size())?;
+    rec.prefix(crate::recovery_asset::size(backup.device()))?;
     let misc = part(backup, "misc", 0)?;
     let original_misc = original_bytes(backup, "misc.img")?;
     let modified_misc = deviceinfo::recovery_misc(&original_misc)?;
@@ -401,7 +405,7 @@ pub fn stage(
     }
     let twrp_copy = work.path().join("twrp.img");
     std::fs::copy(twrp, &twrp_copy).map_err(|e| e.to_string())?;
-    crate::recovery_asset::verify(&twrp_copy)?;
+    crate::recovery_asset::verify(backup.device(), &twrp_copy)?;
     // Re-read all originals immediately before the first write.
     for (p, name) in [
         (&geometry, "gpt_main4.bin"),
@@ -568,13 +572,16 @@ fn validate_restore_device(
     let mut matched = false;
     for name in ["vbmeta_system_a", "vbmeta_system_b"] {
         if let Some(avb) = device.read_avb(name, log)? {
-            matched |= avb.build_fingerprint().is_some_and(|fp| {
-                ltbox_core::model::fingerprint_model_match(&fp, crate::device::model())
-            });
+            matched |= avb
+                .build_fingerprint()
+                .is_some_and(|fp| crate::device::Device::identify(&fp) == Some(backup.device()));
         }
     }
     if !matched {
-        return Err("원복할 기기가 TB520FU로 확인되지 않았습니다.".into());
+        return Err(format!(
+            "원복할 기기가 백업의 기기({})로 확인되지 않았습니다.",
+            backup.device()
+        ));
     }
     let rec = part(backup, &recovery_name(backup.manifest().slot), 4)?;
     let live_gpt = data(device, &geometry, &work.join("current_gpt.bin"), log)?;
@@ -630,7 +637,7 @@ fn choose_edits(
     ui: &mut impl Ui,
     log: &mut Vec<String>,
 ) -> Result<Option<map::Edits>, String> {
-    let layout = deviceinfo::layout();
+    let layout = state.device()?.layout();
     match state.request {
         Request::Convert {
             target,
@@ -640,6 +647,7 @@ fn choose_edits(
                 return Err("변환 대상 리전의 펌웨어가 없습니다.".into());
             }
             Ok(Some(deviceinfo::conversion_edits(
+                layout,
                 before,
                 target,
                 rollback_mode,
@@ -670,6 +678,13 @@ fn choose_edits(
                 })?;
                 let checked = crate::firmware::check_firmware(&dir, target)
                     .map_err(|error| error.to_string())?;
+                if checked.device != state.device()? {
+                    return Err(format!(
+                        "선택한 펌웨어는 {}용입니다. {}의 공식 펌웨어를 선택하세요.",
+                        checked.device,
+                        state.device()?
+                    ));
+                }
                 live!(
                     log,
                     "리전 변경 {} → {}: 펌웨어를 설치하고 사용자 데이터를 초기화합니다.",
@@ -687,6 +702,7 @@ fn choose_edits(
 /// A firmware below the planned rollback indices would not boot. The stored
 /// values decide; the user may reset all 32 or cancel and restore.
 fn check_planned_rollback(
+    layout: map::Layout,
     before: &[u8],
     edits: map::Edits,
     firmware: &FirmwareReport,
@@ -694,8 +710,8 @@ fn check_planned_rollback(
     ui: &mut impl Ui,
     log: &mut Vec<String>,
 ) -> Result<Option<map::Edits>, String> {
-    let planned = map::apply(deviceinfo::layout(), before, &edits)?;
-    let stored = deviceinfo::indices(&planned);
+    let planned = map::apply(layout, before, &edits)?;
+    let stored = deviceinfo::indices(layout, &planned);
     let device = RollbackIndices {
         boot: stored[3],
         vbmeta_system: stored[2],
@@ -723,13 +739,15 @@ fn check_planned_rollback(
         "{ROLLBACK_LOWER_MESSAGE} 사용자 확인 후 32개 롤백인덱스를 0으로 초기화했습니다. {details}"
     ));
     live!(log, "사용자가 롤백인덱스 0 초기화 후 계속을 선택했습니다.");
-    Ok(Some(deviceinfo::with_rollback_reset(before, &edits)?))
+    Ok(Some(deviceinfo::with_rollback_reset(
+        layout, before, &edits,
+    )?))
 }
 
 /// Field changes for the log. Long opaque values (keys, device caches) are
 /// named but never printed.
-fn log_changes(before: &[u8], planned: &[u8], log: &mut Vec<String>) {
-    let changes = map::diff(deviceinfo::layout(), before, planned);
+fn log_changes(layout: map::Layout, before: &[u8], planned: &[u8], log: &mut Vec<String>) {
+    let changes = map::diff(layout, before, planned);
     live!(
         log,
         "DeviceInfo 변경 필드 {}개. 나머지 바이트는 보존합니다.",
@@ -779,7 +797,7 @@ pub fn transact(
             .clone()
             .ok_or("DeviceInfo 의도 기록 없음")?;
         let dir = attempt_dir(backup, &record.directory)?;
-        let (before, planned) = saved_plan(&dir, &record)?;
+        let (before, planned) = saved_plan(backup.device().layout(), &dir, &record)?;
         let verify = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
         let a = device.read(&verify.path().join("resume_1"), log)?;
         let b = device.read(&verify.path().join("resume_2"), log)?;
@@ -820,7 +838,8 @@ pub fn transact(
     // Preserve the very first read immediately, even if a later check fails.
     let scratch = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
     let before = device.read(&scratch.path().join("read1"), log)?;
-    deviceinfo::layout().check_buffer(&before)?;
+    let layout = backup.device().layout();
+    layout.check_buffer(&before)?;
     let original = attempt.join("before_shared_1.bin");
     if original.try_exists().map_err(|e| e.to_string())? {
         // A retry after a failed read must keep the very first original.
@@ -843,24 +862,26 @@ pub fn transact(
     }
     // A plan recorded before an unapplied write is reused as chosen.
     let edits = if let Some(record) = state.recovery.attempt.clone() {
-        saved_plan(&attempt, &record)?;
+        saved_plan(layout, &attempt, &record)?;
         record.edits
     } else {
         let Some(edits) = choose_edits(&before, state, firmware, ui, log)? else {
             return Ok(Outcome::Cancelled);
         };
         let edits = match firmware.as_ref() {
-            Some(chosen) => match check_planned_rollback(&before, edits, chosen, state, ui, log)? {
-                Some(edits) => edits,
-                None => return Ok(Outcome::Cancelled),
-            },
+            Some(chosen) => {
+                match check_planned_rollback(layout, &before, edits, chosen, state, ui, log)? {
+                    Some(edits) => edits,
+                    None => return Ok(Outcome::Cancelled),
+                }
+            }
             None => edits,
         };
         stopped(ui)?;
         edits
     };
-    let planned = map::apply(deviceinfo::layout(), &before, &edits)?;
-    log_changes(&before, &planned, log);
+    let planned = map::apply(layout, &before, &edits)?;
+    log_changes(layout, &before, &planned, log);
     state.recovery.attempt = Some(Attempt {
         directory: attempt
             .file_name()
@@ -869,7 +890,7 @@ pub fn transact(
             .into(),
         before_sha256: backup::digest_bytes(&before),
         planned_sha256: backup::digest_bytes(&planned),
-        original_region: deviceinfo::layout().region(&before),
+        original_region: layout.region(&before),
         edits,
     });
     if backup::hash_file(&attempt.join("before_shared_1.bin"), None)?
@@ -1170,9 +1191,14 @@ pub fn finish(
     );
     workflow::restore_gpt_if_needed(device, backup, work.path(), log)?;
     if let Some(code) = &state.options.country {
-        state
-            .warnings
-            .extend(workflow::country_change(device, code, work.path(), log));
+        match backup.device().country() {
+            lapiswitch_devices::Country::DevinfoPersist => state
+                .warnings
+                .extend(workflow::country_change(device, code, work.path(), log)),
+            lapiswitch_devices::Country::Oemowninfo(field) => {
+                workflow::change_partition_country(device, backup, &field, code, work.path(), log)?
+            }
+        }
     }
     device.set_active_a(log)?;
     checkpoint(state, store, Phase::FinalReboot)?;

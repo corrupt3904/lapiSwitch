@@ -8,13 +8,10 @@
 use std::path::{Path, PathBuf};
 
 use crate::avb_info::{self, KeyClass};
+use crate::device::Device;
 use crate::region::Region;
 use crate::rollback::RollbackIndices;
-
-/// The EDL programmer named in `devices/<MODEL>/device.toml`.
-fn loader_name() -> &'static str {
-    crate::device::flow().firmware.loader
-}
+use lapiswitch_devices::RegionMarker;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FirmwareError {
@@ -76,6 +73,8 @@ pub struct MissingImage {
 /// Everything S0 established about a valid firmware folder.
 #[derive(Debug, Clone)]
 pub struct FirmwareReport {
+    /// The supported device the package's vbmeta_system fingerprint names.
+    pub device: Device,
     pub image_dir: PathBuf,
     pub loader: PathBuf,
     pub region: Region,
@@ -96,23 +95,25 @@ pub struct FirmwareReport {
 /// place first, exactly as LTBox does; nothing else is written.
 pub fn check_firmware(folder: &Path, target: Region) -> Result<FirmwareReport, FirmwareError> {
     let dir = resolve_image_dir(folder)?;
-    let loader = find_loader(&dir)
-        .ok_or_else(|| FirmwareError::LoaderMissing(loader_name(), dir.display().to_string()))?;
     if let Some(zst) = find_zst(&dir, 0)? {
         return Err(FirmwareError::CompressedImage(zst.display().to_string()));
     }
-    for name in crate::device::flow().firmware.required_images {
-        if !dir.join(name).is_file() {
-            return Err(FirmwareError::ImageMissing(name.to_string()));
-        }
+    if !dir.join("vbmeta_system.img").is_file() {
+        return Err(FirmwareError::ImageMissing("vbmeta_system.img".into()));
     }
-
+    // The package names its device; that device's rules apply from here.
     let vbs = avb_info::read_avb(&dir.join("vbmeta_system.img"))?;
     let fingerprint = vbs
         .build_fingerprint()
         .ok_or(FirmwareError::NoFingerprint)?;
-    if !ltbox_core::model::fingerprint_model_match(&fingerprint, crate::device::model()) {
-        return Err(FirmwareError::WrongModel(fingerprint));
+    let device = Device::identify(&fingerprint)
+        .ok_or_else(|| FirmwareError::WrongModel(fingerprint.clone()))?;
+    let loader = find_loader(&dir, device.loader())
+        .ok_or_else(|| FirmwareError::LoaderMissing(device.loader(), dir.display().to_string()))?;
+    for name in device.required_images() {
+        if !dir.join(name).is_file() {
+            return Err(FirmwareError::ImageMissing(name.to_string()));
+        }
     }
     let key_class = vbs.key_class();
     if key_class == KeyClass::Unknown {
@@ -127,12 +128,17 @@ pub fn check_firmware(folder: &Path, target: Region) -> Result<FirmwareReport, F
     };
 
     let vendor_boot = std::fs::read(dir.join("vendor_boot.img")).map_err(io_error(&dir))?;
-    let firmware_region = match detect_vendor_boot_region(&vendor_boot) {
-        VendorBootRegion::Prc => Region::Prc,
-        VendorBootRegion::Row => Region::Row,
-        other => return Err(FirmwareError::RegionUndetermined(other)),
+    let firmware_region = match device.region_marker() {
+        RegionMarker::RegionCountry => match detect_vendor_boot_region(&vendor_boot) {
+            VendorBootRegion::Prc => Region::Prc,
+            VendorBootRegion::Row => Region::Row,
+            other => return Err(FirmwareError::RegionUndetermined(other)),
+        },
+        marker => crate::vendor_boot::region(marker, &vendor_boot)
+            .map_err(|_| FirmwareError::RegionUndetermined(VendorBootRegion::Unknown))?,
     };
-    if let Some(fingerprint_region) = fingerprint_region(&fingerprint)
+    if let Some(fingerprint_region) =
+        crate::device_version::fingerprint_region(device, &fingerprint)
         && fingerprint_region != firmware_region
     {
         return Err(FirmwareError::RegionMismatch {
@@ -166,6 +172,7 @@ pub fn check_firmware(folder: &Path, target: Region) -> Result<FirmwareReport, F
     }
 
     Ok(FirmwareReport {
+        device,
         image_dir: dir,
         loader,
         region: firmware_region,
@@ -226,11 +233,11 @@ fn has_rawprogram_pack(dir: &Path) -> Result<bool, FirmwareError> {
 
 /// LTBox `find_firmware_loader`: the Sahara manifest wins over the single
 /// `.melf`; look in the image folder, then its parent.
-pub fn find_loader(dir: &Path) -> Option<PathBuf> {
-    find_loader_in(dir).or_else(|| dir.parent().and_then(find_loader_in))
+pub fn find_loader(dir: &Path, name: &str) -> Option<PathBuf> {
+    find_loader_in(dir, name).or_else(|| dir.parent().and_then(|p| find_loader_in(p, name)))
 }
 
-fn find_loader_in(dir: &Path) -> Option<PathBuf> {
+fn find_loader_in(dir: &Path, name: &str) -> Option<PathBuf> {
     let entries: Vec<PathBuf> = std::fs::read_dir(dir)
         .ok()?
         .flatten()
@@ -249,7 +256,7 @@ fn find_loader_in(dir: &Path) -> Option<PathBuf> {
     }
     entries.into_iter().find(|p| {
         p.file_name()
-            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(loader_name()))
+            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name))
     })
 }
 
@@ -326,19 +333,6 @@ pub fn detect_vendor_boot_region(data: &[u8]) -> VendorBootRegion {
         (false, true) => VendorBootRegion::Row,
         (true, true) => VendorBootRegion::Mixed,
         (false, false) => VendorBootRegion::Unknown,
-    }
-}
-
-/// `PRC` / `ROW` as a whole token of the fingerprint (e.g.
-/// `…/ZUXOS_1.5.10.186_260408_PRC:user/…`); `None` when absent or both.
-pub fn fingerprint_region(fingerprint: &str) -> Option<Region> {
-    let tokens: Vec<&str> = fingerprint
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .collect();
-    match (tokens.contains(&"PRC"), tokens.contains(&"ROW")) {
-        (true, false) => Some(Region::Prc),
-        (false, true) => Some(Region::Row),
-        _ => None,
     }
 }
 
@@ -442,16 +436,6 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_region_is_a_whole_token() {
-        let prc = "qti/TB520FU/TB520FU:16/BQ2A/ZUXOS_1.5.10.186_260408_PRC:user/release-keys";
-        let row = "qti/TB520FU/TB520FU:16/BQ2A/ZUI_17.5.10.309_260528_ROW:user/release-keys";
-        assert_eq!(fingerprint_region(prc), Some(Region::Prc));
-        assert_eq!(fingerprint_region(row), Some(Region::Row));
-        assert_eq!(fingerprint_region("a/PRCX/ROWS:user"), None);
-        assert_eq!(fingerprint_region("a_PRC_ROW"), None);
-    }
-
-    #[test]
     fn excluded_variants_are_caught_in_any_case() {
         for name in [
             "rawprogram4_BLANK_GPT.xml",
@@ -483,11 +467,12 @@ mod tests {
         let root = temp_dir();
         let image = root.path().join("image");
         std::fs::create_dir(&image).unwrap();
-        assert_eq!(find_loader(&image), None);
+        let name = crate::device::tb520fu().loader();
+        assert_eq!(find_loader(&image, name), None);
         std::fs::write(root.path().join("XBL_S_DEVPRG_NS.melf"), b"").unwrap();
-        assert!(find_loader(&image).is_some());
-        std::fs::write(image.join(loader_name()), b"").unwrap();
-        assert_eq!(find_loader(&image), Some(image.join(loader_name())));
+        assert!(find_loader(&image, name).is_some());
+        std::fs::write(image.join(name), b"").unwrap();
+        assert_eq!(find_loader(&image, name), Some(image.join(name)));
     }
 
     #[test]

@@ -11,21 +11,27 @@ flow = true
 [firmware]
 loader = "xbl_s_devprg_ns.melf"
 required_images = ["vbmeta_system.img", "vendor_boot.img", "boot.img", "vbmeta.img"]
+# vendor_boot DTB에서 펌웨어 리전을 읽는 위치: region_country 또는 product_region/build_region
+region_marker = "region_country"
 
 # 현재 기기에 설치된 펌웨어의 허용 범위 (flow = true일 때 필수).
+# scheme: zui_version (예: ZUI_18.5.10.037_260408_ROW) 또는 build_date (예: 10.028.260924C)
 # region과 family가 맞는 항목만 허용하고, max가 있으면 그 버전 이하만 허용합니다.
-[[installed_firmware]]
+[installed]
+scheme = "zui_version"
+
+[[installed.allow]]
 region = "PRC"
 family = "ZUXOS"
 max = "1.5.10.186"
 label = "ZUXOS_1.5.10.186"
 
 # 이전 PRC ZUI 계열은 버전 제한 없이 허용합니다.
-[[installed_firmware]]
+[[installed.allow]]
 region = "PRC"
 family = "ZUI"
 
-[[installed_firmware]]
+[[installed.allow]]
 region = "ROW"
 family = "ZUI"
 max = "18.5.10.37"
@@ -38,3 +44,7 @@ name = "TWRP-3.7.1_16-lapis-20261014-landscape.img"
 size = 104857600
 sha256 = "310ff2ecfc4c52060f9b6a0ad6f6e466a63a36d8ae87bc39f0c5408d2dcf24a4"
 url = "https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/download/v3.7.1_16-20261014/TWRP-3.7.1_16-lapis-20261014-landscape.img"
+
+# 국가코드 변경 방식: devinfo_persist (devinfo·persist 패치) 또는 oemowninfo (파티션의 고정 필드)
+[country]
+method = "devinfo_persist"

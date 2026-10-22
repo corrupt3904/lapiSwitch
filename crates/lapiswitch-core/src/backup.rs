@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::device::Device;
 use crate::prepare::{Connection, PrepareReport};
 use crate::slot::Slot;
 use crate::storage::{self, Partition};
@@ -220,12 +221,13 @@ pub struct BackupBuilder {
 }
 
 impl BackupBuilder {
-    pub fn create(output_root: &Path) -> Result<Self, String> {
+    /// `device` names the folder; an edit started in EDL learns it later.
+    pub fn create(output_root: &Path, device: Option<Device>) -> Result<Self, String> {
         let parent = output_root.join("backup").join("region_change");
         std::fs::create_dir_all(&parent).map_err(|error| error.to_string())?;
         let stem = format!(
             "{}_{}",
-            crate::device::model(),
+            device.map_or("EDL", Device::model),
             chrono::Local::now().format("%Y-%m-%d_%H%M%S")
         );
         for attempt in 1..u32::MAX {
@@ -321,7 +323,7 @@ impl BackupBuilder {
         let manifest = BackupManifest {
             version: MANIFEST_VERSION,
             operation: MANIFEST_OPERATION.into(),
-            model: crate::device::model().into(),
+            model: prepared.device.model().into(),
             fingerprint,
             recorded_at: chrono::Local::now().to_rfc3339(),
             slot: prepared.slot,
@@ -371,6 +373,10 @@ impl VerifiedBackup {
     pub fn manifest(&self) -> &BackupManifest {
         &self.manifest
     }
+    /// The supported device that made this backup; `open` checked it exists.
+    pub fn device(&self) -> Device {
+        Device::find(&self.manifest.model).expect("verified on open")
+    }
 
     /// Resolve only a recorded basename: the identity record sits beside the
     /// manifest and every .img/.bin original in Partition. Never guess.
@@ -391,7 +397,7 @@ impl VerifiedBackup {
         let manifest = &self.manifest;
         if manifest.version != MANIFEST_VERSION
             || manifest.operation != MANIFEST_OPERATION
-            || manifest.model != crate::device::model()
+            || Device::find(&manifest.model).is_none()
         {
             return Err(
                 "지원하지 않는 백업 형식 또는 모델입니다. 이 버전에서 만든 백업만 사용할 수 있습니다."
@@ -417,6 +423,12 @@ impl VerifiedBackup {
         }
         if !manifest.started_in_edl {
             required.insert(IDENTITY_NAME.into());
+        }
+        // A device whose country code lives in a dedicated partition keeps it.
+        if let Some(device) = Device::find(&manifest.model)
+            && let lapiswitch_devices::Country::Oemowninfo(field) = device.country()
+        {
+            required.insert(format!("{}.img", field.partition));
         }
         let mut seen = HashSet::new();
         for entry in &manifest.files {

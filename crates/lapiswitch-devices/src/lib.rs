@@ -51,19 +51,56 @@ pub enum RegionCode {
     Row,
 }
 
-/// One accepted family of the firmware installed on the device.
+/// How the installed firmware's version and region are read from the
+/// incremental of its build fingerprint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InstalledFirmware {
-    pub region: RegionCode,
-    pub family: &'static str,
-    /// Highest accepted version and its display label; `None` accepts all.
-    pub max: Option<([u32; 4], &'static str)>,
+pub enum VersionScheme {
+    /// `ZUI_18.5.10.037_260408_ROW`: family, four-part version, region token.
+    ZuiVersion,
+    /// `10.028.260924C`: build date `YYMMDD` and a region suffix letter.
+    BuildDate,
+}
+
+/// One accepted kind of installed firmware and its optional ceiling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstalledFirmware {
+    Version {
+        region: RegionCode,
+        family: &'static str,
+        /// Highest accepted version and its label; `None` accepts all.
+        max: Option<([u32; 4], &'static str)>,
+    },
+    BuildDate {
+        region: RegionCode,
+        /// Last letter of the incremental, e.g. `C` (PRC) or `W` (ROW).
+        suffix: char,
+        /// Latest accepted build date (`YYYYMMDD`) and its label.
+        max: Option<(u32, &'static str)>,
+    },
+}
+
+impl InstalledFirmware {
+    pub fn region(&self) -> RegionCode {
+        match self {
+            Self::Version { region, .. } | Self::BuildDate { region, .. } => *region,
+        }
+    }
+}
+
+/// Where the firmware package's vendor_boot DTB names its region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegionMarker {
+    /// `region_country` property of the root node.
+    RegionCountry,
+    /// `build_region` property of the `product_region` node.
+    ProductRegionBuildRegion,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FirmwarePackage {
     pub loader: &'static str,
     pub required_images: &'static [&'static str],
+    pub region_marker: RegionMarker,
 }
 
 /// A pinned TWRP release, verified by size and SHA-256 on every use.
@@ -76,12 +113,33 @@ pub struct Twrp {
     pub url: &'static str,
 }
 
+/// A fixed country-code field inside a dedicated partition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OemOwnInfo {
+    pub partition: &'static str,
+    pub lun: u8,
+    pub size: usize,
+    pub offset: usize,
+    pub field_size: usize,
+}
+
+/// How the country code is changed after firmware installation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Country {
+    /// devinfo and persist patching (LTBox).
+    DevinfoPersist,
+    /// One field of a partition, which is also backed up before any write.
+    Oemowninfo(OemOwnInfo),
+}
+
 /// What the backup/TWRP/DeviceInfo/restore flow needs for a device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Flow {
     pub firmware: FirmwarePackage,
+    pub version_scheme: VersionScheme,
     pub installed_firmware: &'static [InstalledFirmware],
     pub twrp: Twrp,
+    pub country: Country,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,16 +148,9 @@ pub struct Device {
     pub codename: Option<&'static str>,
     /// `None`: only the DeviceInfo map is defined.
     pub flow: Option<Flow>,
+    /// `devices/<MODEL>/image.png`, shown on the Dashboard.
+    pub image: Option<&'static [u8]>,
     pub deviceinfo: DeviceInfoMap,
-}
-
-impl Device {
-    /// The flow data; only devices returned by [`flow_device`] are used here.
-    pub fn flow(&self) -> &Flow {
-        self.flow
-            .as_ref()
-            .expect("the build guarantees flow data for the flow device")
-    }
 }
 
 include!(concat!(env!("OUT_DIR"), "/devices.rs"));
@@ -111,12 +162,9 @@ pub fn find(model: &str) -> Option<&'static Device> {
         .find(|device| device.model.eq_ignore_ascii_case(model.trim()))
 }
 
-/// The device the workflow runs for. The build allows exactly one.
-pub fn flow_device() -> &'static Device {
-    DEVICES
-        .iter()
-        .find(|device| device.flow.is_some())
-        .expect("the build guarantees one flow device")
+/// Devices the workflow runs for (`flow = true`).
+pub fn flow_devices() -> impl Iterator<Item = &'static Device> {
+    DEVICES.iter().filter(|device| device.flow.is_some())
 }
 
 #[cfg(test)]
@@ -144,13 +192,22 @@ mod tests {
     }
 
     #[test]
-    fn exactly_the_flow_device_has_workflow_data() {
-        assert_eq!(DEVICES.iter().filter(|d| d.flow.is_some()).count(), 1);
-        let device = flow_device();
-        assert_eq!(device.model, "TB520FU");
-        assert_eq!(find("tb520fu"), Some(device));
-        assert_eq!(device.flow().twrp.sha256.len(), 64);
-        assert!(find("TB522FU").is_some_and(|d| d.flow.is_none()));
+    fn both_tablets_run_the_workflow_with_their_own_methods() {
+        let models: Vec<_> = flow_devices().map(|d| d.model).collect();
+        assert_eq!(models, ["TB520FU", "TB522FU"]);
+        let lapis = find("tb520fu").unwrap().flow.unwrap();
+        let mojito = find("TB522FU").unwrap().flow.unwrap();
+        assert_eq!(lapis.version_scheme, VersionScheme::ZuiVersion);
+        assert_eq!(mojito.version_scheme, VersionScheme::BuildDate);
+        assert_eq!(lapis.firmware.region_marker, RegionMarker::RegionCountry);
+        assert_eq!(
+            mojito.firmware.region_marker,
+            RegionMarker::ProductRegionBuildRegion
+        );
+        assert_eq!(lapis.country, Country::DevinfoPersist);
+        assert!(matches!(mojito.country, Country::Oemowninfo(o) if o.offset == 0xE4));
+        assert_ne!(lapis.twrp.sha256, mojito.twrp.sha256);
+        assert!(find("TB520FU").unwrap().image.is_some());
         assert!(find("TB999FU").is_none());
     }
 }

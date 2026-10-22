@@ -119,6 +119,7 @@ mod memory_device;
 use lapiswitch_core::{
     avb_info::AvbSummary,
     backup::{BackupBuilder, TransactionStage, VerifiedBackup},
+    device::Device,
     deviceinfo::{self, RollbackMode, map},
     firmware::FirmwareReport,
     recovery_flow::{self, DeviceInfoIo, EditRequest, Outcome, Phase, Transition},
@@ -150,7 +151,6 @@ impl recovery_flow::Ui for Ui {
         layout: map::Layout,
         before: &[u8],
     ) -> Result<Option<EditRequest>, String> {
-        assert_eq!(layout, deviceinfo::layout());
         layout.check_buffer(before)?;
         self.edits_shown += 1;
         Ok(self.edit.clone())
@@ -174,13 +174,21 @@ impl recovery_flow::Ui for Ui {
     }
 }
 fn sample(r: lapiswitch_core::region::Region) -> Vec<u8> {
+    sample_for(tb520fu(), r)
+}
+/// Synthetic DeviceInfo shaped like `device`'s map.
+fn sample_for(device: Device, r: lapiswitch_core::region::Region) -> Vec<u8> {
+    let at = device.layout().region_offset();
     let mut b = vec![0x5A; deviceinfo::SHARED_SIZE];
     b[..13].copy_from_slice(b"ANDROID-BOOT!");
     b[0xCC8..0xCD0].copy_from_slice(b"deadbeef");
-    b[0xD20..0xD28].copy_from_slice(b"beefdead");
-    b[0xD10..0xD20].fill(0);
-    b[0xD10..0xD13].copy_from_slice(r.token().as_bytes());
+    b[at..at + 0x10].fill(0);
+    b[at..at + 3].copy_from_slice(r.token().as_bytes());
+    b[at + 0x10..at + 0x18].copy_from_slice(b"beefdead");
     b
+}
+fn tb522fu() -> Device {
+    Device::find("TB522FU").unwrap()
 }
 fn mode(state: &RunState) -> RollbackMode {
     match state.request {
@@ -189,6 +197,7 @@ fn mode(state: &RunState) -> RollbackMode {
     }
 }
 struct Info {
+    layout: map::Layout,
     bytes: Vec<u8>,
     writes: usize,
     reads: usize,
@@ -239,7 +248,7 @@ impl DeviceInfoIo for Info {
         // No durable write intent may exist while transfers can still fail.
         assert_eq!(self.phase(), Phase::Planned);
         assert_eq!(before, self.bytes);
-        map::check_plan(deviceinfo::layout(), before, planned)?;
+        map::check_plan(self.layout, before, planned)?;
         if self.fail_prepare {
             return Err("push/dry-run failed".into());
         }
@@ -278,7 +287,7 @@ impl DeviceInfoIo for Info {
         );
         assert_eq!(before, self.bytes);
         let p = planned.to_vec();
-        map::check_plan(deviceinfo::layout(), &self.bytes, &p)?;
+        map::check_plan(self.layout, &self.bytes, &p)?;
         if self.fail_before_write {
             self.fail_reads = self.lose_usb_on_write;
             return Err("DeviceInfo helper가 쓰기 요청 전에 종료했습니다 (exit 1).".into());
@@ -332,6 +341,13 @@ impl Setup {
         Self::build(slot, None, false)
     }
     fn build(slot: Slot, mode: Option<RollbackMode>, large: bool) -> Self {
+        Self::build_for(tb520fu(), slot, mode, large)
+    }
+    /// A DeviceInfo edit on another supported device.
+    fn edit_for(device: Device, slot: Slot) -> Self {
+        Self::build_for(device, slot, None, false)
+    }
+    fn build_for(device: Device, slot: Slot, mode: Option<RollbackMode>, large: bool) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let fwdir = dir.path().join("firmware");
         std::fs::create_dir(&fwdir).unwrap();
@@ -381,28 +397,59 @@ impl Setup {
             refresh_header(&mut disk.original_gpt);
         }
         disk.disk[4][..disk.original_gpt.len()].copy_from_slice(&disk.original_gpt);
-        let builder = BackupBuilder::create(dir.path()).unwrap();
+        if device == tb522fu() {
+            // Its country partition (LUN 0, field CNXX at +0xE4, with a LUN 0
+            // GPT naming it) and build-date fingerprints.
+            fw.fingerprint =
+                "qti/TB522FU/TB522FU:17/CQ2A.260712.001/11.055.260904W:user/release-keys".into();
+            disk.disk[0].resize(500 * 4096, 0xA7);
+            let field = 100 * 4096 + 0xE4;
+            disk.disk[0][field..field + 32].fill(0);
+            disk.disk[0][field..field + 4].copy_from_slice(b"CNXX");
+            disk.snapshot.push(part("oemowninfo", 0, 100, 256));
+            let lun0: Vec<_> = disk
+                .snapshot
+                .iter()
+                .filter(|p| p.lun == 0)
+                .cloned()
+                .map(|mut p| {
+                    p.lun = 4;
+                    p
+                })
+                .collect();
+            let gpt0 = gpt(&lun0);
+            disk.disk[0][..gpt0.len()].copy_from_slice(&gpt0);
+            for s in ["a", "b"] {
+                disk.fingerprints.insert(
+                    format!("vbmeta_system_{s}"),
+                    "qti/TB522FU/TB522FU:17/CQ2A.260712.001/10.028.260924C:user/release-keys"
+                        .into(),
+                );
+            }
+        }
+        fw.device = device;
+        let builder = BackupBuilder::create(dir.path(), Some(device)).unwrap();
         let mut state = match mode {
             Some(mode) => {
                 RunState::convert(&fw, mode, FlashOptions::new(None).unwrap(), builder.path())
                     .unwrap()
             }
-            None => RunState::edit(&fw.loader, builder.path()).unwrap(),
+            None => RunState::edit(Some(device), &fw.loader, builder.path()).unwrap(),
         };
         let store = StateStore::new(dir.path().join("state.json"));
         store.begin(&state).unwrap();
-        let backup = stage1::take_backup(
-            &mut disk,
-            &prepared(slot, lapiswitch_core::prepare::Connection::Adb),
-            builder,
-            &mut vec![],
-        )
-        .unwrap();
+        let mut report = prepared(slot, lapiswitch_core::prepare::Connection::Adb);
+        report.device = device;
+        report.identity = Some(lapiswitch_core::prepare::identity_record(
+            device, slot, "FAKE0001",
+        ));
+        let backup = stage1::take_backup(&mut disk, &report, builder, &mut vec![]).unwrap();
         state.bind_backup(&backup).unwrap();
         backup.mark(TransactionStage::S4Done).unwrap();
         recovery_flow::checkpoint(&mut state, &store, Phase::RecoveryWaiting).unwrap();
         let info = Info {
-            bytes: sample(lapiswitch_core::region::Region::Prc),
+            layout: device.layout(),
+            bytes: sample_for(device, lapiswitch_core::region::Region::Prc),
             writes: 0,
             reads: 0,
             fail_after_apply: false,
@@ -491,15 +538,19 @@ fn reset_backs_up_before_one_write_and_preserves_all_other_bytes() {
     let before = s.info.bytes.clone();
     s.transact().unwrap();
     assert_eq!(s.info.writes, 1);
-    assert_eq!(deviceinfo::indices(&s.info.bytes), [0; 32]);
+    assert_eq!(
+        deviceinfo::indices(tb520fu().layout(), &s.info.bytes),
+        [0; 32]
+    );
     assert_eq!(s.info.bytes, conversion(&before, &s, RollbackMode::Reset));
     s.transact().unwrap();
     assert_eq!(s.info.writes, 1);
 }
 /// Region and optional rollback reset only; every other byte as read.
 fn conversion(before: &[u8], s: &Setup, mode: RollbackMode) -> Vec<u8> {
-    let edits = deviceinfo::conversion_edits(before, s.firmware.region, mode).unwrap();
-    let planned = map::apply(deviceinfo::layout(), before, &edits).unwrap();
+    let edits =
+        deviceinfo::conversion_edits(tb520fu().layout(), before, s.firmware.region, mode).unwrap();
+    let planned = map::apply(tb520fu().layout(), before, &edits).unwrap();
     for (n, (a, b)) in before.iter().zip(&planned).enumerate() {
         if a != b {
             assert!(
@@ -549,7 +600,10 @@ fn keep_lower_firmware_reset_answer_persists_reset_and_zeroes_all_indices() {
     s.transact().unwrap();
     assert_eq!(s.asked.len(), 1);
     assert_eq!(s.info.writes, 1);
-    assert_eq!(deviceinfo::indices(&s.info.bytes), [0; 32]);
+    assert_eq!(
+        deviceinfo::indices(tb520fu().layout(), &s.info.bytes),
+        [0; 32]
+    );
     assert_eq!(s.info.bytes, conversion(&before, &s, RollbackMode::Reset));
     // The reset is part of the recorded plan; the request keeps its choice.
     let saved = saved_state(&s);
@@ -593,11 +647,14 @@ fn keep_with_equal_or_higher_firmware_never_prompts_and_preserves_indices() {
         // Unrelated locations are not compared, even when far above 20.
         s.info.bytes[0x898..0x998].fill(0x5A);
         store_indices(&mut s.info.bytes, boot, vbmeta_system);
-        let before = deviceinfo::indices(&s.info.bytes);
+        let before = deviceinfo::indices(tb520fu().layout(), &s.info.bytes);
         s.transact().unwrap();
         assert!(s.asked.is_empty(), "{boot}/{vbmeta_system}");
         assert_eq!(s.info.writes, 1);
-        assert_eq!(deviceinfo::indices(&s.info.bytes), before);
+        assert_eq!(
+            deviceinfo::indices(tb520fu().layout(), &s.info.bytes),
+            before
+        );
         assert_eq!(mode(&saved_state(&s)), RollbackMode::Keep);
     }
 }
@@ -618,7 +675,10 @@ fn reset_mode_never_compares_or_prompts() {
     let mut s = Setup::new(Slot::A, RollbackMode::Reset);
     s.transact().unwrap();
     assert!(s.asked.is_empty());
-    assert_eq!(deviceinfo::indices(&s.info.bytes), [0; 32]);
+    assert_eq!(
+        deviceinfo::indices(tb520fu().layout(), &s.info.bytes),
+        [0; 32]
+    );
 }
 #[test]
 fn same_target_keep_is_noop_but_reset_must_clear_existing_indices() {
@@ -817,10 +877,12 @@ impl FinishIo for Finish {
         _: &mut Vec<String>,
     ) -> Result<(), String> {
         assert!(wipe);
+        // Originals come first; a resumed install may follow a country write.
         assert_eq!(
             self.inner
                 .writes
                 .iter()
+                .take(2)
                 .map(|p| p.name.as_str())
                 .collect::<Vec<_>>(),
             [
@@ -1341,7 +1403,7 @@ impl DeviceInfoIo for RestoreInfo {
         let j: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&self.journal).unwrap()).unwrap();
         assert_eq!(j["phase"], "BootRequested");
-        map::check_plan(deviceinfo::layout(), b, p)
+        map::check_plan(tb520fu().layout(), b, p)
     }
     fn apply(
         &mut self,
@@ -1619,7 +1681,7 @@ fn reverse_restore_writes_the_full_original_handles_both_slots_and_blocks_uncert
         );
         assert_eq!(shared.borrow().1, 1);
         assert_eq!(
-            deviceinfo::region(&shared.borrow().0).unwrap(),
+            deviceinfo::region(tb520fu().layout(), &shared.borrow().0).unwrap(),
             lapiswitch_core::region::Region::Prc
         );
         // The complete original, rollback indices included.
@@ -1733,7 +1795,12 @@ fn reverse_proof_resumes_only_partition_restoration_and_corruption_blocks_all_io
             .unwrap();
         let start = vb.start_sector as usize * 4096;
         s.disk.disk[4][start..start + 16384].copy_from_slice(
-            &lapiswitch_core::vendor_boot::patch(&vendor_image(), Region::Row).unwrap(),
+            &lapiswitch_core::vendor_boot::patch(
+                lapiswitch_core::vendor_boot::RegionMarker::RegionCountry,
+                &vendor_image(),
+                Region::Row,
+            )
+            .unwrap(),
         );
         s.backup.mark(TransactionStage::RecoveryRequired).unwrap();
         let mut disk = restore_disk(s.disk, Slot::B);
@@ -1823,7 +1890,7 @@ fn s3_device_version_gate_uses_active_slot_before_partition_backup() {
                 format!("vbmeta_system{}", slot.other().suffix()),
                 "qti/TB520FU/TB520FU:16/BUILD/ZUI_99.0.0.0_260408_ROW:user/release-keys".into(),
             );
-            let builder = BackupBuilder::create(dir.path()).unwrap();
+            let builder = BackupBuilder::create(dir.path(), Some(tb520fu())).unwrap();
             let folder = builder.partition_dir().to_owned();
             let result = stage1::take_backup(
                 &mut d,
@@ -1866,7 +1933,7 @@ fn edl_backups_bind_the_gpt_slot_and_do_not_require_an_adb_identity() {
             gpt[4096 + 88..4096 + 92].copy_from_slice(&crc.to_le_bytes());
             refresh_header(&mut gpt);
             disk.disk[4][..gpt.len()].copy_from_slice(&gpt);
-            let builder = BackupBuilder::create(s._dir.path()).unwrap();
+            let builder = BackupBuilder::create(s._dir.path(), Some(tb520fu())).unwrap();
             let backup = stage1::take_backup(
                 &mut disk,
                 &prepared(slot, lapiswitch_core::prepare::Connection::Edl),
@@ -1991,7 +2058,7 @@ fn s3_system_ext_version_and_custom_rom_consent_are_separate_from_stock_ceiling(
             let ext =
                 format!("qti/TB520FU/TB520FU:17/CQ2A.260712.001/{incremental}:user/release-keys");
             d.system_ext_fingerprints.insert(name, ext.clone());
-            let builder = BackupBuilder::create(dir.path()).unwrap();
+            let builder = BackupBuilder::create(dir.path(), Some(tb520fu())).unwrap();
             let folder = builder.partition_dir().to_owned();
             let mut called = 0;
             let result = stage1::take_backup_with_confirmation(
@@ -2040,9 +2107,9 @@ fn edit_without_region_change_writes_once_binds_no_firmware_and_never_flashes() 
         s.transact().unwrap();
         assert_eq!(s.edits_shown, 1);
         assert_eq!(s.info.writes, 1);
-        assert_eq!(deviceinfo::indices(&s.info.bytes)[5], 7);
+        assert_eq!(deviceinfo::indices(tb520fu().layout(), &s.info.bytes)[5], 7);
         // Only the edited field differs.
-        let field = deviceinfo::layout().field("rollback_index[5]").unwrap();
+        let field = tb520fu().layout().field("rollback_index[5]").unwrap();
         for (n, (a, b)) in before.iter().zip(&s.info.bytes).enumerate() {
             if a != b {
                 assert!(field.range().contains(&n), "{n:#x}");
@@ -2160,7 +2227,10 @@ fn an_edit_interrupted_after_its_plan_resumes_with_the_recorded_values() {
     s.transact().unwrap();
     assert_eq!(s.edits_shown, 1);
     assert_eq!(s.info.writes, 1);
-    assert_eq!(deviceinfo::indices(&s.info.bytes)[1], 0x10);
+    assert_eq!(
+        deviceinfo::indices(tb520fu().layout(), &s.info.bytes)[1],
+        0x10
+    );
 }
 
 #[test]
@@ -2196,4 +2266,172 @@ fn reverse_restore_of_an_edit_targets_the_complete_original() {
         record.before_sha256,
         lapiswitch_core::backup::hash_file(&path, None).unwrap().1
     );
+}
+
+#[test]
+fn a_tb522fu_edit_uses_its_own_map_and_backup() {
+    use lapiswitch_core::region::Region;
+    let device = tb522fu();
+    let layout = device.layout();
+    let mut s = Setup::edit_for(device, Slot::B);
+    assert_eq!(s.backup.device(), device);
+    assert!(s.backup.file_path("oemowninfo.img").is_ok());
+    let before = s.info.bytes.clone();
+    // A TB520FU-only field does not exist here; the TB522FU record version does.
+    s.edit = Some(edit_request(
+        &[("oem_reserved_1", &"00".repeat(0x40))],
+        None,
+    ));
+    assert!(s.transact().unwrap_err().contains("oem_reserved_1"));
+    assert_eq!(s.info.writes, 0);
+    s.edit = Some(edit_request(
+        &[("region_info_version", "1"), ("rollback_index[3]", "20")],
+        None,
+    ));
+    s.transact().unwrap();
+    assert_eq!(s.info.writes, 1);
+    assert_eq!(deviceinfo::indices(layout, &s.info.bytes)[3], 20);
+    assert_eq!(
+        deviceinfo::region(layout, &s.info.bytes).unwrap(),
+        Region::Prc
+    );
+    for (n, (a, b)) in before.iter().zip(&s.info.bytes).enumerate() {
+        if a != b {
+            assert!(
+                (0xCD0..0xCD4).contains(&n) || (0x898 + 24..0x898 + 32).contains(&n),
+                "{n:#x}"
+            );
+        }
+    }
+    assert!(s.state.firmware.is_none());
+    // Its region field sits at 0xCD4; a change still needs TB522FU firmware.
+    let mut s = Setup::edit_for(device, Slot::A);
+    s.edit = Some(edit_request(&[("region", "ROW")], None));
+    assert!(s.transact().unwrap_err().contains("펌웨어 폴더"));
+    assert_eq!(s.info.writes, 0);
+}
+
+fn tb522fu_finish_setup(slot: Slot, country: Option<&str>) -> (Setup, Finish) {
+    let mut s = Setup::build_for(tb522fu(), slot, Some(RollbackMode::Reset), false);
+    s.state.options.country = country.map(str::to_owned);
+    s.transact().unwrap();
+    recovery_flow::checkpoint(&mut s.state, &s.store, Phase::EdlWaiting).unwrap();
+    let inner = std::mem::replace(&mut s.disk, Fake::new(600, true));
+    let d = Finish {
+        edl: EdlScript::default(),
+        inner,
+        flashed: 0,
+        active: 0,
+        reboots: 0,
+        slot,
+    };
+    (s, d)
+}
+
+fn finish_tb522fu(s: &mut Setup, d: &mut Finish) -> Result<(), String> {
+    recovery_flow::finish(
+        d,
+        &s.backup,
+        Some(s.firmware.clone()),
+        &mut s.state,
+        &s.store,
+        &mut Ui::default(),
+        &mut vec![],
+    )
+}
+
+fn oemowninfo() -> lapiswitch_core::country::oemowninfo::OemOwnInfo {
+    match tb522fu().country() {
+        lapiswitch_devices::Country::Oemowninfo(field) => field,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn tb522fu_country_runs_after_firmware_in_its_own_partition_only() {
+    for slot in [Slot::A, Slot::B] {
+        for code in [None, Some("CN"), Some("KR"), Some("DE")] {
+            let (mut s, mut d) = tb522fu_finish_setup(slot, code);
+            let original = d.inner.bytes("oemowninfo").to_vec();
+            let persist = d.inner.bytes("persist").to_vec();
+            let devinfo = d.inner.bytes("devinfo").to_vec();
+            finish_tb522fu(&mut s, &mut d).unwrap();
+            let expected = code.map_or_else(
+                || original.clone(),
+                |c| {
+                    lapiswitch_core::country::oemowninfo::plan(&oemowninfo(), &original, c).unwrap()
+                },
+            );
+            assert_eq!(d.inner.bytes("oemowninfo"), expected);
+            // The devinfo/persist method is never used for this device.
+            assert_eq!(d.inner.bytes("persist"), persist);
+            assert_eq!(d.inner.bytes("devinfo"), devinfo);
+            assert_eq!(
+                std::fs::read(s.backup.file_path("oemowninfo.img").unwrap()).unwrap(),
+                original
+            );
+            assert_eq!(
+                d.inner
+                    .writes
+                    .iter()
+                    .filter(|p| p.name == "oemowninfo")
+                    .count(),
+                usize::from(matches!(code, Some("KR" | "DE")))
+            );
+            assert_eq!((d.flashed, d.active, d.reboots), (1, 1, 1));
+            assert_eq!(s.state.recovery.phase, Phase::Done);
+            s.backup.verify().unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_lost_country_write_response_is_verified_on_resume_without_a_second_write() {
+    let (mut s, mut d) = tb522fu_finish_setup(Slot::B, Some("KR"));
+    d.inner.fail_writes.insert(3);
+    assert!(
+        finish_tb522fu(&mut s, &mut d)
+            .unwrap_err()
+            .contains("결과 불명")
+    );
+    assert_eq!((d.active, d.reboots), (0, 0));
+    assert_eq!(s.state.recovery.phase, Phase::FirmwareWriting);
+    assert!(
+        s.backup
+            .path()
+            .join("Partition/oemowninfo.country.json")
+            .is_file()
+    );
+    d.inner.fail_writes.clear();
+    finish_tb522fu(&mut s, &mut d).unwrap();
+    assert_eq!(
+        d.inner
+            .writes
+            .iter()
+            .filter(|p| p.name == "oemowninfo")
+            .count(),
+        1
+    );
+    assert_eq!((d.active, d.reboots), (1, 1));
+}
+
+#[test]
+fn a_corrupt_country_readback_keeps_evidence_and_never_rewrites() {
+    let (mut s, mut d) = tb522fu_finish_setup(Slot::A, Some("KR"));
+    d.inner.corrupt_writes.insert(3);
+    assert!(
+        finish_tb522fu(&mut s, &mut d)
+            .unwrap_err()
+            .contains("재읽기 검증 실패")
+    );
+    assert_eq!((d.active, d.reboots), (0, 0));
+    let count = d.inner.writes.len();
+    d.inner.corrupt_writes.clear();
+    assert!(
+        finish_tb522fu(&mut s, &mut d)
+            .unwrap_err()
+            .contains("자동 재쓰기 없이")
+    );
+    assert_eq!(d.inner.writes.len(), count);
+    s.backup.verify().unwrap();
 }

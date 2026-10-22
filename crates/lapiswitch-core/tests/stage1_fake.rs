@@ -154,8 +154,8 @@ fn manifest_path_traversal_duplicate_and_coordinate_tampering_are_rejected() {
 #[test]
 fn backup_folders_are_unique_and_the_adb_identity_cannot_be_overwritten() {
     let out = tempfile::tempdir().unwrap();
-    let a = BackupBuilder::create(out.path()).unwrap();
-    let b = BackupBuilder::create(out.path()).unwrap();
+    let a = BackupBuilder::create(out.path(), Some(tb520fu())).unwrap();
+    let b = BackupBuilder::create(out.path(), Some(tb520fu())).unwrap();
     assert_ne!(a.path(), b.path());
     a.save_identity("first").unwrap();
     a.save_identity("first").unwrap();
@@ -194,4 +194,107 @@ fn prefix_hashing_accepts_sector_padding_but_not_truncation() {
     std::fs::write(&path, [1, 2, 3]).unwrap();
     assert_eq!(backup::hash_file(&path, None).unwrap().1, hash);
     assert!(backup::hash_file(&path, Some(4)).is_err());
+}
+
+fn tb522fu_fake(oemowninfo_sectors: u64, build: &str) -> Fake {
+    let mut device = Fake::with_recovery(600, true);
+    device.disk[0].resize(400 * SECTOR_SIZE, 0x5A);
+    device
+        .snapshot
+        .push(part("oemowninfo", 0, 100, oemowninfo_sectors));
+    for slot in ["a", "b"] {
+        device.fingerprints.insert(
+            format!("vbmeta_system_{slot}"),
+            format!("qti/TB522FU/TB522FU:17/CQ2A.260712.001/{build}:user/release-keys"),
+        );
+    }
+    device
+}
+
+fn tb522fu_prepared(slot: Slot) -> lapiswitch_core::prepare::PrepareReport {
+    let device = lapiswitch_core::device::Device::find("TB522FU").unwrap();
+    lapiswitch_core::prepare::PrepareReport {
+        device,
+        started_in: lapiswitch_core::prepare::Connection::Adb,
+        slot,
+        device_key: None,
+        identity: Some(lapiswitch_core::prepare::identity_record(
+            device, slot, "FAKE0002",
+        )),
+    }
+}
+
+#[test]
+fn a_tb522fu_backup_uses_its_own_rules_and_keeps_the_country_partition() {
+    let tb522fu = lapiswitch_core::device::Device::find("TB522FU").unwrap();
+    for slot in [Slot::A, Slot::B] {
+        let out = tempfile::tempdir().unwrap();
+        let mut device = tb522fu_fake(256, "10.028.260924C");
+        let builder = BackupBuilder::create(out.path(), Some(tb522fu)).unwrap();
+        assert!(
+            builder
+                .path()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("TB522FU_")
+        );
+        let backup = lapiswitch_core::stage1::take_backup(
+            &mut device,
+            &tb522fu_prepared(slot),
+            builder,
+            &mut vec![],
+        )
+        .unwrap();
+        assert_eq!(backup.manifest().model, "TB522FU");
+        assert_eq!(backup.device(), tb522fu);
+        assert_eq!(
+            std::fs::read(backup.file_path("oemowninfo.img").unwrap())
+                .unwrap()
+                .len(),
+            0x100000
+        );
+        assert!(device.writes.is_empty());
+    }
+    // The TB520FU fixture keeps no country partition.
+    let out = tempfile::tempdir().unwrap();
+    let backup = Fake::with_recovery(600, true).backup(out.path(), Slot::A);
+    assert!(backup.file_path("oemowninfo.img").is_err());
+}
+
+#[test]
+fn tb522fu_country_partition_size_and_build_date_ceiling_are_enforced_before_backup() {
+    let tb522fu = lapiswitch_core::device::Device::find("TB522FU").unwrap();
+    for (sectors, build, expected) in [
+        (255, "10.028.260924C", "oemowninfo"),
+        (256, "10.028.260925C", "2026-09-24"),
+        (256, "11.055.260905W", "2026-09-04"),
+    ] {
+        let out = tempfile::tempdir().unwrap();
+        let mut device = tb522fu_fake(sectors, build);
+        let builder = BackupBuilder::create(out.path(), Some(tb522fu)).unwrap();
+        let error = lapiswitch_core::stage1::take_backup(
+            &mut device,
+            &tb522fu_prepared(Slot::A),
+            builder,
+            &mut vec![],
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains(expected), "{build}: {error}");
+        assert!(device.writes.is_empty());
+    }
+    // A TB520FU fingerprint is not the TB522FU the run prepared.
+    let out = tempfile::tempdir().unwrap();
+    let mut device = Fake::with_recovery(600, true);
+    let builder = BackupBuilder::create(out.path(), Some(tb522fu)).unwrap();
+    assert!(
+        lapiswitch_core::stage1::take_backup(
+            &mut device,
+            &tb522fu_prepared(Slot::A),
+            builder,
+            &mut vec![]
+        )
+        .is_err()
+    );
 }

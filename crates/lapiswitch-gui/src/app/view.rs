@@ -196,7 +196,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             widget::image(crate::brand::image()).width(44).height(44),
             column![
                 label(crate::brand::NAME).size(24),
-                small(crate::brand::SUBTITLE)
+                small(crate::brand::subtitle())
             ]
             .spacing(2)
         ]
@@ -284,7 +284,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
     }
     nav = nav
         .push(space().height(Fill))
-        .push(small("Lenovo TB520FU · lapis"))
+        .push(small(super::supported_models()))
         .push(small(format!("v{} · GPL-3.0", env!("CARGO_PKG_VERSION"))));
     let mut body = column![].spacing(18);
     if app.demo {
@@ -461,7 +461,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Some(panel(column![
             small("TWRP · DeviceInfo"),
             label(app.t("재부팅 전 확인", "Before rebooting")).size(25),
-            label(if let Some(transition)=app.recovery_transition {match transition {lapiswitch_core::recovery_flow::Transition::Twrp=>app.t("태블릿을 TWRP Recovery로 재부팅합니다. TWRP에서 DeviceInfo를 백업한 뒤 선택한 리전과 롤백 옵션을 적용하고 검증합니다.","Reboot to TWRP to back up, update and verify DeviceInfo."),lapiswitch_core::recovery_flow::Transition::Edl=>app.t("DeviceInfo 쓰기와 검증을 마쳤습니다. EDL로 전환하여 원본 GPT·Recovery를 복원한 뒤 공식 펌웨어를 설치합니다. 사용자 데이터는 초기화됩니다.","DeviceInfo verified. Enter EDL, restore original GPT/Recovery, then install firmware and erase user data.")}} else {app.t("TWRP 처리 후 원본 구성을 복구하고 공식 펌웨어를 설치합니다.","Restore the original configuration after TWRP, then install official firmware.")}),
+            label(transition_text(app)),
             label(app.t("작업이 완료될 때까지 PC와 태블릿의 USB 연결을 유지해 주세요. 케이블을 분리하거나 프로그램을 종료하지 마세요.", "Keep the tablet connected to the PC by USB until the operation is complete. Do not unplug the cable or close this app.")).color(DANGER),
             row![space().width(Fill), action(app.t("확인", "Confirm"), Message::ConfirmRecoveryReboot, true)],
         ].spacing(20)).style(|_| container::Style {
@@ -550,7 +550,7 @@ fn region(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         );
     }
     (column![title(app, "변경할 리전을 선택하세요", "Choose the target region", "선택한 리전과 일치하는 공식 펌웨어를 사용합니다.", "Use official firmware matching your target region."), choices,
-        note(app.t("지원 모델은 TB520FU입니다. 롤백인덱스 초기화 여부는 변환 설정에서 선택합니다.", "For TB520FU only. Choose whether to reset rollback indices in Conversion options."), false),
+        note(app.t("지원 모델: {models}. 롤백인덱스 초기화 여부는 변환 설정에서 선택합니다.", "Supported models: {models}. Choose whether to reset rollback indices in Conversion options.").replace("{models}", &super::supported_models()), false),
         small(app.t("현재 기기의 리전과 관계없이 선택한 목표 리전으로 진행합니다.", "The selected target is used regardless of the device's current region."))].spacing(26).into(),
         row![small(app.t("01 / 04 · 준비", "01 / 04 · PREPARATION")), space().width(Fill), action(app.t("펌웨어 선택", "Choose firmware"), Message::Next, !app.busy() && app.region.is_some())].align_y(Alignment::Center).into())
 }
@@ -596,7 +596,7 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             ))
             .push(field(
                 app.t("모델 / 리전", "Model / region"),
-                format!("TB520FU / {}", report.region.token()),
+                format!("{} / {}", report.device, report.region.token()),
             ))
             .push(field("Build fingerprint", &report.fingerprint))
             .push(field(
@@ -663,6 +663,20 @@ fn options(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     )
 }
 /// Region conversion always erases user data.
+/// What the reboot about to be confirmed does. An edit installs firmware
+/// only when it changed the region, which the editor decided in TWRP.
+fn transition_text(app: &App) -> &'static str {
+    use lapiswitch_core::recovery_flow::Transition;
+    let edit = app.run_kind == RunKind::Edit;
+    match (app.recovery_transition, edit) {
+        (Some(Transition::Twrp), false) => app.t("태블릿을 TWRP Recovery로 재부팅합니다. TWRP에서 DeviceInfo를 백업한 뒤 선택한 리전과 롤백 옵션을 적용하고 검증합니다.", "Reboot to TWRP to back up, update and verify DeviceInfo."),
+        (Some(Transition::Twrp), true) => app.t("태블릿을 TWRP Recovery로 재부팅합니다. TWRP에서 DeviceInfo를 읽어 백업한 뒤 수정할 값을 선택합니다.", "Reboot to TWRP. DeviceInfo is read and backed up there, then you choose the values to change."),
+        (Some(Transition::Edl), false) => app.t("DeviceInfo 쓰기와 검증을 마쳤습니다. EDL로 전환하여 원본 GPT·Recovery를 복원한 뒤 공식 펌웨어를 설치합니다. 사용자 데이터는 초기화됩니다.", "DeviceInfo verified. Enter EDL, restore original GPT/Recovery, then install firmware and erase user data."),
+        (Some(Transition::Edl), true) => app.t("DeviceInfo 쓰기와 검증을 마쳤습니다. EDL로 전환하여 원본 GPT·Recovery를 복원합니다. 리전을 바꾼 경우에만 공식 펌웨어를 설치하고 사용자 데이터를 초기화합니다.", "DeviceInfo verified. Enter EDL and restore original GPT/Recovery. Firmware is installed, erasing user data, only if the region changed."),
+        (None, false) => app.t("TWRP 처리 후 원본 구성을 복구하고 공식 펌웨어를 설치합니다.", "Restore the original configuration after TWRP, then install official firmware."),
+        (None, true) => app.t("TWRP 처리 후 원본 구성을 복구합니다. 리전을 바꾼 경우에만 공식 펌웨어를 설치합니다.", "Restore the original configuration after TWRP. Firmware is installed only if the region changed."),
+    }
+}
 /// One line naming what a saved run changes.
 pub(super) fn request_label(app: &App, state: &lapiswitch_core::state::RunState) -> String {
     match state.request {

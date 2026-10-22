@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use lapiswitch_core::avb_info::{AvbSummary, KeyClass};
 use lapiswitch_core::backup::{BackupBuilder, TransactionStage, VerifiedBackup};
+use lapiswitch_core::device::Device;
 use lapiswitch_core::firmware::FirmwareReport;
 use lapiswitch_core::gpt::SECTOR_SIZE;
 use lapiswitch_core::prepare::{Connection, PrepareReport};
@@ -62,8 +63,13 @@ pub(crate) fn refresh_header(data: &mut [u8]) {
     data[SECTOR_SIZE + 16..SECTOR_SIZE + 20].copy_from_slice(&crc.to_le_bytes());
 }
 
+pub(crate) fn tb520fu() -> Device {
+    Device::find("TB520FU").unwrap()
+}
+
 pub(crate) fn firmware() -> FirmwareReport {
     FirmwareReport {
+        device: tb520fu(),
         image_dir: "firmware/image".into(),
         loader: "loader.melf".into(),
         region: Region::Row,
@@ -83,11 +89,12 @@ pub(crate) fn firmware() -> FirmwareReport {
 
 pub(crate) fn prepared(slot: Slot, mode: Connection) -> PrepareReport {
     PrepareReport {
+        device: tb520fu(),
         started_in: mode,
         slot,
         device_key: None,
         identity: (mode != Connection::Edl)
-            .then(|| lapiswitch_core::prepare::identity_record(slot, "FAKE0001")),
+            .then(|| lapiswitch_core::prepare::identity_record(tb520fu(), slot, "FAKE0001")),
     }
 }
 
@@ -171,7 +178,7 @@ impl Fake {
 
     /// Requires the Recovery partitions from `with_recovery`.
     pub(crate) fn backup(&mut self, output: &Path, slot: Slot) -> VerifiedBackup {
-        let builder = BackupBuilder::create(output).unwrap();
+        let builder = BackupBuilder::create(output, Some(tb520fu())).unwrap();
         self.journal = Some(builder.path().to_path_buf());
         stage1::take_backup(self, &prepared(slot, Connection::Adb), builder, &mut vec![]).unwrap()
     }

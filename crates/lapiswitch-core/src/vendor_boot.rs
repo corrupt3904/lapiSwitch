@@ -1,6 +1,9 @@
-//! Patch only root region_country values in the declared concatenated DTB area.
-//! No repacking, fixed offsets, signature replacement or global string search.
+//! Patch only the region property of each tree in the declared concatenated
+//! DTB area: root `region_country`, or `build_region` of `product_region`
+//! (`region_marker` in device.toml). No repacking, fixed offsets, signature
+//! replacement or global string search.
 use crate::region::Region;
+pub use lapiswitch_devices::RegionMarker;
 
 fn word(b: &[u8], at: usize, big: bool) -> Result<usize, String> {
     let a: [u8; 4] = b
@@ -23,7 +26,7 @@ fn end(start: usize, len: usize, limit: usize) -> Result<usize, String> {
 fn aligned(n: usize, unit: usize) -> Result<usize, String> {
     Ok(n.checked_add(unit - 1).ok_or("정렬 overflow")? / unit * unit)
 }
-fn offsets(b: &[u8]) -> Result<Vec<usize>, String> {
+fn offsets(marker: RegionMarker, b: &[u8]) -> Result<Vec<usize>, String> {
     if b.get(..8) != Some(b"VNDRBOOT") {
         return Err("vendor_boot 매직 오류".into());
     }
@@ -82,6 +85,8 @@ fn offsets(b: &[u8]) -> Result<Vec<usize>, String> {
         let names = &b[base + strings..base + n_end];
         let mut at = structure;
         let mut depth = 0usize;
+        let mut nodes: Vec<Vec<u8>> = vec![];
+        let mut product_nodes = 0;
         let mut root = false;
         let mut done = false;
         let mut region_seen = false;
@@ -101,11 +106,23 @@ fn offsets(b: &[u8]) -> Result<Vec<usize>, String> {
                         }
                         root = true;
                     }
+                    let node = b[base + at..base + at + z].to_vec();
+                    if marker == RegionMarker::ProductRegionBuildRegion
+                        && depth == 1
+                        && node == b"product_region"
+                    {
+                        product_nodes += 1;
+                        if product_nodes > 1 {
+                            return Err("중복 product_region 노드".into());
+                        }
+                    }
+                    nodes.push(node);
                     depth += 1;
                     at = aligned(at + z + 1, 4)?;
                 }
                 2 => {
                     depth = depth.checked_sub(1).ok_or("DTB 노드 깊이 오류")?;
+                    nodes.pop();
                 }
                 3 => {
                     if depth == 0 {
@@ -121,14 +138,27 @@ fn offsets(b: &[u8]) -> Result<Vec<usize>, String> {
                         .iter()
                         .position(|v| *v == 0)
                         .ok_or("DTB 속성 이름 종료 없음")?;
-                    if &tail[..z] == b"region_country" {
-                        if depth != 1
+                    let is_region = match marker {
+                        RegionMarker::RegionCountry => &tail[..z] == b"region_country",
+                        RegionMarker::ProductRegionBuildRegion => {
+                            &tail[..z] == b"build_region"
+                                && depth == 2
+                                && nodes[1] == b"product_region"
+                        }
+                    };
+                    if is_region {
+                        if depth
+                            != (if marker == RegionMarker::RegionCountry {
+                                1
+                            } else {
+                                2
+                            })
                             || region_seen
                             || len != 4
                             || b[base + at + 3] != 0
                             || !matches!(&b[base + at..base + at + 3], b"PRC" | b"ROW")
                         {
-                            return Err("DTB region_country 형식/중복 오류".into());
+                            return Err("DTB 리전 속성 형식/중복 오류".into());
                         }
                         region_seen = true;
                         found.push(base + at);
@@ -152,15 +182,15 @@ fn offsets(b: &[u8]) -> Result<Vec<usize>, String> {
         base = tree_end;
     }
     if found.is_empty() {
-        return Err("vendor_boot에 region_country 속성이 없습니다.".into());
+        return Err("vendor_boot에 리전 속성이 없습니다.".into());
     }
     Ok(found)
 }
-pub fn region(b: &[u8]) -> Result<Region, String> {
-    let found = offsets(b)?;
+pub fn region(marker: RegionMarker, b: &[u8]) -> Result<Region, String> {
+    let found = offsets(marker, b)?;
     let token = &b[found[0]..found[0] + 3];
     if found.iter().any(|at| &b[*at..*at + 3] != token) {
-        return Err("DTB별 region_country가 일치하지 않습니다.".into());
+        return Err("DTB별 리전 속성이 일치하지 않습니다.".into());
     }
     Ok(if token == b"PRC" {
         Region::Prc
@@ -168,10 +198,10 @@ pub fn region(b: &[u8]) -> Result<Region, String> {
         Region::Row
     })
 }
-pub fn patch(b: &[u8], target: Region) -> Result<Vec<u8>, String> {
-    region(b)?;
+pub fn patch(marker: RegionMarker, b: &[u8], target: Region) -> Result<Vec<u8>, String> {
+    region(marker, b)?;
     let mut out = b.to_vec();
-    for at in offsets(b)? {
+    for at in offsets(marker, b)? {
         out[at..at + 3].copy_from_slice(target.token().as_bytes());
     }
     Ok(out)
@@ -180,6 +210,7 @@ pub fn patch(b: &[u8], target: Region) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const LAPIS: RegionMarker = RegionMarker::RegionCountry;
     pub fn image() -> Vec<u8> {
         let mut structure = vec![];
         for n in [1u32, 0, 3, 4, 0] {
@@ -222,31 +253,94 @@ mod tests {
         b[12000..12004].copy_from_slice(b"PRC\0");
         b
     }
+    /// One tree: `/product_region { build_region = "PRC"; }` and a decoy
+    /// root `build_region` that must be ignored.
+    fn product_region_image() -> Vec<u8> {
+        let mut structure = vec![];
+        let word = |s: &mut Vec<u8>, n: u32| s.extend(n.to_be_bytes());
+        word(&mut structure, 1);
+        word(&mut structure, 0);
+        word(&mut structure, 1);
+        structure.extend(b"product_region\0\0");
+        word(&mut structure, 3);
+        word(&mut structure, 4);
+        word(&mut structure, 0);
+        structure.extend(b"PRC\0");
+        word(&mut structure, 2);
+        word(&mut structure, 3);
+        word(&mut structure, 4);
+        word(&mut structure, 0);
+        structure.extend(b"XYZ\0");
+        word(&mut structure, 2);
+        word(&mut structure, 9);
+        let strings = b"build_region\0";
+        let size = 40 + structure.len() + strings.len();
+        let mut tree = vec![];
+        for n in [
+            0xd00dfeed,
+            size as u32,
+            40,
+            (40 + structure.len()) as u32,
+            40,
+            17,
+            16,
+            0,
+            strings.len() as u32,
+            structure.len() as u32,
+        ] {
+            tree.extend(n.to_be_bytes());
+        }
+        tree.extend(structure);
+        tree.extend(strings);
+        let mut b = vec![0; 16384];
+        b[..8].copy_from_slice(b"VNDRBOOT");
+        for (o, v) in [
+            (8, 4u32),
+            (12, 4096),
+            (2096, 2128),
+            (2100, tree.len() as u32),
+        ] {
+            b[o..o + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        b[4096..4096 + tree.len()].copy_from_slice(&tree);
+        b
+    }
+    #[test]
+    fn each_marker_reads_only_its_own_property() {
+        let mojito = RegionMarker::ProductRegionBuildRegion;
+        let b = product_region_image();
+        assert_eq!(region(mojito, &b).unwrap(), Region::Prc);
+        assert!(region(LAPIS, &b).is_err());
+        let out = patch(mojito, &b, Region::Row).unwrap();
+        assert_eq!(region(mojito, &out).unwrap(), Region::Row);
+        assert_eq!(b.iter().zip(&out).filter(|(x, y)| x != y).count(), 3);
+        assert!(region(mojito, &image()).is_err());
+    }
     #[test]
     fn declared_trees_only_and_all_other_bytes_are_preserved() {
         let original = image();
-        let out = patch(&original, Region::Row).unwrap();
-        assert_eq!(region(&out).unwrap(), Region::Row);
+        let out = patch(LAPIS, &original, Region::Row).unwrap();
+        assert_eq!(region(LAPIS, &out).unwrap(), Region::Row);
         assert_eq!(original.iter().zip(&out).filter(|(a, b)| a != b).count(), 6);
         assert_eq!(&out[12000..12004], b"PRC\0");
-        assert_eq!(patch(&out, Region::Prc).unwrap(), original);
+        assert_eq!(patch(LAPIS, &out, Region::Prc).unwrap(), original);
     }
     #[test]
     fn malformed_or_mixed_trees_never_produce_a_patch() {
         let b = image();
         for len in [0, 8, 2098, 4096, 4140] {
-            assert!(patch(&b[..len], Region::Row).is_err());
+            assert!(patch(LAPIS, &b[..len], Region::Row).is_err());
         }
         let mut bad = b.clone();
         bad[2100..2104].copy_from_slice(&u32::MAX.to_le_bytes());
-        assert!(patch(&bad, Region::Row).is_err());
-        let at = offsets(&b).unwrap();
+        assert!(patch(LAPIS, &bad, Region::Row).is_err());
+        let at = offsets(LAPIS, &b).unwrap();
         let mut bad = b.clone();
         bad[at[1]..at[1] + 3].copy_from_slice(b"ROW");
-        assert!(patch(&bad, Region::Row).is_err());
+        assert!(patch(LAPIS, &bad, Region::Row).is_err());
         let mut bad = b;
         bad[at[0] + 3] = 1;
-        assert!(patch(&bad, Region::Row).is_err());
+        assert!(patch(LAPIS, &bad, Region::Row).is_err());
     }
     #[test]
     #[ignore = "Read-only local firmware samples; set LAPISWITCH_VENDOR_BOOT_SAMPLE_DIR"]
@@ -256,8 +350,8 @@ mod tests {
         );
         let prc = std::fs::read(dir.join("vendor_boot_PRC.img")).unwrap();
         let row = std::fs::read(dir.join("vendor_boot_ROW.img")).unwrap();
-        assert_eq!(offsets(&prc).unwrap().len(), 4);
-        assert_eq!(patch(&prc, Region::Row).unwrap(), row);
-        assert_eq!(patch(&row, Region::Prc).unwrap(), prc);
+        assert_eq!(offsets(LAPIS, &prc).unwrap().len(), 4);
+        assert_eq!(patch(LAPIS, &prc, Region::Row).unwrap(), row);
+        assert_eq!(patch(LAPIS, &row, Region::Prc).unwrap(), prc);
     }
 }

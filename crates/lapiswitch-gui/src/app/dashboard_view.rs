@@ -49,13 +49,17 @@ pub(super) fn badge(app: &App) -> Element<'_, Message> {
 }
 pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
     let s = &app.device.snapshot;
+    let unsupported;
     let detail = if let Some(error) = &s.error {
         error.as_str()
     } else if app.device.unsupported_model() {
-        app.t(
-            "지원하지 않는 기기입니다. TB520FU(lapis)만 사용할 수 있습니다.",
-            "Unsupported device. Only TB520FU (lapis) is supported.",
-        )
+        unsupported = app
+            .t(
+                "지원하지 않는 기기입니다. {models}만 사용할 수 있습니다.",
+                "Unsupported device. Supported: {models}.",
+            )
+            .replace("{models}", &super::supported_models());
+        unsupported.as_str()
     } else {
         match s.mode {
         Mode::None => app.t("기기가 연결되어 있지 않습니다. 기기를 연결해야 변환을 시작할 수 있습니다.", "No device is connected. Connect a device before starting conversion."),
@@ -64,7 +68,7 @@ pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
         Mode::ServerBlocking => app.t("다른 프로그램의 ADB 서버를 종료한 뒤 다시 연결해 주세요.", "Close the other program's ADB server and reconnect."),
         Mode::Fastboot | Mode::Fastbootd => app.fastboot_start_text(),
         _ if !app.device.reachable() => app.t("기기 연결 상태를 확인하고 있습니다. 잠시 기다려 주세요.", "Checking device readiness. Please wait."),
-        _ if !app.device.startable() => app.t("기기 모델을 확인할 수 없습니다. TB520FU 연결 상태를 확인해 주세요.", "The device model is unknown. Check the TB520FU connection."),
+        _ if !app.device.startable() => app.t("기기 모델을 확인할 수 없습니다. 기기 연결 상태를 확인해 주세요.", "The device model is unknown. Check the device connection."),
         _ => app.t("기기 연결을 확인했습니다. 시작 직전에 한 번 더 확인합니다.", "Device detected. The connection is checked again immediately before starting."),
     }
     };
@@ -125,21 +129,21 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
     } else {
         &d.name
     };
-    let portrait: Element<'_, Message> = if d.model.eq_ignore_ascii_case("TB520FU") {
-        image(image::Handle::from_bytes(
-            include_bytes!("../../assets/tb520fu.png").as_slice(),
-        ))
-        .width(92)
-        .height(70)
-        .into()
-    } else {
-        svg(svg::Handle::from_memory(
-            include_bytes!("../../assets/generic_tablet.svg").as_slice(),
-        ))
-        .width(92)
-        .height(70)
-        .into()
-    };
+    // devices/<MODEL>/image.png of the connected supported device.
+    let portrait: Element<'_, Message> =
+        if let Some(bytes) = app.device.supported().and_then(|device| device.image()) {
+            image(image::Handle::from_bytes(bytes))
+                .width(92)
+                .height(70)
+                .into()
+        } else {
+            svg(svg::Handle::from_memory(
+                include_bytes!("../../assets/generic_tablet.svg").as_slice(),
+            ))
+            .width(92)
+            .height(70)
+            .into()
+        };
     let mut content = column![
         title(
             app,
@@ -175,7 +179,7 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
         field(app.t("활성 슬롯", "Active slot"), value(&d.slot)),
         field(
             app.t("롤백 방지", "Rollback protection"),
-            if d.model.eq_ignore_ascii_case("TB520FU") {
+            if app.device.supported().is_some() {
                 app.t("사용 · 다운그레이드 차단", "Enabled · Downgrades blocked")
             } else {
                 "—"

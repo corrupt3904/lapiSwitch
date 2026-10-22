@@ -6,6 +6,7 @@ use std::sync::mpsc::{self, Sender};
 use std::time::Duration;
 
 use lapiswitch_core::backup::{self, BackupBuilder, VerifiedBackup};
+use lapiswitch_core::device::Device;
 use lapiswitch_core::deviceinfo::{RollbackMode, map};
 use lapiswitch_core::firmware::{FirmwareReport, check_firmware};
 use lapiswitch_core::prepare::{Connection, DeviceIo, native::NativeDevice};
@@ -51,6 +52,8 @@ pub enum Action {
     /// DeviceInfo edit: values are chosen in TWRP; firmware only if the
     /// region changes.
     Edit {
+        /// From the connected ADB model; `None` on an EDL start.
+        device: Option<Device>,
         loader: PathBuf,
         output: PathBuf,
     },
@@ -317,29 +320,40 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 let firmware = check_firmware(&approved.image_dir, approved.region)
                     .map_err(|e| e.to_string())?;
                 confirm_approval(&approved, &firmware)?;
-                let twrp = acquire_twrp(&request.state_path, tx, &mut log)?;
-                let builder = BackupBuilder::create(&output)?;
+                let builder = BackupBuilder::create(&output, Some(firmware.device))?;
                 let state = RunState::convert(&firmware, rollback_mode, options, builder.path())?;
                 start_new(
                     state,
                     builder,
                     Some(firmware),
-                    &twrp,
+                    &request.state_path,
                     &store,
                     tx,
                     &mut ui,
                     &mut log,
                 )
             }
-            Action::Edit { loader, output } => {
+            Action::Edit {
+                device,
+                loader,
+                output,
+            } => {
                 let _ = tx.send(Event::Progress(Step::Check));
                 if !loader.is_file() {
                     return Err(format!("EDL 로더 파일이 없습니다: {}", loader.display()));
                 }
-                let twrp = acquire_twrp(&request.state_path, tx, &mut log)?;
-                let builder = BackupBuilder::create(&output)?;
-                let state = RunState::edit(&loader, builder.path())?;
-                start_new(state, builder, None, &twrp, &store, tx, &mut ui, &mut log)
+                let builder = BackupBuilder::create(&output, device)?;
+                let state = RunState::edit(device, &loader, builder.path())?;
+                start_new(
+                    state,
+                    builder,
+                    None,
+                    &request.state_path,
+                    &store,
+                    tx,
+                    &mut ui,
+                    &mut log,
+                )
             }
             Action::Resume => {
                 let mut state = store.load()?.ok_or("저장된 작업이 없습니다.")?;
@@ -423,6 +437,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 }
                 let twrp = if assessment.needs_twrp() {
                     Some(lapiswitch_core::recovery_asset::acquire(
+                        backup.device(),
                         &request
                             .state_path
                             .parent()
@@ -483,14 +498,16 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
 }
 
 fn acquire_twrp(
+    device: Device,
     state_path: &Path,
     tx: &Sender<Event>,
     log: &mut Vec<String>,
 ) -> Result<PathBuf, String> {
-    let _ = tx.send(Event::RecoveryStatus(
-        "공식 TWRP 파일을 준비하고 SHA-256을 확인합니다.".into(),
-    ));
+    let _ = tx.send(Event::RecoveryStatus(format!(
+        "{device} 공식 TWRP 파일을 준비하고 SHA-256을 확인합니다."
+    )));
     lapiswitch_core::recovery_asset::acquire(
+        device,
         &state_path
             .parent()
             .ok_or("캐시 경로 없음")?
@@ -505,13 +522,19 @@ fn start_new(
     mut state: RunState,
     builder: BackupBuilder,
     firmware: Option<FirmwareReport>,
-    twrp: &Path,
+    state_path: &Path,
     store: &StateStore,
     tx: &Sender<Event>,
     ui: &mut ChannelUi,
     log: &mut Vec<String>,
 ) -> Result<Vec<String>, String> {
     store.begin(&state)?;
+    // Download TWRP before touching the device when the device is known; an
+    // edit started in EDL learns its device at S1.
+    let mut twrp = match state.device {
+        Some(device) => Some(acquire_twrp(device, state_path, tx, log)?),
+        None => None,
+    };
     let _ = tx.send(Event::Backup(builder.path().to_owned()));
     let _ = tx.send(Event::Progress(Step::Device));
     let _ = tx.send(Event::RecoveryStatus(
@@ -521,12 +544,17 @@ fn start_new(
     let loader = state.loader_path().to_path_buf();
     let prepared = lapiswitch_core::prepare::prepare_with_confirmation(
         &mut device,
+        state.device,
         &loader,
         &mut |raw| builder.save_identity(raw),
         &mut || ui.confirm_edl_start(),
         log,
     )
     .map_err(|e| e.to_string())?;
+    let twrp = match twrp.take() {
+        Some(twrp) => twrp,
+        None => acquire_twrp(prepared.report.device, state_path, tx, log)?,
+    };
     let mut stage = NativeStage::new(device, prepared.session);
     let _ = tx.send(Event::Progress(Step::Backup));
     let _ = tx.send(Event::RecoveryStatus(
@@ -549,7 +577,7 @@ fn start_new(
     let _ = tx.send(Event::RecoveryStatus(
         "GPT를 수정하고 활성 슬롯 Recovery와 misc를 준비·검증합니다.".into(),
     ));
-    lapiswitch_core::recovery_flow::stage(&mut stage, &backup, twrp, &mut state, store, log)?;
+    lapiswitch_core::recovery_flow::stage(&mut stage, &backup, &twrp, &mut state, store, log)?;
     let mut device = NativeWorkflow::from_stage(stage);
     lapiswitch_core::recovery_flow::finish(
         &mut device,
@@ -645,6 +673,7 @@ mod tests {
     #[test]
     fn firmware_must_still_match_the_reviewed_build_before_device_work() {
         let approved = FirmwareReport {
+            device: lapiswitch_core::device::Device::find("TB520FU").unwrap(),
             image_dir: "demo".into(),
             loader: "demo/loader.melf".into(),
             region: Region::Row,
@@ -700,6 +729,7 @@ mod edl_start_tests {
             },
             run_id: "staging-test".into(),
             stage: Stage::S4,
+            device: Device::find("TB520FU"),
             request: Request::Convert {
                 target: Region::Row,
                 rollback_mode: RollbackMode::Reset,

@@ -7,6 +7,7 @@ use ltbox_core::live;
 
 use crate::avb_info::AvbSummary;
 use crate::backup::{self, BackupBuilder, VerifiedBackup};
+use crate::device::Device;
 use crate::prepare::PrepareReport;
 use crate::slot::Slot;
 use crate::storage::{self, Partition};
@@ -50,6 +51,7 @@ pub trait StageIo {
 
 fn identify<D: StageIo>(
     device: &mut D,
+    expected: Device,
     slot: Slot,
     log: &mut Vec<String>,
 ) -> Result<(String, String), String> {
@@ -59,8 +61,8 @@ fn identify<D: StageIo>(
     let active = active.ok_or("활성 슬롯의 vbmeta_system 정보를 읽을 수 없습니다.")?;
     active
         .build_fingerprint()
-        .filter(|fp| ltbox_core::model::fingerprint_model_match(fp, crate::device::model()))
-        .ok_or("EDL 활성 슬롯의 기기 모델이 TB520FU로 확인되지 않았습니다.")?;
+        .filter(|fp| Device::identify(fp) == Some(expected))
+        .ok_or_else(|| format!("EDL 활성 슬롯의 기기 모델이 {expected}로 확인되지 않았습니다."))?;
     let fingerprint = active.version_fingerprint().unwrap_or_default();
     Ok((fingerprint, format!("{:?}", active.key_class())))
 }
@@ -79,6 +81,22 @@ fn dump<D: StageIo>(
         return Err(format!("덤프 길이가 잘못되었습니다: {}", part.name));
     }
     Ok(())
+}
+
+/// A device whose country code lives in a dedicated partition keeps that
+/// partition's original too; its location and size come from device.toml.
+fn country_partition(device: Device, snapshot: &[Partition]) -> Result<Option<Partition>, String> {
+    let lapiswitch_devices::Country::Oemowninfo(field) = device.country() else {
+        return Ok(None);
+    };
+    let part = storage::find_partition(snapshot, field.partition, field.lun)?;
+    if part.size_bytes()? != field.size as u64 {
+        return Err(format!(
+            "{} 파티션 크기가 기기 정보({}바이트)와 다릅니다.",
+            field.partition, field.size
+        ));
+    }
+    Ok(Some(part.clone()))
 }
 
 /// Caller saves the ADB identity in the builder directory before S2; this
@@ -104,9 +122,9 @@ pub fn take_backup_with_confirmation<D: StageIo>(
 ) -> Result<VerifiedBackup, String> {
     device.ensure_single_target()?;
     live!(log, "S3: 기기를 다시 확인하고 원본 파티션을 백업합니다.");
-    let (fingerprint, key) = identify(device, prepared.slot, log)?;
+    let (fingerprint, key) = identify(device, prepared.device, prepared.slot, log)?;
     live!(log, "S3: 기기 서명 키 {key} (표시·기록용)");
-    match crate::device_version::check(&fingerprint) {
+    match crate::device_version::check(prepared.device, &fingerprint) {
         Ok(version) => live!(
             log,
             "S3: 활성 슬롯 {} 기기 펌웨어 {version}, 버전 제한 검사 통과",
@@ -176,6 +194,7 @@ pub fn take_backup_with_confirmation<D: StageIo>(
                 .clone(),
         ),
         Some(storage::find_partition(&snapshot, "misc", 0)?.clone()),
+        country_partition(prepared.device, &snapshot)?,
         Some(
             storage::find_partition(
                 &snapshot,

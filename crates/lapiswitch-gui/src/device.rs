@@ -91,6 +91,11 @@ impl Default for Monitor {
     }
 }
 impl Monitor {
+    /// The supported device the connected model names, if any. EDL reports
+    /// no model; the device is then identified when the run starts.
+    pub fn supported(&self) -> Option<lapiswitch_core::device::Device> {
+        lapiswitch_core::device::Device::identify(&self.snapshot.model)
+    }
     pub fn unsupported_model(&self) -> bool {
         let model = self.snapshot.model.trim();
         !model.is_empty() && !lapiswitch_core::prepare::supported_model(model)

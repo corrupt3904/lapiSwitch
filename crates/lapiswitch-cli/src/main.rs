@@ -200,17 +200,23 @@ fn prepare_device(args: &[String]) -> Result<(), String> {
         "기기 확인과 EDL 전환을 시작합니다. 기록 폴더: {}",
         output.display()
     );
-    let result = prepare(&mut device, &firmware.loader, &mut save_identity, &mut log)
-        .map_err(|error| error.to_string())
-        .and_then(|mut prepared| {
-            // This standalone command ends here. Full/stage1 will retain the
-            // session for S3; explicitly reset here so failure is reported.
-            prepared
-                .session
-                .reset_to_edl(&mut log)
-                .map_err(|error| error.to_string())?;
-            Ok(prepared.report)
-        });
+    let result = prepare(
+        &mut device,
+        Some(firmware.device),
+        &firmware.loader,
+        &mut save_identity,
+        &mut log,
+    )
+    .map_err(|error| error.to_string())
+    .and_then(|mut prepared| {
+        // This standalone command ends here. Full/stage1 will retain the
+        // session for S3; explicitly reset here so failure is reported.
+        prepared
+            .session
+            .reset_to_edl(&mut log)
+            .map_err(|error| error.to_string())?;
+        Ok(prepared.report)
+    });
     if let Err(error) = &result {
         log.push(format!("준비 실패: {error}"));
     }

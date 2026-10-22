@@ -62,10 +62,10 @@ fn proof(backup: &VerifiedBackup, p: &Progress) -> Result<(Vec<u8>, Vec<u8>), St
         return Err("DeviceInfo 원본 백업 해시 불일치".into());
     }
     let before = std::fs::read(before_path).map_err(|e| e.to_string())?;
-    if deviceinfo::layout().region(&before) != a.original_region {
+    if backup.device().layout().region(&before) != a.original_region {
         return Err("원래 리전 기록 불일치".into());
     }
-    let planned = map::apply(deviceinfo::layout(), &before, &a.edits)?;
+    let planned = map::apply(backup.device().layout(), &before, &a.edits)?;
     if backup::digest_bytes(&planned) != a.planned_sha256 {
         return Err("DeviceInfo 예정 값 해시 불일치".into());
     }
@@ -136,8 +136,8 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
     let after = std::fs::read(final_path).map_err(|e| e.to_string())?;
     deviceinfo::verify(&planned, &after, &after)?;
     Ok(Assessment::Verified {
-        original: deviceinfo::layout().region(&before),
-        current: deviceinfo::layout().region(&after),
+        original: backup.device().layout().region(&before),
+        current: backup.device().layout().region(&after),
         changed: before != after,
     })
 }
@@ -290,7 +290,9 @@ pub fn preflight(backup: &VerifiedBackup) -> Result<Assessment, String> {
             backup,
             &format!("vendor_boot{}.img", backup.manifest().slot.suffix()),
         )?;
-        if original.is_some_and(|original| vendor_boot::region(&vb).ok() != Some(original)) {
+        if original.is_some_and(|original| {
+            vendor_boot::region(backup.device().region_marker(), &vb).ok() != Some(original)
+        }) {
             return Err("원본 vendor_boot DTB와 원래 DeviceInfo 리전이 다릅니다.".into());
         }
         if let Some(j) = &j {
@@ -386,7 +388,7 @@ fn bootstrap(
     current: Region,
     log: &mut Vec<String>,
 ) -> Result<(), String> {
-    crate::recovery_asset::verify(twrp)?;
+    crate::recovery_asset::verify(backup.device(), twrp)?;
     let work = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
     let (geometry, rec) = validate_restore_device(device, backup, work.path(), log)?;
     let vb = part(
@@ -397,7 +399,7 @@ fn bootstrap(
     // Dump the live image before any bootstrap write. Only immutable originals
     // and their exact region-patched copy are accepted on reentry.
     let original = original_bytes(backup, &format!("{}.img", vb.name))?;
-    let modified = vendor_boot::patch(&original, current)?;
+    let modified = vendor_boot::patch(backup.device().region_marker(), &original, current)?;
     let live = data(device, &vb, &work.path().join("live_vendor_boot.img"), log)?;
     if live != original && live != modified {
         return Err("기기의 vendor_boot가 원본/검증된 임시 이미지와 다릅니다.".into());

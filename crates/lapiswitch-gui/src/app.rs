@@ -380,15 +380,15 @@ impl App {
             )
         } else if self.device.unsupported_model() {
             self.t(
-                "지원하지 않는 기기입니다. TB520FU(lapis)를 연결해 주세요.",
-                "Unsupported device. Connect a TB520FU (lapis).",
+                "지원하지 않는 기기입니다. 지원 기기를 연결해 주세요.",
+                "Unsupported device. Connect a supported device.",
             )
         } else if self.device.fastboot() {
             self.fastboot_start_text()
         } else if !self.device.startable() {
             self.t(
-                "기기 모델을 확인할 수 없습니다. TB520FU 연결 상태를 확인해 주세요.",
-                "The device model is unknown. Check the TB520FU connection.",
+                "기기 모델을 확인할 수 없습니다. 기기 연결 상태를 확인해 주세요.",
+                "The device model is unknown. Check the device connection.",
             )
         } else if !self.drivers_ready() {
             self.t(
@@ -1406,11 +1406,8 @@ impl App {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
-                let mut editor = editor::Editor::new(
-                    lapiswitch_core::deviceinfo::layout(),
-                    demo_deviceinfo(),
-                    tx,
-                );
+                let layout = self.device.supported().expect("demo device").layout();
+                let mut editor = editor::Editor::new(layout, demo_deviceinfo(layout), tx);
                 if screen == "deviceinfo-editor-custom" {
                     editor.tab = editor::Tab::Custom;
                 }
@@ -1570,10 +1567,9 @@ impl App {
         }
     }
 }
-/// Synthetic DeviceInfo shaped like the flow device's map (no real dump data).
-fn demo_deviceinfo() -> Vec<u8> {
-    use lapiswitch_core::deviceinfo::{SHARED_SIZE, layout};
-    let layout = layout();
+/// Synthetic DeviceInfo shaped like a device's map (no real dump data).
+fn demo_deviceinfo(layout: lapiswitch_core::deviceinfo::map::Layout) -> Vec<u8> {
+    use lapiswitch_core::deviceinfo::SHARED_SIZE;
     let mut b = vec![0u8; SHARED_SIZE];
     b[..13].copy_from_slice(b"ANDROID-BOOT!");
     b[0xCC8..0xCD0].copy_from_slice(b"deadbeef");
@@ -1582,6 +1578,13 @@ fn demo_deviceinfo() -> Vec<u8> {
     b[region + 0x10..region + 0x18].copy_from_slice(b"beefdead");
     b[layout.rollback_start() + 8] = 1;
     b
+}
+/// Every supported model with its codename, e.g. `TB520FU (lapis)`.
+pub(crate) fn supported_models() -> String {
+    lapiswitch_core::device::Device::all()
+        .map(|device| format!("{} ({})", device.model(), device.codename()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 fn demo_saved_state(stage: Stage) -> lapiswitch_core::state::RunState {
     let fw = demo_report(Region::Row);
@@ -1597,6 +1600,7 @@ fn demo_saved_state(stage: Stage) -> lapiswitch_core::state::RunState {
             target: Region::Row,
             rollback_mode: lapiswitch_core::deviceinfo::RollbackMode::Reset,
         },
+        device: Some(fw.device),
         loader: lapiswitch_core::state::SealedFile {
             path: fw.loader.clone(),
             size: 0,
@@ -1619,6 +1623,7 @@ fn demo_saved_state(stage: Stage) -> lapiswitch_core::state::RunState {
 }
 fn demo_report(region: Region) -> FirmwareReport {
     FirmwareReport {
+        device: lapiswitch_core::device::Device::find("TB520FU").expect("demo device"),
         image_dir: "Demo/firmware/image".into(),
         loader: "Demo/loader.melf".into(),
         region,
@@ -1797,7 +1802,7 @@ mod tests {
             }
         }
         app.pending = None;
-        assert!(app.start_blocker().unwrap().contains("TB520FU"));
+        assert!(app.start_blocker().unwrap().contains("지원 기기"));
         app.device.snapshot.model = "lapis".into();
         assert!(app.can_start());
         let id = app.device.begin().unwrap();
@@ -1838,7 +1843,7 @@ mod tests {
         let _ = app.picked(Picker::Output, Some(selected.clone()));
         assert_eq!(app.output, selected);
         assert_eq!(transcript::log_dir(&app.output), selected.join("logs"));
-        let builder = lapiswitch_core::backup::BackupBuilder::create(&app.output).unwrap();
+        let builder = lapiswitch_core::backup::BackupBuilder::create(&app.output, None).unwrap();
         assert!(
             builder
                 .path()

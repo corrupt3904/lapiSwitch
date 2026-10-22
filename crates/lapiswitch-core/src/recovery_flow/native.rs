@@ -2,6 +2,7 @@
 //! assumption. USB shell in adb_client 3.2.3 returns no exit status, so every
 //! command uses an explicit exit trailer and EOF alone can never mean success.
 use super::{DeviceInfoIo, Ui};
+use crate::device::Device;
 use crate::{
     backup::{self, VerifiedBackup},
     deviceinfo::{self, map},
@@ -101,6 +102,7 @@ struct Prepared {
 }
 pub struct Recovery {
     usb: ADBUSBDevice,
+    device: Device,
     remote: String,
     serial: String,
     slot: Slot,
@@ -137,6 +139,7 @@ impl Recovery {
                 );
                 let mut recovery = Self {
                     usb,
+                    device: backup.device(),
                     remote,
                     serial: String::new(),
                     slot: backup.manifest().slot,
@@ -194,7 +197,7 @@ impl Recovery {
         format!(
             "{remote}/deviceinfo --logical-size 0x{size:X} --ta {ta} --expected {remote}/expected{tag}.bin --planned {remote}/planned{tag}.bin",
             remote = self.remote,
-            size = deviceinfo::layout().logical_size(),
+            size = self.device.layout().logical_size(),
         )
     }
     fn pull(&mut self, remote: &str, out: &Path, expected: Option<u64>) -> Result<Vec<u8>, String> {
@@ -236,12 +239,13 @@ impl Recovery {
         let model = self.shell("getprop ro.product.model", false)?;
         let product = self.shell("getprop ro.product.device", false)?;
         if !crate::prepare::supported_model(&model)
-            || !product.eq_ignore_ascii_case(crate::device::codename())
+            || Device::identify(&model) != Some(self.device)
+            || !product.eq_ignore_ascii_case(self.device.codename())
         {
             return Err(format!(
                 "TWRP 기기가 {}/{}로 확인되지 않았습니다.",
-                crate::device::model(),
-                crate::device::codename()
+                self.device,
+                self.device.codename()
             ));
         }
         if self.shell("getprop ro.product.cpu.abi", false)? != "arm64-v8a" {
@@ -329,7 +333,7 @@ impl DeviceInfoIo for Recovery {
             &format!(
                 "{}/deviceinfo --logical-size 0x{:X} --read --ta {} --out-prefix {prefix}",
                 self.remote,
-                deviceinfo::layout().logical_size(),
+                self.device.layout().logical_size(),
                 ta
             ),
             true,
@@ -351,7 +355,7 @@ impl DeviceInfoIo for Recovery {
     ) -> Result<(), String> {
         self.prepared = None;
         let ta = self.active_keymaster()?;
-        map::check_plan(deviceinfo::layout(), before, planned)?;
+        map::check_plan(self.device.layout(), before, planned)?;
         self.reads += 1;
         let tag = self.reads;
         let (before_hash, planned_hash) =
@@ -446,7 +450,11 @@ mod tests {
     #[test]
     fn adb_identity_serial_binding_requires_an_explicit_nonempty_field() {
         assert_eq!(
-            saved_serial(&crate::prepare::identity_record(Slot::B, "FAKE123")),
+            saved_serial(&crate::prepare::identity_record(
+                crate::device::tb520fu(),
+                Slot::B,
+                "FAKE123"
+            )),
             Some("FAKE123")
         );
         assert_eq!(

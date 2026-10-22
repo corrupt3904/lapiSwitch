@@ -49,13 +49,13 @@ TWRP에서 DeviceInfo를 백업·변경·검증한 뒤 원본 GPT·Recovery를 �
 | 항목 | 조건 |
 |---|---|
 | PC 운영체제 | **Windows x64 전용** |
-| 태블릿 | **Lenovo TB520FU(`lapis`)** — 다른 모델은 작업 차단 |
-| 설치된 내수롬(PRC) | `ZUXOS_1.5.10.186` 이하, 이전 PRC ZUI 계열도 허용 |
-| 설치된 글로벌롬(ROW) | `ZUI_18.5.10.037` 이하 |
+| 태블릿 | **Lenovo TB520FU(`lapis`)**, **TB522FU(`mojito`, 실기기 미검증)** — 다른 모델은 작업 차단 |
+| 설치된 내수롬(PRC) | TB520FU: `ZUXOS_1.5.10.186` 이하, 이전 PRC ZUI 계열도 허용 · TB522FU: 빌드 날짜 2026-09-24(`…260924C`) 이하 |
+| 설치된 글로벌롬(ROW) | TB520FU: `ZUI_18.5.10.037` 이하 · TB522FU: 빌드 날짜 2026-09-04(`…260904W`) 이하 |
 | 설치할 펌웨어 | **목표 리전**과 일치하는 공식 펌웨어의 압축 해제 폴더 |
 | 연결 환경 | 안정적인 USB 케이블, 충분한 배터리, 필요한 파일을 내려받을 인터넷 연결 |
 
-위 버전 상한은 **현재 태블릿에 설치된 펌웨어**의 기준입니다. 설치할 펌웨어 패키지는 별도로 검사합니다. 순정롬으로 확인된 기기 펌웨어가 상한을 넘으면 변환을 차단합니다. 순정롬 버전·리전을 확인할 수 없는 경우에는 커스텀롬·GSI·테스트 빌드 가능성을 안내하고, 사용자가 계속 진행을 선택해야 합니다. STEP 5·7의 연결 대기는 30초 후 작업 중지가 가능하며, 3분이 지나면 기록을 보존하고 오류로 중단합니다. 각 프리릴리즈의 검증 범위와 제약은 [릴리즈 노트](https://github.com/corrupt3904/lapiSwitch/releases)를 확인하세요.
+기기별 값(모델, 버전 상한, TWRP, 국가코드 위치, DeviceInfo 필드 맵)은 [`devices/`](devices/README.md)에 있습니다. 위 버전 상한은 **현재 태블릿에 설치된 펌웨어**의 기준입니다. 설치할 펌웨어 패키지는 별도로 검사합니다. 순정롬으로 확인된 기기 펌웨어가 상한을 넘으면 변환을 차단합니다. 순정롬 버전·리전을 확인할 수 없는 경우에는 커스텀롬·GSI·테스트 빌드 가능성을 안내하고, 사용자가 계속 진행을 선택해야 합니다. STEP 5·7의 연결 대기는 30초 후 작업 중지가 가능하며, 3분이 지나면 기록을 보존하고 오류로 중단합니다. 각 프리릴리즈의 검증 범위와 제약은 [릴리즈 노트](https://github.com/corrupt3904/lapiSwitch/releases)를 확인하세요.
 
 ## 사용 방법
 
@@ -111,7 +111,7 @@ Android helper와 해당 검증 범위는 [`tools/deviceinfo/README.md`](tools/d
 ## 크레딧
 
 - **[LTBox](https://github.com/miner7222/LTBox) — [@miner7222](https://github.com/miner7222):** 기기 통신, EDL 플래시, 드라이버·펌웨어 처리와 일부 GUI 자산의 기반입니다. 포함된 `ltbox-core`·`ltbox-device` 소스는 수정 없이 유지합니다. AVB 분석에는 [avbtool-rs](https://github.com/miner7222/avbtool-rs)를 사용합니다.
-- **[TeamWin / TWRP](https://twrp.me/), TWRP-Test 및 lapis 기여자:** [TB520FU용 Recovery 빌드](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014)는 [@wnduddld0513](https://github.com/wnduddld0513)님이 [lenovo-sm8650](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp)에 배포한 릴리즈를 사용합니다.
+- **[TeamWin / TWRP](https://twrp.me/), TWRP-Test 및 lapis 기여자:** [TB520FU용 Recovery 빌드](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014)는 [@wnduddld0513](https://github.com/wnduddld0513)님이 [lenovo-sm8650](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp)에 배포한 릴리즈를 사용합니다. [TB522FU용 Recovery 빌드](https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16)는 lanweikayu님이 배포한 릴리즈를 사용합니다.
 - **기타 구성요소:** [qdlrs](https://github.com/qualcomm/qdlrs), [flag-icons](https://github.com/lipis/flag-icons), [Noto Sans KR](https://github.com/notofonts/noto-cjk), [iced](https://github.com/iced-rs/iced), [`Cargo.lock`](Cargo.lock)에 기록된 Rust 의존성.
 
 ## 라이선스

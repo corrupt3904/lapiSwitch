@@ -27,29 +27,22 @@ fn generate(root: &Path) -> Result<String> {
         .filter(|path| path.is_dir())
         .collect();
     folders.sort();
-    if folders.is_empty() {
-        return Err("기기 폴더가 없습니다.".into());
-    }
     let mut code = String::from(
         "/// Every folder in `devices/`, sorted by model.\npub static DEVICES: &[Device] = &[\n",
     );
-    let mut flows = vec![];
+    let mut flows = 0;
     for folder in &folders {
-        for name in ["device.toml", "deviceinfo.toml"] {
+        for name in ["device.toml", "deviceinfo.toml", "image.png"] {
             println!("cargo:rerun-if-changed={}", folder.join(name).display());
         }
         let model = folder.file_name().unwrap().to_string_lossy().into_owned();
         let (device, flow) = device(folder, &model).map_err(|e| format!("{model}: {e}"))?;
-        if flow {
-            flows.push(model);
-        }
+        flows += usize::from(flow);
         code.push_str(&device);
     }
     code.push_str("];\n");
-    if flows.len() != 1 {
-        return Err(format!(
-            "flow = true인 기기는 정확히 하나여야 합니다 (현재: {flows:?}). 작업 흐름은 아직 기기 하나만 연결할 수 있습니다."
-        ));
+    if flows == 0 {
+        return Err("flow = true인 기기가 하나도 없습니다.".into());
     }
     Ok(code)
 }
@@ -84,71 +77,86 @@ fn int(table: &Table, key: &str, place: &str) -> Result<i64> {
         .ok_or_else(|| format!("{place}: `{key}` 정수가 필요합니다."))
 }
 
+fn table<'a>(doc: &'a Table, key: &str, place: &str) -> Result<&'a Table> {
+    doc.get(key)
+        .and_then(Item::as_table)
+        .ok_or_else(|| format!("{place}: [{key}]가 필요합니다."))
+}
+
+const FLOW_KEYS: [&str; 4] = ["firmware", "installed", "twrp", "country"];
+
 fn device(folder: &Path, model: &str) -> Result<(String, bool)> {
     let doc = read(&folder.join("device.toml"))?;
     let place = "device.toml";
-    only(
-        &doc,
-        &[
-            "model",
-            "codename",
-            "flow",
-            "firmware",
-            "installed_firmware",
-            "twrp",
-        ],
-        place,
-    )?;
+    let mut allowed = vec!["model", "codename", "flow"];
+    allowed.extend(FLOW_KEYS);
+    only(&doc, &allowed, place)?;
     if string(&doc, "model", place)? != model {
         return Err("device.toml의 model이 폴더 이름과 다릅니다.".into());
     }
     let codename = match doc.get("codename") {
-        None => "None".to_owned(),
-        Some(item) => format!(
-            "Some({:?})",
+        None => None,
+        Some(item) => Some(
             item.as_str()
-                .ok_or("device.toml: `codename`은 문자열이어야 합니다.")?
+                .ok_or("device.toml: `codename`은 문자열이어야 합니다.")?,
         ),
     };
     let flow = doc
         .get("flow")
         .and_then(Item::as_bool)
         .ok_or("device.toml: `flow`(true/false)가 필요합니다.")?;
-    let has_flow = flow;
-    if flow && !doc.contains_key("codename") {
-        return Err(
-            "device.toml: flow = true에는 `codename`이 필요합니다 (TWRP ro.product.device 확인용)."
-                .into(),
-        );
-    }
-    let flow = if flow {
+    let flow_code = if flow {
+        if codename.is_none() {
+            return Err(
+                "device.toml: flow = true에는 `codename`이 필요합니다 (TWRP ro.product.device 확인용)."
+                    .into(),
+            );
+        }
         format!("Some({})", flow_data(&doc)?)
     } else {
-        for key in ["firmware", "installed_firmware", "twrp"] {
+        for key in FLOW_KEYS {
             if doc.contains_key(key) {
                 return Err(format!(
-                    "device.toml: flow = false인 기기에는 `{key}`를 두지 않습니다."
+                    "device.toml: flow = false인 기기에는 [{key}]를 두지 않습니다."
                 ));
             }
         }
         "None".to_owned()
     };
+    let image = folder.join("image.png");
+    let image = if image.is_file() {
+        let path = image
+            .canonicalize()
+            .map_err(|e| format!("image.png: {e}"))?;
+        format!("Some(include_bytes!({:?}))", path.to_string_lossy())
+    } else {
+        "None".to_owned()
+    };
     let deviceinfo = deviceinfo(&read(&folder.join("deviceinfo.toml"))?)?;
     Ok((
         format!(
-            "    Device {{\n        model: {model:?},\n        codename: {codename},\n        flow: {flow},\n        deviceinfo: {deviceinfo},\n    }},\n"
+            "    Device {{\n        model: {model:?},\n        codename: {codename:?},\n        flow: {flow_code},\n        image: {image},\n        deviceinfo: {deviceinfo},\n    }},\n"
         ),
-        has_flow,
+        flow,
     ))
 }
 
-fn flow_data(doc: &DocumentMut) -> Result<String> {
-    let firmware = doc
-        .get("firmware")
-        .and_then(Item::as_table)
-        .ok_or("device.toml: flow = true에는 [firmware]가 필요합니다.")?;
+fn region(value: &str, place: &str) -> Result<&'static str> {
+    match value {
+        "PRC" => Ok("RegionCode::Prc"),
+        "ROW" => Ok("RegionCode::Row"),
+        other => Err(format!("{place}: region은 PRC 또는 ROW입니다 ({other}).")),
+    }
+}
+
+fn firmware(doc: &DocumentMut) -> Result<String> {
     let place = "[firmware]";
-    only(firmware, &["loader", "required_images"], place)?;
+    let firmware = table(doc, "firmware", "device.toml")?;
+    only(
+        firmware,
+        &["loader", "required_images", "region_marker"],
+        place,
+    )?;
     let loader = string(firmware, "loader", place)?;
     let images: Vec<&str> = firmware
         .get("required_images")
@@ -160,60 +168,132 @@ fn flow_data(doc: &DocumentMut) -> Result<String> {
                 .ok_or("[firmware]: `required_images`는 문자열 배열이어야 합니다.")
         })
         .collect::<std::result::Result<_, _>>()?;
-    if images.is_empty() {
-        return Err("[firmware]: `required_images`가 비어 있습니다.".into());
+    for required in ["vendor_boot.img", "vbmeta_system.img", "boot.img"] {
+        if !images.contains(&required) {
+            return Err(format!(
+                "[firmware]: `required_images`에 리전·버전 확인용 {required}가 있어야 합니다."
+            ));
+        }
     }
+    let marker = match string(firmware, "region_marker", place)? {
+        "region_country" => "RegionMarker::RegionCountry",
+        "product_region/build_region" => "RegionMarker::ProductRegionBuildRegion",
+        other => {
+            return Err(format!(
+                "[firmware]: 알 수 없는 region_marker `{other}` (region_country, product_region/build_region)"
+            ));
+        }
+    };
+    Ok(format!(
+        "FirmwarePackage {{ loader: {loader:?}, required_images: &{images:?}, region_marker: {marker} }}"
+    ))
+}
 
-    let mut installed = String::from("&[");
-    let entries = doc
-        .get("installed_firmware")
+fn installed(doc: &DocumentMut) -> Result<String> {
+    let place = "[installed]";
+    let installed = table(doc, "installed", "device.toml")?;
+    only(installed, &["scheme", "allow"], place)?;
+    let scheme = string(installed, "scheme", place)?;
+    let (scheme_code, keys): (&str, &[&str]) = match scheme {
+        "zui_version" => (
+            "VersionScheme::ZuiVersion",
+            &["region", "family", "max", "label"],
+        ),
+        "build_date" => (
+            "VersionScheme::BuildDate",
+            &["region", "suffix", "max", "label"],
+        ),
+        other => {
+            return Err(format!(
+                "[installed]: 알 수 없는 scheme `{other}` (zui_version, build_date)"
+            ));
+        }
+    };
+    let entries = installed
+        .get("allow")
         .and_then(Item::as_array_of_tables)
-        .ok_or("device.toml: flow = true에는 [[installed_firmware]]가 필요합니다.")?;
+        .ok_or("[installed]: [[installed.allow]]가 필요합니다.")?;
+    let mut allow = String::from("&[");
     for (n, entry) in entries.iter().enumerate() {
-        let place = format!("[[installed_firmware]] #{}", n + 1);
-        only(entry, &["region", "family", "max", "label"], &place)?;
-        let region = match string(entry, "region", &place)? {
-            "PRC" => "RegionCode::Prc",
-            "ROW" => "RegionCode::Row",
-            other => return Err(format!("{place}: region은 PRC 또는 ROW입니다 ({other}).")),
-        };
-        let family = string(entry, "family", &place)?;
-        let max = match (entry.get("max"), entry.get("label")) {
-            (None, None) => "None".to_owned(),
-            (Some(max), Some(label)) => {
-                let max = max
+        let place = format!("[[installed.allow]] #{}", n + 1);
+        only(entry, keys, &place)?;
+        let region = region(string(entry, "region", &place)?, &place)?;
+        let label = match (entry.get("max"), entry.get("label")) {
+            (None, None) => None,
+            (Some(_), Some(label)) => Some(
+                label
                     .as_str()
-                    .ok_or(format!("{place}: `max`는 문자열입니다."))?;
-                let numbers: Vec<u32> = max
-                    .split('.')
-                    .map(|p| {
-                        p.parse()
-                            .map_err(|_| format!("{place}: `max` 버전 형식 오류 ({max})"))
-                    })
-                    .collect::<Result<_>>()?;
-                let numbers: [u32; 4] = numbers
-                    .try_into()
-                    .map_err(|_| format!("{place}: `max`는 숫자 4개(a.b.c.d)여야 합니다."))?;
-                let label = label
-                    .as_str()
-                    .ok_or(format!("{place}: `label`은 문자열입니다."))?;
-                format!("Some(({numbers:?}, {label:?}))")
-            }
+                    .ok_or(format!("{place}: `label`은 문자열입니다."))?,
+            ),
             _ => return Err(format!("{place}: `max`와 `label`은 함께 두어야 합니다.")),
         };
-        write!(
-            installed,
-            "InstalledFirmware {{ region: {region}, family: {family:?}, max: {max} }}, "
-        )
-        .unwrap();
+        let max = entry.get("max").and_then(Item::as_str);
+        if entry.contains_key("max") && max.is_none() {
+            return Err(format!("{place}: `max`는 문자열입니다."));
+        }
+        let code = if scheme == "zui_version" {
+            let family = string(entry, "family", &place)?;
+            let max = match max {
+                None => "None".to_owned(),
+                Some(max) => {
+                    let numbers: Vec<u32> = max
+                        .split('.')
+                        .map(|p| {
+                            p.parse()
+                                .map_err(|_| format!("{place}: `max` 버전 형식 오류 ({max})"))
+                        })
+                        .collect::<Result<_>>()?;
+                    let numbers: [u32; 4] = numbers
+                        .try_into()
+                        .map_err(|_| format!("{place}: `max`는 숫자 4개(a.b.c.d)여야 합니다."))?;
+                    format!("Some(({numbers:?}, {:?}))", label.unwrap())
+                }
+            };
+            format!(
+                "InstalledFirmware::Version {{ region: {region}, family: {family:?}, max: {max} }}"
+            )
+        } else {
+            let suffix = string(entry, "suffix", &place)?;
+            if suffix.len() != 1 || !suffix.bytes().all(|b| b.is_ascii_uppercase()) {
+                return Err(format!(
+                    "{place}: `suffix`는 대문자 한 글자입니다 ({suffix})."
+                ));
+            }
+            let max = match max {
+                None => "None".to_owned(),
+                Some(max) => {
+                    let digits: String = max.chars().filter(|c| *c != '-').collect();
+                    let valid = max.len() == 10
+                        && max.as_bytes()[4] == b'-'
+                        && max.as_bytes()[7] == b'-'
+                        && digits.len() == 8
+                        && digits.bytes().all(|b| b.is_ascii_digit());
+                    let date: u32 = digits.parse().unwrap_or(0);
+                    let (month, day) = (date / 100 % 100, date % 100);
+                    if !valid || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+                        return Err(format!("{place}: `max`는 YYYY-MM-DD 날짜입니다 ({max})."));
+                    }
+                    format!("Some(({date}, {:?}))", label.unwrap())
+                }
+            };
+            format!(
+                "InstalledFirmware::BuildDate {{ region: {region}, suffix: {:?}, max: {max} }}",
+                suffix.chars().next().unwrap()
+            )
+        };
+        allow.push_str(&code);
+        allow.push_str(", ");
     }
-    installed.push(']');
+    allow.push(']');
+    if entries.is_empty() {
+        return Err("[installed]: 허용 항목이 하나 이상 필요합니다.".into());
+    }
+    Ok(format!("{scheme_code}, installed_firmware: {allow}"))
+}
 
-    let twrp = doc
-        .get("twrp")
-        .and_then(Item::as_table)
-        .ok_or("device.toml: flow = true에는 [twrp]가 필요합니다.")?;
+fn twrp(doc: &DocumentMut) -> Result<String> {
     let place = "[twrp]";
+    let twrp = table(doc, "twrp", "device.toml")?;
     only(twrp, &["tag", "name", "size", "sha256", "url"], place)?;
     let sha256 = string(twrp, "sha256", place)?;
     if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -228,10 +308,58 @@ fn flow_data(doc: &DocumentMut) -> Result<String> {
         return Err("[twrp]: `url`은 https://로 시작해야 합니다.".into());
     }
     Ok(format!(
-        "Flow {{ firmware: FirmwarePackage {{ loader: {loader:?}, required_images: &{images:?} }}, installed_firmware: {installed}, twrp: Twrp {{ tag: {:?}, name: {:?}, size: {size}, sha256: {:?}, url: {url:?} }} }}",
+        "Twrp {{ tag: {:?}, name: {:?}, size: {size}, sha256: {:?}, url: {url:?} }}",
         string(twrp, "tag", place)?,
         string(twrp, "name", place)?,
         sha256.to_ascii_lowercase(),
+    ))
+}
+
+fn country(doc: &DocumentMut) -> Result<String> {
+    let place = "[country]";
+    let country = table(doc, "country", "device.toml")?;
+    match string(country, "method", place)? {
+        "devinfo_persist" => {
+            only(country, &["method"], place)?;
+            Ok("Country::DevinfoPersist".into())
+        }
+        "oemowninfo" => {
+            only(
+                country,
+                &["method", "partition", "lun", "size", "offset", "field_size"],
+                place,
+            )?;
+            let partition = string(country, "partition", place)?;
+            let lun = int(country, "lun", place)?;
+            let size = int(country, "size", place)?;
+            let offset = int(country, "offset", place)?;
+            let field = int(country, "field_size", place)?;
+            if !(0..=7).contains(&lun) {
+                return Err("[country]: `lun`은 0..=7입니다.".into());
+            }
+            if size <= 0 || size % 4096 != 0 || field < 4 || offset < 0 || offset + field > size {
+                return Err(
+                    "[country]: size는 4096의 배수, field_size ≥ 4, offset + field_size ≤ size여야 합니다."
+                        .into(),
+                );
+            }
+            Ok(format!(
+                "Country::Oemowninfo(OemOwnInfo {{ partition: {partition:?}, lun: {lun}, size: {size}, offset: {offset}, field_size: {field} }})"
+            ))
+        }
+        other => Err(format!(
+            "[country]: 알 수 없는 method `{other}` (devinfo_persist, oemowninfo)"
+        )),
+    }
+}
+
+fn flow_data(doc: &DocumentMut) -> Result<String> {
+    Ok(format!(
+        "Flow {{ firmware: {}, version_scheme: {}, twrp: {}, country: {} }}",
+        firmware(doc)?,
+        installed(doc)?,
+        twrp(doc)?,
+        country(doc)?
     ))
 }
 

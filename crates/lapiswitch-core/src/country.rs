@@ -4,6 +4,8 @@
 
 use sha2::{Digest, Sha256};
 
+pub mod oemowninfo;
+
 pub const KNOWN_CODES: &[&str] = &[
     "CN", "KR", "JP", "US", "GB", "DE", "FR", "IT", "ES", "NL", "AT", "BE", "BG", "HR", "CY", "CZ",
     "DK", "EE", "FI", "GR", "HU", "IE", "LV", "LT", "LU", "MT", "PL", "PT", "RO", "SK", "SI", "SE",
@@ -27,7 +29,7 @@ fn field(data: &[u8], i: usize) -> bool {
     (i.is_multiple_of(4096) || data[i - 1] == 0) && (i + 4 == data.len() || data[i + 4] == 0)
 }
 
-fn pattern(code: &str, suffix: &str) -> [u8; 4] {
+pub(crate) fn pattern(code: &str, suffix: &str) -> [u8; 4] {
     [
         code.as_bytes()[0],
         code.as_bytes()[1],

@@ -66,33 +66,39 @@ mod tests {
             }
         }
         assert_eq!(referenced.len(), catalog.texts.len());
-        let twrp = catalog
-            .components
-            .iter()
-            .find(|c| c.name == "TWRP / TeamWin")
-            .unwrap();
-        // The license notice must name the TWRP pinned in device.toml.
-        let pinned = &lapiswitch_core::device::flow().twrp;
-        assert!(twrp.version.contains(pinned.tag));
-        let notices = twrp
-            .notices
-            .iter()
-            .map(|n| catalog.texts[n.text].as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-        for expected in [
-            pinned.name,
-            pinned.sha256,
-            pinned.url,
-            "Copyright (c) 2011-2016, Dees_Troy, bigbiff, Team Win",
-            "GNU GENERAL PUBLIC LICENSE",
-            "SPDX-License-Identifier: Apache-2.0",
-            "https://github.com/TWRP-Test/platform_manifest_twrp_aosp/tree/twrp-16.0",
-        ] {
-            assert!(
-                notices.contains(expected),
-                "missing TWRP notice: {expected}"
-            );
+        // Every TWRP pinned in device.toml has a notice naming its exact
+        // release, image, hash and download, plus the upstream licenses.
+        for device in lapiswitch_core::device::Device::all() {
+            let pinned = device.twrp();
+            let twrp = catalog
+                .components
+                .iter()
+                .find(|c| {
+                    c.name.starts_with("TWRP / TeamWin")
+                        && c.version.contains(pinned.tag)
+                        && c.notices
+                            .iter()
+                            .any(|n| catalog.texts[n.text].contains(pinned.sha256))
+                })
+                .unwrap_or_else(|| panic!("{device}: no TWRP notice for {}", pinned.tag));
+            let notices = twrp
+                .notices
+                .iter()
+                .map(|n| catalog.texts[n.text].as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            for expected in [
+                pinned.name,
+                pinned.sha256,
+                pinned.url,
+                "GNU GENERAL PUBLIC LICENSE",
+                "SPDX-License-Identifier: Apache-2.0",
+            ] {
+                assert!(
+                    notices.contains(expected),
+                    "{device} TWRP notice: {expected}"
+                );
+            }
         }
         for (name, original) in [
             ("lapiSwitch", include_str!("../../../LICENSE")),

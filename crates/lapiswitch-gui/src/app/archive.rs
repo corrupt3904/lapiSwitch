@@ -45,6 +45,7 @@ impl App {
         } else if self.page == Page::Edit {
             self.launch(
                 worker::Action::Edit {
+                    device: self.device.supported(),
                     loader: self.loader.clone().expect("validated loader"),
                     output: self.output.clone(),
                 },

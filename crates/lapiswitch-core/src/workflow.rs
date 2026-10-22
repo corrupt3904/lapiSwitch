@@ -14,6 +14,8 @@ use crate::state::RunState;
 use crate::storage::{self, Partition};
 
 pub mod native;
+mod oemowninfo;
+pub(crate) use oemowninfo::change as change_partition_country;
 
 pub trait Clock {
     fn seconds(&self) -> u64;

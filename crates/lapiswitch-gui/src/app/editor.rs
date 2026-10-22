@@ -420,7 +420,7 @@ fn basic_box<'a>(content: widget::Column<'a, Message>, changed: bool) -> Element
 fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
     let selected = editor.rollback_choice();
     // "0" duplicates "Current" when every stored index is already 0.
-    let all_zero = lapiswitch_core::deviceinfo::indices(&editor.before)
+    let all_zero = lapiswitch_core::deviceinfo::indices(editor.layout, &editor.before)
         .iter()
         .all(|index| *index == 0);
     let mut choices = row![choice(
@@ -780,12 +780,17 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
 mod tests {
     use super::*;
 
+    fn layout() -> Layout {
+        lapiswitch_core::device::Device::find("TB520FU")
+            .unwrap()
+            .layout()
+    }
     fn open() -> (App, std::sync::mpsc::Receiver<Option<EditRequest>>) {
         let mut app = App::base(true);
         let (tx, rx) = std::sync::mpsc::channel();
         app.editor = Some(Editor::new(
-            lapiswitch_core::deviceinfo::layout(),
-            super::super::demo_deviceinfo(),
+            layout(),
+            super::super::demo_deviceinfo(layout()),
             tx,
         ));
         (app, rx)
@@ -802,7 +807,10 @@ mod tests {
         app.editor_update(EditorMessage::Rollback(RollbackChoice::Zero));
         assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Zero);
         let planned = editor(&app).planned().unwrap();
-        assert_eq!(lapiswitch_core::deviceinfo::indices(&planned), [0; 32]);
+        assert_eq!(
+            lapiswitch_core::deviceinfo::indices(layout(), &planned),
+            [0; 32]
+        );
         app.editor_update(EditorMessage::Rollback(RollbackChoice::Current));
         assert!(editor(&app).changes().is_empty());
         // Custom keeps the values and opens the 32 inputs.
@@ -811,7 +819,10 @@ mod tests {
         assert!(editor(&app).changes().is_empty());
         app.editor_update(EditorMessage::Input(rollback_key(3), "20".into()));
         let planned = editor(&app).planned().unwrap();
-        assert_eq!(lapiswitch_core::deviceinfo::indices(&planned)[3], 20);
+        assert_eq!(
+            lapiswitch_core::deviceinfo::indices(layout(), &planned)[3],
+            20
+        );
         app.editor_update(EditorMessage::ResetAll);
         assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Current);
     }

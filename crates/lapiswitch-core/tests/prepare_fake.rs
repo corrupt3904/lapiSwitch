@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use lapiswitch_core::avb_info::{AvbSummary, KeyClass};
+use lapiswitch_core::device::Device;
 use lapiswitch_core::firmware::FirmwareReport;
 use lapiswitch_core::prepare::{
     self, AdbIdentity, Connection, DeviceIo, PrepareError, PreparedDevice,
@@ -12,8 +13,13 @@ use lapiswitch_core::region::Region;
 use lapiswitch_core::rollback::RollbackIndices;
 use lapiswitch_core::slot::Slot;
 
+fn tb520fu() -> Device {
+    Device::find("TB520FU").unwrap()
+}
+
 fn firmware() -> FirmwareReport {
     FirmwareReport {
+        device: tb520fu(),
         image_dir: "firmware/image".into(),
         loader: "loader.melf".into(),
         region: Region::Row,
@@ -95,7 +101,7 @@ impl Fake {
     }
 
     fn run(&mut self) -> Result<PreparedDevice<usize>, PrepareError> {
-        prepare::prepare(self, &firmware().loader, &mut |_| Ok(()), &mut vec![])
+        prepare::prepare(self, None, &firmware().loader, &mut |_| Ok(()), &mut vec![])
     }
 }
 
@@ -169,6 +175,7 @@ fn adb_flow_saves_the_identity_then_reboots_straight_to_edl() {
     let mut saved = String::new();
     let prepared = prepare::prepare(
         &mut device,
+        None,
         &firmware().loader,
         &mut |raw| {
             saved = raw.into();
@@ -181,7 +188,10 @@ fn adb_flow_saves_the_identity_then_reboots_straight_to_edl() {
     assert_eq!(prepared.report.slot, Slot::B);
     assert_eq!(prepared.session, 42);
     assert_eq!(prepared.report.identity.as_deref(), Some(saved.as_str()));
-    assert_eq!(saved, prepare::identity_record(Slot::B, "FAKE0001"));
+    assert_eq!(
+        saved,
+        prepare::identity_record(tb520fu(), Slot::B, "FAKE0001")
+    );
     assert!(saved.contains("serialno: FAKE0001\n"));
     assert!(saved.contains("current-slot: _b\n"));
     assert_eq!(
@@ -206,6 +216,7 @@ fn fastboot_start_is_refused_before_any_device_command() {
     let mut saved = false;
     let result = prepare::prepare_with_confirmation(
         &mut device,
+        None,
         &firmware().loader,
         &mut |_| {
             saved = true;
@@ -236,6 +247,7 @@ fn incorrect_adb_model_is_rejected_before_serial_save_or_reboot() {
         let mut saved = false;
         let result = prepare::prepare(
             &mut device,
+            None,
             &firmware().loader,
             &mut |_| {
                 saved = true;
@@ -284,6 +296,7 @@ fn empty_multiline_or_unreadable_serial_blocks_before_save_and_reboot() {
         let mut saved = false;
         let result = prepare::prepare(
             &mut device,
+            None,
             &firmware().loader,
             &mut |_| {
                 saved = true;
@@ -307,7 +320,7 @@ fn surrounding_serial_whitespace_is_not_recorded() {
     let prepared = device.run().unwrap();
     assert_eq!(
         prepared.report.identity.unwrap(),
-        prepare::identity_record(Slot::A, "FAKE0001")
+        prepare::identity_record(tb520fu(), Slot::A, "FAKE0001")
     );
 }
 
@@ -316,6 +329,7 @@ fn identity_save_failure_keeps_the_device_in_android() {
     let mut device = Fake::new(Connection::Adb);
     let result = prepare::prepare(
         &mut device,
+        None,
         &firmware().loader,
         &mut |_| Err("disk full".into()),
         &mut vec![],
@@ -455,7 +469,13 @@ fn s1_never_reads_boot_or_compares_rollback_indices() {
                 .insert(name.into(), Some(avb(u64::MAX, "TB520FU")));
         }
         let mut log = vec![];
-        let prepared = prepare::prepare(&mut device, &firmware().loader, &mut |_| Ok(()), &mut log);
+        let prepared = prepare::prepare(
+            &mut device,
+            None,
+            &firmware().loader,
+            &mut |_| Ok(()),
+            &mut log,
+        );
         assert!(prepared.is_ok(), "{start:?}");
         assert!(!device.contains("boot_a"));
         assert!(!device.contains("boot_b"));
@@ -508,6 +528,7 @@ fn reset_failure_keeps_the_original_probe_error() {
     let mut log = vec![];
     let result = prepare::prepare(
         &mut device,
+        None,
         &firmware().loader,
         &mut |_| panic!("EDL must not save an ADB identity"),
         &mut log,
@@ -523,6 +544,7 @@ fn edl_start_confirmation_is_required_before_open_and_cancellation_does_not_rese
         let mut asked = 0;
         let result = prepare::prepare_with_confirmation(
             &mut d,
+            None,
             &firmware().loader,
             &mut |_| Ok(()),
             &mut || {
@@ -539,6 +561,7 @@ fn edl_start_confirmation_is_required_before_open_and_cancellation_does_not_rese
     let mut d = Fake::new(Connection::Adb);
     prepare::prepare_with_confirmation(
         &mut d,
+        None,
         &firmware().loader,
         &mut |_| Ok(()),
         &mut || panic!("only EDL starts ask"),
@@ -557,4 +580,85 @@ fn gpt_active_slot_with_wrong_model_cannot_borrow_the_other_slots_identity() {
             .insert("vbmeta_system_b".into(), Some(avb(10, "TB323FU")));
         assert!(matches!(d.run(), Err(PrepareError::WrongModel(_))));
     }
+}
+
+fn tb522fu() -> Device {
+    Device::find("TB522FU").unwrap()
+}
+
+fn as_tb522fu(device: &mut Fake) {
+    device.adb.model = Some("mojito".into());
+    for slot in ["a", "b"] {
+        device
+            .images
+            .insert(format!("vbmeta_system_{slot}"), Some(avb(10, "TB522FU")));
+    }
+}
+
+#[test]
+fn the_device_comes_from_adb_or_the_edl_fingerprint_and_must_match_the_run() {
+    // ADB start: the model (or codename) names the device.
+    let mut device = Fake::new(Connection::Adb);
+    as_tb522fu(&mut device);
+    let prepared = prepare::prepare(
+        &mut device,
+        None,
+        &firmware().loader,
+        &mut |_| Ok(()),
+        &mut vec![],
+    )
+    .unwrap();
+    assert_eq!(prepared.report.device, tb522fu());
+    assert!(
+        prepared
+            .report
+            .identity
+            .unwrap()
+            .contains("modelname: TB522FU\n")
+    );
+    // EDL start: the active slot's fingerprint names it.
+    let mut device = Fake::new(Connection::Edl);
+    as_tb522fu(&mut device);
+    let prepared = prepare::prepare(
+        &mut device,
+        None,
+        &firmware().loader,
+        &mut |_| Ok(()),
+        &mut vec![],
+    )
+    .unwrap();
+    assert_eq!(prepared.report.device, tb522fu());
+    // A TB520FU conversion never continues on a TB522FU, in either mode.
+    for mode in [Connection::Adb, Connection::Edl] {
+        let mut device = Fake::new(mode);
+        as_tb522fu(&mut device);
+        let result = prepare::prepare(
+            &mut device,
+            Some(tb520fu()),
+            &firmware().loader,
+            &mut |_| Ok(()),
+            &mut vec![],
+        );
+        assert!(
+            matches!(
+                result,
+                Err(PrepareError::OtherDevice { expected, found })
+                    if expected == tb520fu() && found == tb522fu()
+            ),
+            "{mode:?}"
+        );
+        assert!(!device.contains("adb_reboot_edl"), "{mode:?}");
+    }
+    // ADB reporting one device while the flash holds another stops in EDL.
+    let mut device = Fake::new(Connection::Adb);
+    device.adb.model = Some("TB522FU".into());
+    let result = prepare::prepare(
+        &mut device,
+        None,
+        &firmware().loader,
+        &mut |_| Ok(()),
+        &mut vec![],
+    );
+    assert!(matches!(result, Err(PrepareError::OtherDevice { .. })));
+    assert!(device.contains("reset_edl"));
 }
