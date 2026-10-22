@@ -153,11 +153,8 @@ mod tests {
         let preferences: Preferences =
             serde_json::from_str(r#"{"kernel":false,"mask_serial":false}"#).unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let data = dir.path().join("tb520-region-tool");
-        assert_eq!(
-            preferences.storage_root(&data),
-            dir.path().join("lapiSwitch")
-        );
+        let data = dir.path().join("lapiSwitch");
+        assert_eq!(preferences.storage_root(&data), data);
         let mut preferences = preferences;
         let custom = dir.path().join("custom 한글");
         preferences.storage_root = Some(custom.clone());
@@ -269,7 +266,7 @@ impl Preferences {
     pub fn storage_root(&self, data: &Path) -> PathBuf {
         self.storage_root
             .clone()
-            .unwrap_or_else(|| data.parent().unwrap_or(data).join("lapiSwitch"))
+            .unwrap_or_else(|| data.to_path_buf())
     }
     pub fn load(path: &Path) -> Self {
         std::fs::metadata(path)

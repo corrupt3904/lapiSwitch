@@ -397,7 +397,7 @@ impl StateStore {
             dirs::data_dir()
         }
         .ok_or("앱 데이터 폴더를 찾을 수 없습니다.")?;
-        Ok(base.join("tb520-region-tool").join("state.json"))
+        Ok(base.join("lapiSwitch").join("state.json"))
     }
     pub fn path(&self) -> &Path {
         &self.path

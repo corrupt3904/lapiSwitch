@@ -77,8 +77,10 @@ TWRP는 지정된 [lapis용 릴리즈 `v3.7.1_16-20261014`](https://github.com/l
 |---|---|
 | 작업 로그 | `logs` |
 | 원본 백업 | `backup\region_change` |
+| 앱 설정 | `preferences.json` |
+| 작업 기록 (이어하기·원본 복구) | `state.json`, `history` |
 
-**설정 → 로그 및 백업 위치**에서 저장 위치를 바꿀 수 있습니다. 백업 폴더 전체와 작업 기록을 함께 보관하세요.
+**설정 → 로그 및 백업 위치**에서 로그와 백업 위치를 바꿀 수 있습니다. 앱 설정과 작업 기록은 항상 `%LOCALAPPDATA%\lapiSwitch`에 남습니다. 백업 폴더 전체와 작업 기록을 함께 보관하세요.
 
 왼쪽 메뉴의 **원본 복구**는 백업한 GPT·Recovery·vendor_boot 구성과, DeviceInfo가 바뀐 경우 작업 전 DeviceInfo 전체를 복원합니다. **설치된 펌웨어 전체를 이전 버전으로 되돌리는 기능은 아닙니다.**
 

@@ -208,8 +208,8 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let default_path = StateStore::default_path();
         let startup_error = default_path.as_ref().err().cloned();
-        let state_path = default_path
-            .unwrap_or_else(|_| std::env::temp_dir().join("tb520-region-tool/state.json"));
+        let state_path =
+            default_path.unwrap_or_else(|_| std::env::temp_dir().join("lapiSwitch/state.json"));
         let data = state_path.parent().expect("state parent").to_owned();
         let preferences_path = data.join("preferences.json");
         let preferences = if demo {

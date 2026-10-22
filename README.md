@@ -77,8 +77,10 @@ The default data location is `%LOCALAPPDATA%\lapiSwitch`:
 |---|---|
 | Operation logs | `logs` |
 | Original backups | `backup\region_change` |
+| Settings | `preferences.json` |
+| Run record (resume and restore) | `state.json`, `history` |
 
-Change the root folder under **Settings → Logs and backup location**. Keep the complete backup folder and saved records together.
+Change the log and backup folder under **Settings → Logs and backup location**; settings and the run record always stay in `%LOCALAPPDATA%\lapiSwitch`. Keep the complete backup folder and saved records together.
 
 Use **Restore original** in the navigation to restore the backed-up GPT, Recovery and vendor_boot configuration and, when DeviceInfo was changed, the complete original DeviceInfo. **This does not roll back the entire installed firmware.**
 
