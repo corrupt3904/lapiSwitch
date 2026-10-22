@@ -404,8 +404,8 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             )).color(DANGER),
             small(details.clone()),
             label(app.t(
-                "0으로 초기화 후 계속: DeviceInfo의 32개 롤백인덱스를 0으로 기록하고 변환을 계속합니다.",
-                "Reset to 0 and continue: writes all 32 DeviceInfo rollback indices as 0 and continues the conversion."
+                "0으로 초기화 후 계속: DeviceInfo의 32개 롤백인덱스를 0으로 기록하고 작업을 계속합니다.",
+                "Reset to 0 and continue: writes all 32 DeviceInfo rollback indices as 0 and continues."
             )),
             label(app.t(
                 "작업 취소: DeviceInfo를 바꾸지 않고 EDL로 전환해 원본 GPT·Recovery·vendor_boot를 자동으로 복구합니다.",
@@ -423,7 +423,12 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             ..Default::default()
         }).max_width(660))
     } else if let Some(editor) = &app.editor {
-        Some(super::editor::modal(app, editor))
+        // The country picker opens over the editor for a region change.
+        Some(if app.country_open {
+            country_view::modal(app)
+        } else {
+            super::editor::modal(app, editor)
+        })
     } else if app.edl_confirmation.is_some() {
         Some(
             panel(

@@ -6,7 +6,7 @@ use crate::{
     region::Region,
     rollback::{self, Downgrade, RollbackIndices},
     stage1::StageIo,
-    state::{FirmwareBinding, Request, ResumeAction, RunState, Stage, StateStore},
+    state::{FirmwareBinding, FlashOptions, Request, ResumeAction, RunState, Stage, StateStore},
     storage::{self, Partition},
     workflow::{self, FinishIo},
 };
@@ -112,6 +112,9 @@ pub trait Ui {
 pub struct EditRequest {
     pub edits: map::Edits,
     pub firmware_dir: Option<PathBuf>,
+    /// Applied after installing that firmware; `None` keeps the country code.
+    /// Only a region change installs firmware, so only it may set one.
+    pub country: Option<String>,
 }
 pub trait DeviceInfoIo {
     fn read(&mut self, out: &Path, log: &mut Vec<String>) -> Result<Vec<u8>, String>;
@@ -668,6 +671,7 @@ fn choose_edits(
                 .ok_or("리전 필드는 PRC 또는 ROW여야 합니다.")?;
             if layout.region(before) == Some(target) {
                 state.firmware = None;
+                state.options = FlashOptions::new(None)?;
                 *firmware = None;
             } else {
                 let dir = request.firmware_dir.ok_or_else(|| {
@@ -691,6 +695,10 @@ fn choose_edits(
                     layout.region(before).map_or("?", Region::token),
                     target.token()
                 );
+                state.options = FlashOptions::new(request.country.as_deref())?;
+                if let Some(code) = &state.options.country {
+                    live!(log, "펌웨어 설치 후 국가코드를 {code}(으)로 변경합니다.");
+                }
                 state.firmware = Some(FirmwareBinding::new(&checked)?);
                 *firmware = Some(checked);
             }
@@ -787,7 +795,7 @@ pub fn transact(
 ) -> Result<Outcome, String> {
     backup.verify()?;
     restore::ensure_conversion_allowed(backup)?;
-    state.verify_binding(backup, firmware.as_ref())?;
+    state.check_binding(backup, firmware.as_ref())?;
     stopped(ui)?;
     let phase = state.recovery.phase;
     if matches!(phase, Phase::WritePending | Phase::RegionVerified) {
@@ -1047,7 +1055,7 @@ pub fn finish(
     if backup.transaction_stage()? != TransactionStage::S4Done {
         return Err("TWRP 준비 완료 기록이 없습니다. 원본 구성 복구가 필요합니다.".into());
     }
-    state.verify_binding(backup, firmware.as_ref())?;
+    state.check_binding(backup, firmware.as_ref())?;
     let loader = state.loader_path().to_path_buf();
     let mut phase = state.recovery.phase;
     ui.phase(phase);

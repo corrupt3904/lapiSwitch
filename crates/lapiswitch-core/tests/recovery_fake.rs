@@ -2095,7 +2095,20 @@ fn edit_request(pairs: &[(&str, &str)], firmware_dir: Option<PathBuf>) -> EditRe
             .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
             .collect(),
         firmware_dir,
+        country: None,
     }
+}
+
+#[test]
+fn an_edit_that_keeps_the_region_never_changes_the_country_code() {
+    let mut s = Setup::edit(Slot::A);
+    let mut request = edit_request(&[("rollback_index[2]", "4")], None);
+    request.country = Some("KR".into());
+    s.edit = Some(request);
+    s.transact().unwrap();
+    assert!(s.state.firmware.is_none());
+    assert_eq!(s.state.options.country, None);
+    assert_eq!(saved_state(&s).options.country, None);
 }
 
 #[test]

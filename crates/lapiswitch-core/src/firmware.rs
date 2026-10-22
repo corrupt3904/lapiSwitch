@@ -11,7 +11,6 @@ use crate::avb_info::{self, KeyClass};
 use crate::device::Device;
 use crate::region::Region;
 use crate::rollback::RollbackIndices;
-use lapiswitch_devices::RegionMarker;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FirmwareError {
@@ -38,8 +37,8 @@ pub enum FirmwareError {
     WrongModel(String),
     #[error("vbmeta_system.img is signed with an unknown key ({0})")]
     UnknownKey(String),
-    #[error("vendor_boot.img region markers: {0:?}")]
-    RegionUndetermined(VendorBootRegion),
+    #[error("vendor_boot.img 리전을 확인할 수 없습니다: {0}")]
+    RegionUndetermined(String),
     #[error("vendor_boot.img says {marker:?} but the fingerprint says {fingerprint:?}")]
     RegionMismatch { marker: Region, fingerprint: Region },
     #[error("선택한 리전은 {}이지만 펌웨어의 리전은 {}입니다. 선택한 리전과 같은 펌웨어를 선택하세요.", target.token(), firmware.token())]
@@ -128,15 +127,9 @@ pub fn check_firmware(folder: &Path, target: Region) -> Result<FirmwareReport, F
     };
 
     let vendor_boot = std::fs::read(dir.join("vendor_boot.img")).map_err(io_error(&dir))?;
-    let firmware_region = match device.region_marker() {
-        RegionMarker::RegionCountry => match detect_vendor_boot_region(&vendor_boot) {
-            VendorBootRegion::Prc => Region::Prc,
-            VendorBootRegion::Row => Region::Row,
-            other => return Err(FirmwareError::RegionUndetermined(other)),
-        },
-        marker => crate::vendor_boot::region(marker, &vendor_boot)
-            .map_err(|_| FirmwareError::RegionUndetermined(VendorBootRegion::Unknown))?,
-    };
+    // The same DTB parser that later patches vendor_boot during restore.
+    let firmware_region = crate::vendor_boot::region(device.region_marker(), &vendor_boot)
+        .map_err(FirmwareError::RegionUndetermined)?;
     if let Some(fingerprint_region) =
         crate::device_version::fingerprint_region(device, &fingerprint)
         && fingerprint_region != firmware_region
@@ -314,28 +307,6 @@ pub fn decrypt_x_files(dir: &Path) -> Result<usize, FirmwareError> {
     Ok(sources.len())
 }
 
-/// Region markers in `vendor_boot.img` (LTBox `RegionPatternSet` patterns).
-/// TB520FU firmware carries four `IPRC` or four `IROW` (§4.2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VendorBootRegion {
-    Prc,
-    Row,
-    Mixed,
-    Unknown,
-}
-
-pub fn detect_vendor_boot_region(data: &[u8]) -> VendorBootRegion {
-    let count = |needle: &[u8]| data.windows(needle.len()).filter(|w| *w == needle).count();
-    let prc = count(b".PRC") + count(b"IPRC");
-    let row = count(b".ROW") + count(b"IROW");
-    match (prc > 0, row > 0) {
-        (true, false) => VendorBootRegion::Prc,
-        (false, true) => VendorBootRegion::Row,
-        (true, true) => VendorBootRegion::Mixed,
-        (false, false) => VendorBootRegion::Unknown,
-    }
-}
-
 /// LTBox drops `*WIPE_PARTITIONS*` / `*BLANK_GPT*` case-sensitively; re-check
 /// its selection ignoring case.
 pub fn is_excluded_variant(path: &Path) -> bool {
@@ -413,26 +384,6 @@ mod tests {
 
     fn temp_dir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
-    }
-
-    #[test]
-    fn vendor_boot_markers_decide_the_region() {
-        // As in the real TB520FU DTB: a 4-byte FDT property value.
-        let prc = [&[0, 0, 0, 3, 0, 0, 0, 4][..], b"IPRC\0\0\0\0"].concat();
-        assert_eq!(detect_vendor_boot_region(&prc), VendorBootRegion::Prc);
-        assert_eq!(
-            detect_vendor_boot_region(b"..IROW.."),
-            VendorBootRegion::Row
-        );
-        assert_eq!(detect_vendor_boot_region(b"x.PRCx"), VendorBootRegion::Prc);
-        assert_eq!(
-            detect_vendor_boot_region(b"IPRC IROW"),
-            VendorBootRegion::Mixed
-        );
-        assert_eq!(
-            detect_vendor_boot_region(b"PRC ROW"),
-            VendorBootRegion::Unknown
-        );
     }
 
     #[test]

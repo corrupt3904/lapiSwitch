@@ -64,6 +64,9 @@ pub(crate) struct Editor {
     /// The last editor-side check of `firmware_dir` for the planned region.
     pub(crate) firmware: Option<Result<FirmwareReport, String>>,
     pub(crate) checking: bool,
+    /// Country code applied after a region change installs firmware;
+    /// `None` (the default) keeps the current code.
+    pub(crate) country: Option<String>,
     reply: Option<Sender<Option<EditRequest>>>,
 }
 
@@ -87,6 +90,7 @@ impl Editor {
             firmware_dir: None,
             firmware: None,
             checking: false,
+            country: None,
             reply: Some(reply),
         }
     }
@@ -194,14 +198,13 @@ impl Editor {
         }
     }
     /// Firmware and folder only matter for a region change.
-    fn request(&self) -> Option<EditRequest> {
+    pub(crate) fn request(&self) -> Option<EditRequest> {
         let planned = self.planned()?;
+        let flash = self.region_changed();
         Some(EditRequest {
             edits: map::edits_between(self.layout, &self.before, &planned),
-            firmware_dir: self
-                .region_changed()
-                .then(|| self.firmware_dir.clone())
-                .flatten(),
+            firmware_dir: flash.then(|| self.firmware_dir.clone()).flatten(),
+            country: flash.then(|| self.country.clone()).flatten(),
         })
     }
 }
@@ -284,6 +287,38 @@ impl App {
                 editor.checking = true;
                 worker::validate_editor_firmware(self.tx.clone(), dir, region);
             }
+        }
+    }
+    /// The country picker while the editor is open: it edits the editor's
+    /// code, not the conversion option.
+    pub(super) fn editor_country(&mut self, message: Message) {
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
+        match message {
+            Message::CountryOpen if editor.region_changed() => {
+                self.country_open = true;
+                self.country_search.clear();
+                self.country_draft = Some(editor.country.clone().unwrap_or_else(|| "—".into()));
+            }
+            Message::CountrySearch(query) if self.country_open => self.country_search = query,
+            Message::Country(code)
+                if self.country_open
+                    && (code == "—" || crate::countries::find(&code).is_some()) =>
+            {
+                self.country_draft = Some(code);
+            }
+            Message::CountryCancel => {
+                self.country_open = false;
+                self.country_draft = None;
+            }
+            Message::CountryApply if self.country_open => {
+                if let Some(code) = self.country_draft.take() {
+                    editor.country = (code != "—").then_some(code);
+                }
+                self.country_open = false;
+            }
+            _ => {}
         }
     }
     pub(super) fn editor_firmware_picked(&mut self, folder: Option<PathBuf>) {
@@ -585,10 +620,25 @@ fn region_box<'a>(app: &'a App, editor: &'a Editor) -> Option<Element<'a, Messag
             ]
             .spacing(12)
             .align_y(Alignment::Center),
+            row![
+                small(app.t("국가 코드", "Country code")),
+                label(country_label(app, editor)).width(Fill),
+                action(app.t("선택", "Choose"), Message::CountryOpen, true).style(soft_style),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
         ]
         .spacing(10)
         .into(),
     )
+}
+
+/// The country code a region change applies after installing firmware.
+fn country_label(app: &App, editor: &Editor) -> String {
+    match editor.country.as_deref().and_then(crate::countries::find) {
+        Some(country) => format!("{} · {}", country.code, country.name),
+        None => app.t("변경 안 함 (기본)", "Do not change (default)").into(),
+    }
 }
 
 fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message> {
@@ -625,7 +675,16 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
                 app.t("바뀌는 필드 {count}개", "{count} fields change")
                     .replace("{count}", &changes.len().to_string())
             ),
-            scrollable(list).height(380),
+            scrollable(list).height(if flash { 340 } else { 380 }),
+            if flash {
+                row![
+                    small(app.t("국가 코드", "Country code")),
+                    label(country_label(app, editor)),
+                ]
+                .spacing(12)
+            } else {
+                row![]
+            },
             note(
                 if flash {
                     app.t(
@@ -856,5 +915,40 @@ mod tests {
         app.editor_update(EditorMessage::Tab(Tab::Custom));
         app.editor_update(EditorMessage::Input(rollback_key(7), "5".into()));
         assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Custom);
+    }
+
+    #[test]
+    fn the_country_code_is_offered_only_for_a_region_change_and_defaults_to_unchanged() {
+        let (mut app, _rx) = open();
+        // Without a region change the picker does not open.
+        let _ = app.update(Message::CountryOpen);
+        assert!(!app.country_open);
+        app.editor_update(EditorMessage::Input("region".into(), "ROW".into()));
+        assert_eq!(editor(&app).request().unwrap().country, None);
+        let _ = app.update(Message::CountryOpen);
+        assert!(app.country_open);
+        assert_eq!(app.country_draft.as_deref(), Some("—"));
+        let _ = app.update(Message::Country("KR".into()));
+        let _ = app.update(Message::CountryApply);
+        assert!(!app.country_open);
+        assert_eq!(editor(&app).country.as_deref(), Some("KR"));
+        assert_eq!(
+            editor(&app).request().unwrap().country.as_deref(),
+            Some("KR")
+        );
+        // The conversion option is untouched.
+        assert_eq!(app.country, None);
+        // "Do not change" clears it again.
+        let _ = app.update(Message::CountryOpen);
+        let _ = app.update(Message::Country("—".into()));
+        let _ = app.update(Message::CountryApply);
+        assert_eq!(editor(&app).country, None);
+        // Reverting the region drops any chosen code from the request.
+        let _ = app.update(Message::CountryOpen);
+        let _ = app.update(Message::Country("JP".into()));
+        let _ = app.update(Message::CountryApply);
+        app.editor_update(EditorMessage::Reset("region".into()));
+        app.editor_update(EditorMessage::Input("rollback_index[1]".into(), "3".into()));
+        assert_eq!(editor(&app).request().unwrap().country, None);
     }
 }

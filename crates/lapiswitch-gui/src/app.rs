@@ -710,6 +710,15 @@ impl App {
                 self.device.checked = None;
                 self.device.next = std::time::Instant::now();
             }
+            Message::CountryOpen
+            | Message::CountrySearch(_)
+            | Message::Country(_)
+            | Message::CountryCancel
+            | Message::CountryApply
+                if self.editor.is_some() =>
+            {
+                self.editor_country(message)
+            }
             _ if self.busy() || self.deferred.is_some() => {}
             _ if self.fix.confirm
                 && !matches!(message, Message::ConfirmCloseFix | Message::CancelCloseFix) => {}

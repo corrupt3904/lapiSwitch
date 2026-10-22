@@ -89,6 +89,21 @@ fn missing_nested_payloads_are_pinned_without_requiring_the_directory() {
             .verify_binding(&setup.backup, Some(&setup.firmware))
             .is_err()
     );
+    // Between binding and flashing only the identity is compared; the full
+    // payload hash runs on resume and immediately before flashing.
+    setup
+        .state
+        .check_binding(&setup.backup, Some(&setup.firmware))
+        .unwrap();
+    let mut other = setup.firmware.clone();
+    other.indices.boot += 1;
+    assert!(
+        setup
+            .state
+            .check_binding(&setup.backup, Some(&other))
+            .is_err()
+    );
+    assert!(setup.state.check_binding(&setup.backup, None).is_err());
 }
 
 #[test]

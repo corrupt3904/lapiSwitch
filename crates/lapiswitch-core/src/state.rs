@@ -98,13 +98,22 @@ impl FirmwareBinding {
             files: seal_firmware(firmware)?,
         })
     }
-    pub fn verify(&self, firmware: &FirmwareReport) -> Result<(), String> {
+    /// Same package by its identity only (region, rollback indices,
+    /// fingerprint); no file is read.
+    pub fn matches(&self, firmware: &FirmwareReport) -> Result<(), String> {
         if self.region != firmware.region
             || self.indices != firmware.indices
             || self.fingerprint != firmware.fingerprint
         {
             return Err("저장된 펌웨어와 현재 펌웨어가 일치하지 않습니다.".into());
         }
+        Ok(())
+    }
+    /// Every pinned payload, XML and the loader by size and SHA-256. This
+    /// reads the whole package (several GB), so it runs only when a binding
+    /// is resumed and immediately before flashing.
+    pub fn verify(&self, firmware: &FirmwareReport) -> Result<(), String> {
+        self.matches(firmware)?;
         if seal_firmware(firmware)? != self.files {
             return Err("펌웨어 파일 또는 XML 구성이 변경되었습니다.".into());
         }
@@ -321,8 +330,23 @@ impl RunState {
     }
 
     /// The backup, loader and (when bound) firmware are exactly the ones this
-    /// run started with. `firmware` must be given exactly when one is bound.
+    /// run started with, including every firmware payload's hash. Use on
+    /// resume and right before flashing.
     pub fn verify_binding(
+        &self,
+        backup: &VerifiedBackup,
+        firmware: Option<&FirmwareReport>,
+    ) -> Result<(), String> {
+        self.check_binding(backup, firmware)?;
+        match (&self.firmware, firmware) {
+            (Some(binding), Some(firmware)) => binding.verify(firmware),
+            _ => Ok(()),
+        }
+    }
+
+    /// As `verify_binding`, but the firmware only by identity: for the steps
+    /// between binding and flashing, which use its region and indices only.
+    pub fn check_binding(
         &self,
         backup: &VerifiedBackup,
         firmware: Option<&FirmwareReport>,
@@ -344,7 +368,7 @@ impl RunState {
             return Err("EDL 로더 파일이 변경되었습니다.".into());
         }
         match (&self.firmware, firmware) {
-            (Some(binding), Some(firmware)) => binding.verify(firmware),
+            (Some(binding), Some(firmware)) => binding.matches(firmware),
             (None, None) => Ok(()),
             _ => Err("저장된 작업의 펌웨어 설치 여부와 선택한 펌웨어가 다릅니다.".into()),
         }
