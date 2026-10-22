@@ -104,7 +104,7 @@ impl App {
                     return self.begin_start_probe();
                 }
                 self.error = Some(self.t(
-                    "다른 작업 기록이 생겼거나 기록을 확인할 수 없습니다. 다시 변환 시작을 눌러 확인하세요.",
+                    "다른 작업 기록이 생겼거나 기록을 확인할 수 없습니다. 다시 시작을 눌러 확인하세요.",
                     "Another run appeared or its record could not be checked. Review and start again.",
                 ).into());
             }

@@ -1,7 +1,7 @@
 use super::view::*;
 use super::*;
 use crate::device::Mode;
-use iced::widget::{button, column, container, image, row, svg};
+use iced::widget::{column, container, image, row, svg};
 use iced::{Alignment, Fill};
 
 pub(super) fn status(app: &App) -> String {
@@ -102,60 +102,6 @@ pub(super) fn device_card(app: &App) -> Element<'_, Message> {
     .padding([0, 6])
     .into()
 }
-/// A clickable settings card: icon, title and description, chevron.
-fn task_card<'a>(
-    glyph: char,
-    title: &'static str,
-    description: &'static str,
-    message: Message,
-    enabled: bool,
-    warning: bool,
-) -> Element<'a, Message> {
-    let p = super::fluent::p();
-    button(
-        row![
-            super::fluent::icon(glyph)
-                .size(20)
-                .color(if warning { p.danger } else { p.accent }),
-            column![label(title).size(14), small(description).size(12)]
-                .spacing(2)
-                .width(Fill),
-            super::fluent::icon(super::fluent::glyph::CHEVRON)
-                .size(12)
-                .color(p.text_secondary)
-        ]
-        .spacing(16)
-        .align_y(Alignment::Center),
-    )
-    .width(Fill)
-    .padding([16, 18])
-    .on_press_maybe(enabled.then_some(message))
-    .style(|_, status| {
-        let p = super::fluent::p();
-        iced::widget::button::Style {
-            background: Some(
-                match status {
-                    iced::widget::button::Status::Hovered
-                    | iced::widget::button::Status::Pressed => p.card_hover,
-                    _ => p.card,
-                }
-                .into(),
-            ),
-            text_color: if status == iced::widget::button::Status::Disabled {
-                p.text_disabled
-            } else {
-                p.text
-            },
-            border: iced::Border {
-                color: p.card_border,
-                width: 1.0,
-                radius: super::fluent::CARD_RADIUS.into(),
-            },
-            ..Default::default()
-        }
-    })
-    .into()
-}
 pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
     let s = &app.device.snapshot;
     let unsupported;
@@ -171,7 +117,7 @@ pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
         unsupported.as_str()
     } else {
         match s.mode {
-        Mode::None => app.t("기기가 연결되어 있지 않습니다. 기기를 연결해야 변환을 시작할 수 있습니다.", "No device is connected. Connect a device before starting conversion."),
+        Mode::None => app.t("기기가 연결되어 있지 않습니다. 기기를 연결해야 작업을 시작할 수 있습니다.", "No device is connected. Connect a device before starting."),
         Mode::Unauthorized => app.t("태블릿에서 USB 디버깅 허용 창을 승인해 주세요.", "Approve the USB debugging prompt on the tablet."),
         Mode::Sideload => app.t("ADB Sideload에서는 시작할 수 없습니다. 시스템 또는 지원하는 연결 모드로 전환해 주세요.", "ADB Sideload is not ready for conversion. Use the system or another supported mode."),
         Mode::ServerBlocking => app.t("다른 프로그램의 ADB 서버를 종료한 뒤 다시 연결해 주세요.", "Close the other program's ADB server and reconnect."),
@@ -231,10 +177,16 @@ pub(super) fn driver_banner(app: &App) -> Option<Element<'_, Message>> {
 fn value(value: &str) -> &str {
     if value.is_empty() { "—" } else { value }
 }
+/// One device detail as a compact card: name above, value below.
+fn detail<'a>(name: &'static str, value: String) -> Element<'a, Message> {
+    container(column![small(name).size(12), label(value).size(14)].spacing(2))
+        .padding([10, 14])
+        .width(Fill)
+        .style(super::fluent::card_style)
+        .into()
+}
 pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let d = &app.device.snapshot;
-    let idle = !app.busy();
-    let supported = !app.device.unsupported_model();
     let hero = container(
         row![
             portrait(app, 112.0, 84.0),
@@ -260,6 +212,44 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
     .padding(20)
     .width(Fill)
     .style(super::fluent::card_style);
+    let support = match app.device.supported() {
+        Some(device) => format!("{} · {device}", app.t("지원 기기", "Supported")),
+        None if app.device.unsupported_model() => {
+            app.t("지원하지 않는 기기", "Not supported").into()
+        }
+        None => "—".into(),
+    };
+    let details = [
+        (
+            app.t("RAM · 저장 공간", "RAM · Storage"),
+            format!("{} / {}", value(&d.ram), value(&d.storage)),
+        ),
+        (app.t("활성 슬롯", "Active slot"), value(&d.slot).into()),
+        (app.t("펌웨어", "Firmware"), value(&d.firmware).into()),
+        (
+            app.t("롤백 방지", "Rollback protection"),
+            if app.device.supported().is_some() {
+                app.t("사용 · 다운그레이드 차단", "Enabled · Downgrades blocked")
+            } else {
+                "—"
+            }
+            .into(),
+        ),
+        (
+            app.t("시리얼 번호", "Serial number"),
+            value(&d.serial).into(),
+        ),
+        (app.t("지원 상태", "Support"), support),
+    ];
+    let mut grid = column![].spacing(4);
+    let mut pairs = details.into_iter();
+    while let Some((name, text)) = pairs.next() {
+        let mut line = row![detail(name, text)].spacing(4);
+        if let Some((name, text)) = pairs.next() {
+            line = line.push(detail(name, text));
+        }
+        grid = grid.push(line);
+    }
     let mut content = column![
         title(
             app,
@@ -270,7 +260,7 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
         ),
         hero,
     ]
-    .spacing(4);
+    .spacing(8);
     if !app.device.startable() {
         content = content.push(connection_note(app));
     } else if d.mode == Mode::Edl && d.model.is_empty() {
@@ -283,56 +273,8 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
         ));
     }
     content = content
-        .push(section(app.t("작업", "Tasks")))
-        .push(task_card(
-            super::fluent::glyph::EDIT,
-            app.t("DeviceInfo 수정", "Edit DeviceInfo"),
-            app.t(
-                "TWRP에서 DeviceInfo 값을 직접 수정합니다. 리전을 바꾸지 않으면 데이터를 유지합니다.",
-                "Edit DeviceInfo values in TWRP. User data is kept unless the region changes.",
-            ),
-            Message::Edit,
-            idle && supported,
-            false,
-        ))
-        .push(task_card(
-            super::fluent::glyph::GLOBE,
-            app.t("리전 변환", "Region conversion"),
-            app.t(
-                "PRC ↔ ROW 공식 펌웨어를 설치합니다. 사용자 데이터가 초기화됩니다.",
-                "Install official PRC or ROW firmware. User data is erased.",
-            ),
-            Message::Convert,
-            idle && supported,
-            false,
-        ))
-        .push(task_card(
-            super::fluent::glyph::HISTORY,
-            app.t("원본 복구", "Restore original"),
-            app.t(
-                "백업한 GPT·Recovery·vendor_boot와 DeviceInfo를 되돌립니다.",
-                "Restore the backed-up GPT, Recovery, vendor_boot and DeviceInfo.",
-            ),
-            Message::Recovery,
-            idle,
-            true,
-        ))
         .push(section(app.t("기기 정보", "Device details")))
-        .push(field(
-            app.t("RAM · 저장 공간", "RAM · Storage"),
-            format!("{} / {}", value(&d.ram), value(&d.storage)),
-        ))
-        .push(field(app.t("활성 슬롯", "Active slot"), value(&d.slot)))
-        .push(field(
-            app.t("롤백 방지", "Rollback protection"),
-            if app.device.supported().is_some() {
-                app.t("사용 · 다운그레이드 차단", "Enabled · Downgrades blocked")
-            } else {
-                "—"
-            },
-        ))
-        .push(field(app.t("펌웨어", "Firmware"), value(&d.firmware)))
-        .push(field(app.t("시리얼 번호", "Serial number"), value(&d.serial)));
+        .push(grid);
     if d.cached {
         content = content.push(small(app.t(
             "일부 기기 정보는 마지막으로 읽은 값입니다. 현재 연결 모드는 계속 갱신됩니다.",

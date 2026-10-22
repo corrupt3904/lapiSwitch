@@ -135,9 +135,8 @@ pub(crate) const ICONS: Font = Font::with_name("Segoe MDL2 Assets");
 
 /// Segoe MDL2 Assets code points.
 pub(crate) mod glyph {
-    pub const HOME: char = '\u{E80F}';
     pub const EDIT: char = '\u{E70F}';
-    pub const GLOBE: char = '\u{E774}';
+    pub const FLASH: char = '\u{E896}';
     pub const HISTORY: char = '\u{E81C}';
     pub const SETTINGS: char = '\u{E713}';
     pub const CHEVRON: char = '\u{E76C}';

@@ -154,38 +154,55 @@ pub(super) fn title<'a>(
 fn nav_section(app: &App) -> usize {
     match app.page {
         Page::Dashboard | Page::Resume => 0,
-        Page::Edit => 1,
-        Page::Region | Page::Firmware | Page::Options | Page::Confirm => 2,
+        Page::Region | Page::Firmware | Page::Options | Page::Confirm => 1,
+        Page::Edit => 2,
         Page::Recovery => 3,
         Page::Settings => 4,
         Page::Progress | Page::Result => match app.run_kind {
-            RunKind::Edit => 1,
-            RunKind::Convert => 2,
+            RunKind::Convert => 1,
+            RunKind::Edit => 2,
             RunKind::Restore => 3,
             RunKind::Resume => 0,
         },
     }
 }
-/// Windows 11 settings-style navigation: app title, the connected device
-/// and one item per task. Locked while an operation runs.
-fn navigation(app: &App) -> Element<'_, Message> {
-    let current = nav_section(app);
-    let idle = !app.busy();
-    let supported = !app.device.unsupported_model();
-    let item = |index: usize, glyph: char, name: &'static str, message: Message, enabled: bool| {
-        let selected = current == index;
-        let marker = container(space().width(3).height(16)).style(move |_| container::Style {
+/// The selection marker at the left edge of a navigation item.
+fn nav_marker<'a>(selected: bool, height: f32) -> Element<'a, Message> {
+    container(space().width(3).height(height))
+        .style(move |_| container::Style {
             background: selected.then(|| fluent::p().accent.into()),
             border: Border {
                 radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
-        });
+        })
+        .into()
+}
+/// Windows 11 settings-style navigation: the connected device card is the
+/// home button, then the two tasks; restore and settings sit at the bottom.
+/// Locked while an operation runs.
+fn navigation(app: &App) -> Element<'_, Message> {
+    let current = nav_section(app);
+    let idle = !app.busy();
+    let supported = !app.device.unsupported_model();
+    let item = |index: usize,
+                glyph: char,
+                name: &'static str,
+                message: Message,
+                enabled: bool,
+                danger: bool| {
+        let selected = current == index;
+        let symbol = icon(glyph);
+        let symbol = if danger && enabled {
+            symbol.color(fluent::p().danger)
+        } else {
+            symbol
+        };
         button(
             row![
-                marker,
-                icon(glyph),
+                nav_marker(selected, 16.0),
+                symbol,
                 text(name).size(14).shaping(widget::text::Shaping::Advanced)
             ]
             .spacing(12)
@@ -203,6 +220,34 @@ fn navigation(app: &App) -> Element<'_, Message> {
             style
         })
     };
+    let home = current == 0;
+    let device = button(
+        row![nav_marker(home, 36.0), dashboard_view::device_card(app)]
+            .spacing(6)
+            .align_y(Alignment::Center),
+    )
+    .width(Fill)
+    .padding([12, 6])
+    .on_press_maybe(idle.then_some(Message::Home))
+    .style(move |_, status| {
+        let p = fluent::p();
+        button::Style {
+            background: Some(
+                match status {
+                    button::Status::Hovered | button::Status::Pressed => p.card_hover,
+                    _ => p.card,
+                }
+                .into(),
+            ),
+            text_color: p.text,
+            border: Border {
+                color: if home { p.accent } else { p.card_border },
+                width: 1.0,
+                radius: fluent::CARD_RADIUS.into(),
+            },
+            ..Default::default()
+        }
+    });
     let mut brand = row![
         widget::image(crate::brand::image()).width(20).height(20),
         label(crate::brand::NAME).size(13)
@@ -216,38 +261,46 @@ fn navigation(app: &App) -> Element<'_, Message> {
                 .style(pill_style),
         );
     }
+    let divider = container(space().width(Fill).height(1)).style(|_| container::Style {
+        background: Some(line().into()),
+        ..Default::default()
+    });
     column![
         container(brand).padding([0, 6]),
-        container(dashboard_view::device_card(app)).padding(pad(14, 0, 10, 0)),
-        item(0, glyph::HOME, app.t("기기", "Device"), Message::Home, idle),
+        container(device).padding(pad(14, 0, 10, 0)),
         item(
             1,
-            glyph::EDIT,
-            app.t("DeviceInfo 수정", "Edit DeviceInfo"),
-            Message::Edit,
-            idle && supported
+            glyph::FLASH,
+            app.t("펌웨어 플래싱", "Firmware flashing"),
+            Message::Convert,
+            idle && supported,
+            false
         ),
         item(
             2,
-            glyph::GLOBE,
-            app.t("리전 변환", "Region conversion"),
-            Message::Convert,
-            idle && supported
+            glyph::EDIT,
+            app.t("DeviceInfo 수정", "Edit DeviceInfo"),
+            Message::Edit,
+            idle && supported,
+            false
         ),
+        space().height(Fill),
+        container(divider).padding([6, 6]),
         item(
             3,
             glyph::HISTORY,
             app.t("원본 복구", "Restore original"),
             Message::Recovery,
-            idle
+            idle,
+            true
         ),
-        space().height(Fill),
         item(
             4,
             glyph::SETTINGS,
             app.t("설정", "Settings"),
             Message::Settings,
-            idle
+            idle,
+            false
         ),
         container(
             column![
@@ -269,7 +322,7 @@ fn stepper(app: &App) -> Element<'_, Message> {
     let steps = [
         app.t("리전 선택", "Target region"),
         app.t("펌웨어 검사", "Firmware"),
-        app.t("변환 설정", "Options"),
+        app.t("플래싱 설정", "Flashing options"),
         app.t("최종 확인", "Review"),
         app.t("진행 / 결과", "Progress / result"),
     ];
@@ -286,6 +339,12 @@ fn stepper(app: &App) -> Element<'_, Message> {
         _ => 4,
     };
     let mut crumbs = row![].spacing(8).align_y(Alignment::Center);
+    let flow = label(app.t(
+        "펌웨어 플래싱 (Region 변경)",
+        "Firmware flashing (Region change)",
+    ))
+    .size(13)
+    .color(muted());
     for (i, step) in steps.iter().enumerate() {
         if i > 0 {
             crumbs = crumbs.push(icon(glyph::CHEVRON).size(10).color(muted()));
@@ -299,7 +358,7 @@ fn stepper(app: &App) -> Element<'_, Message> {
         };
         crumbs = crumbs.push(label(format!("{} {step}", i + 1)).size(size).color(color));
     }
-    crumbs.into()
+    column![flow, crumbs].spacing(4).into()
 }
 pub(super) fn view(app: &App) -> Element<'_, Message> {
     fluent::set_dark(app.dark());
@@ -346,8 +405,8 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         body = body.push(notification_note(format!(
             "{}\n{error}",
             app.t(
-                "저장된 작업 확인이 필요합니다. 새 변환은 시작할 수 없습니다.",
-                "Saved state needs attention before a new conversion."
+                "저장된 작업 확인이 필요합니다. 새 작업은 시작할 수 없습니다.",
+                "Saved state needs attention before a new operation."
             )
         )));
     }
@@ -571,7 +630,7 @@ fn region(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         );
     }
     (column![title(app, "변경할 리전을 선택하세요", "Choose the target region", "선택한 리전과 일치하는 공식 펌웨어를 사용합니다.", "Use official firmware matching your target region."), choices,
-        note(app.t("지원 모델: {models}. 롤백인덱스 초기화 여부는 변환 설정에서 선택합니다.", "Supported models: {models}. Choose whether to reset rollback indices in Conversion options.").replace("{models}", &super::supported_models()), false),
+        note(app.t("지원 모델: {models}. 롤백인덱스 초기화 여부는 플래싱 설정에서 선택합니다.", "Supported models: {models}. Choose whether to reset rollback indices in Flashing options.").replace("{models}", &super::supported_models()), false),
         small(app.t("현재 기기의 리전과 관계없이 선택한 목표 리전으로 진행합니다.", "The selected target is used regardless of the device's current region."))].spacing(26).into(),
         row![small(app.t("01 / 04 · 준비", "01 / 04 · PREPARATION")), space().width(Fill), action(app.t("펌웨어 선택", "Choose firmware"), Message::Next, !app.busy() && app.region.is_some())].align_y(Alignment::Center).into())
 }
@@ -658,9 +717,9 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     )
 }
 fn options(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
-    let mut content = column![title(app, "변환 설정", "Conversion options", "국가 코드를 선택하고 백업 위치를 확인하세요.", "Choose the country code and review the backup location."),
+    let mut content = column![title(app, "플래싱 설정", "Flashing options", "국가 코드를 선택하고 백업 위치를 확인하세요.", "Choose the country code and review the backup location."),
         row![small(app.t("사용자 데이터", "User data")).width(FIELD_KEY), label(app.t("초기화 필수", "Erasure required")).color(danger()).width(Fill)].spacing(12),
-        warning_note(app.t("리전 변환 시 사용자 데이터는 반드시 초기화됩니다. 앱·사진·계정이 삭제되므로 중요한 파일은 먼저 별도로 백업하세요.", "Region conversion always erases user data. Apps, photos and accounts will be deleted. Back up important files separately first.")),
+        warning_note(app.t("펌웨어 플래싱 시 사용자 데이터는 반드시 초기화됩니다. 앱·사진·계정이 삭제되므로 중요한 파일은 먼저 별도로 백업하세요.", "Firmware flashing always erases user data. Apps, photos and accounts will be deleted. Back up important files separately first.")),
         field(app.t("롤백인덱스", "Rollback indices"), app.t("초기화가 기본값입니다. 미초기화는 기존 값을 유지하며, 펌웨어 롤백인덱스가 더 낮으면 TWRP 단계에서 초기화 또는 작업 취소를 묻습니다.", "Reset is the default. Keep preserves the values; if the firmware indices are lower, TWRP asks whether to reset them or cancel.")),
         row![
             button(label(app.t("초기화 · 32개 인덱스 → 0", "Reset · 32 indices → 0")).color(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {fluent::p().on_accent}else{ink()})).padding(14).on_press_maybe((!app.busy()).then_some(Message::Rollback(lapiswitch_core::deviceinfo::RollbackMode::Reset))).style(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {super::fluent::accent_style}else{soft_style}),
@@ -704,7 +763,7 @@ pub(super) fn request_label(app: &App, state: &lapiswitch_core::state::RunState)
         Request::Convert { target, .. } => {
             format!(
                 "{} · {}",
-                app.t("리전 변환", "Region conversion"),
+                app.t("펌웨어 플래싱", "Firmware flashing"),
                 target.token()
             )
         }
@@ -745,7 +804,7 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let content = column![title(app, "시작 전 마지막 확인", "Ready to convert", "기기 한 대를 연결하고 USB 연결을 유지하세요.", "Connect one device and keep USB connected."),
         dashboard_view::connection_note(app),
         summary(app, app.region, app.country.as_deref(), app.folder.as_ref().map(|p| p.display().to_string()).unwrap_or_default()),
-        note(app.t("원본 GPT·활성 슬롯 Recovery·vendor_boot·misc 및 고유 파티션을 먼저 백업합니다. 변환이 시작되면 케이블을 빼거나 앱을 종료하지 마세요.", "Original GPT, active-slot Recovery and vendor_boot, misc and device-specific partitions are backed up first. Keep the cable connected and the app open throughout the conversion."), true),
+        note(app.t("원본 GPT·활성 슬롯 Recovery·vendor_boot·misc 및 고유 파티션을 먼저 백업합니다. 작업이 시작되면 케이블을 빼거나 앱을 종료하지 마세요.", "Original GPT, active-slot Recovery and vendor_boot, misc and device-specific partitions are backed up first. Keep the cable connected and the app open throughout the operation."), true),
         field(app.t("롤백인덱스", "Rollback indices"), if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {app.t("초기화 · 32개 → 0 / 낮은 펌웨어 index 허용", "Reset · 32 → 0 / lower firmware indices allowed")} else {app.t("미초기화 · 펌웨어가 더 낮으면 TWRP에서 확인", "Keep · asked in TWRP if firmware indices are lower")}),
         checkbox(app.agreed).label(app.t("사용자 데이터가 반드시 초기화되는 것과 위 안내를 확인했습니다.", "I understand that user data will be erased and have read the instructions.")).on_toggle(Message::Agree),
     ].spacing(24);
@@ -760,7 +819,7 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 } else if app.deferred.is_some() {
                     app.t("연결 확인 중…", "Checking connection…")
                 } else {
-                    app.t("변환 시작", "Start conversion")
+                    app.t("플래싱 시작", "Start flashing")
                 },
                 Message::Start,
                 app.can_start()
@@ -889,11 +948,19 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "연결을 유지해 주세요. 단계가 끝나면 자동으로 넘어갑니다.",
             "Keep USB connected. Each step advances automatically.",
         )
+    } else if app.run_kind == RunKind::Edit {
+        title(
+            app,
+            "DeviceInfo 수정을 진행하고 있습니다",
+            "Editing DeviceInfo",
+            "연결을 유지해 주세요. 단계가 끝나면 자동으로 넘어갑니다.",
+            "Keep USB connected. Each step advances automatically.",
+        )
     } else {
         title(
             app,
-            "변환을 진행하고 있습니다",
-            "Conversion in progress",
+            "펌웨어 플래싱을 진행하고 있습니다",
+            "Firmware flashing in progress",
             "연결을 유지해 주세요. 단계가 끝나면 자동으로 넘어갑니다.",
             "Keep USB connected. Each step advances automatically.",
         )
@@ -977,10 +1044,10 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
 fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let success = matches!(app.result, Some(Ok(_)));
     let heading = if success {
-        if app.run_kind == RunKind::Restore {
-            app.t("원본 복구를 마쳤습니다", "Original backup restored")
-        } else {
-            app.t("변환 작업을 마쳤습니다", "Conversion completed")
+        match app.run_kind {
+            RunKind::Restore => app.t("원본 복구를 마쳤습니다", "Original backup restored"),
+            RunKind::Edit => app.t("DeviceInfo 수정을 마쳤습니다", "DeviceInfo edit completed"),
+            _ => app.t("펌웨어 플래싱을 마쳤습니다", "Firmware flashing completed"),
         }
     } else {
         app.t("작업이 중단되었습니다", "Operation stopped")
