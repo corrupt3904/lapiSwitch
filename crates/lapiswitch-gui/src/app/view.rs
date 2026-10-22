@@ -1421,15 +1421,36 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
 }
 /// DeviceInfo edit setup. Values are chosen later from the live DeviceInfo
 /// read in TWRP; only the EDL loader is needed now.
-/// DeviceInfo dump setup: EDL loader, save location and consent.
-fn dump(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
-    let value = |path: Option<&std::path::Path>| -> Element<'_, Message> {
+/// A group row with a chosen path, shortened to fit, and its picker button.
+fn path_row<'a>(
+    app: &'a App,
+    name: &'static str,
+    path: Option<&std::path::Path>,
+    button: &'static str,
+    picker: Picker,
+) -> Element<'a, Message> {
+    group_row(
+        name,
         label(path_value(app, path, value_width(app, 120.0)))
             .size(14)
             .color(muted())
             .wrapping(iced::widget::text::Wrapping::None)
-            .into()
-    };
+            .into(),
+        Some(action(button, Message::Pick(picker), !app.busy()).into()),
+    )
+}
+/// The EDL loader row shared by the DeviceInfo edit and dump pages.
+fn loader_row(app: &App) -> Element<'_, Message> {
+    path_row(
+        app,
+        app.t("EDL 로더", "EDL loader"),
+        app.loader.as_deref(),
+        app.t("파일 선택", "Choose file"),
+        Picker::Loader,
+    )
+}
+/// DeviceInfo dump setup: EDL loader, save location and consent.
+fn dump(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let content = column![
         title(
             app,
@@ -1439,29 +1460,13 @@ fn dump(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "Read DeviceInfo in TWRP and save it to a file. Nothing is written to the device."
         ),
         group(vec![
-            group_row(
-                app.t("EDL 로더", "EDL loader"),
-                value(app.loader.as_deref()),
-                Some(
-                    action(
-                        app.t("파일 선택", "Choose file"),
-                        Message::Pick(Picker::Loader),
-                        !app.busy(),
-                    )
-                    .into(),
-                ),
-            ),
-            group_row(
+            loader_row(app),
+            path_row(
+                app,
                 app.t("저장 위치", "Save location"),
-                value(app.preferences.dump_root.as_deref()),
-                Some(
-                    action(
-                        app.t("폴더 선택", "Choose folder"),
-                        Message::Pick(Picker::DumpRoot),
-                        !app.busy(),
-                    )
-                    .into(),
-                ),
+                app.preferences.dump_root.as_deref(),
+                app.t("폴더 선택", "Choose folder"),
+                Picker::DumpRoot,
             ),
         ]),
         small(app.t(
@@ -1502,7 +1507,7 @@ fn dump(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     )
 }
 fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
-    let mut content = column![
+    let content = column![
         title(
             app,
             "DeviceInfo 수정",
@@ -1510,19 +1515,10 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "기기의 DeviceInfo를 TWRP에서 읽은 뒤 원하는 값을 직접 수정합니다.",
             "Read the device's DeviceInfo in TWRP, then edit the values directly."
         ),
-        action(
-            app.t("EDL 로더 선택", "Choose EDL loader"),
-            Message::Pick(Picker::Loader),
-            !app.busy()
-        )
-        .style(soft_style)
+        group(vec![loader_row(app)]),
     ]
-    .spacing(20);
-    if let Some(path) = &app.loader {
-        content = content.push(small(path.display().to_string()));
-    }
-    content = content
-        .push(warning_note(app.t(
+    .spacing(16)
+    .push(warning_note(app.t(
             "보안·구조 필드를 잘못 바꾸면 부팅이 되지 않을 수 있습니다. 쓰기 전 변경 목록을 반드시 확인하세요. 편집 창에서 취소하면 DeviceInfo를 바꾸지 않고 원본 구성을 자동으로 복구합니다.",
             "Wrong security/structure values can stop the tablet from booting. Always review the change list before writing. Cancelling in the editor leaves DeviceInfo unchanged and restores the original configuration automatically.",
         )))
