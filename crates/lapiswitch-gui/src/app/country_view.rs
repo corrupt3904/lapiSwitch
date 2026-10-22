@@ -79,7 +79,7 @@ pub(super) fn modal(app: &App) -> widget::Container<'_, Message> {
                 space().width(Fill),
                 action(app.t("취소", "Cancel"), Message::CountryCancel, true).style(soft_style),
                 action(
-                    app.t("적용", "Apply"),
+                    app.t("선택", "Select"),
                     Message::CountryApply,
                     app.country_draft.is_some()
                 )

@@ -154,7 +154,7 @@ pub(super) fn title<'a>(
 fn nav_section(app: &App) -> usize {
     match app.page {
         Page::Dashboard | Page::Resume => 0,
-        Page::Firmware | Page::Options | Page::Confirm => 1,
+        Page::Firmware | Page::Confirm => 1,
         Page::Edit => 2,
         Page::Recovery => 3,
         Page::Settings => 4,
@@ -318,10 +318,9 @@ fn navigation(app: &App) -> Element<'_, Message> {
     .into()
 }
 /// The firmware flashing steps; each page's title is its step name.
-fn flash_steps(app: &App) -> [&'static str; 4] {
+fn flash_steps(app: &App) -> [&'static str; 3] {
     [
         app.t("펌웨어 검사", "Firmware check"),
-        app.t("플래싱 설정", "Flashing options"),
         app.t("최종 확인", "Final check"),
         app.t("진행 / 결과", "Progress / result"),
     ]
@@ -353,7 +352,7 @@ fn group_row<'a>(
 ) -> Element<'a, Message> {
     let mut content = row![
         label(name).size(14).width(FIELD_KEY),
-        container(value).width(Fill)
+        container(value).width(Fill).clip(true)
     ]
     .spacing(16)
     .align_y(Alignment::Center);
@@ -372,7 +371,14 @@ fn link_row<'a>(
     button(
         row![
             label(name).size(14).width(FIELD_KEY),
-            label(value).size(14).color(muted()).width(Fill),
+            container(
+                label(value)
+                    .size(14)
+                    .color(muted())
+                    .wrapping(iced::widget::text::Wrapping::None)
+            )
+            .width(Fill)
+            .clip(true),
             icon(glyph::CHEVRON).size(12).color(muted())
         ]
         .spacing(16)
@@ -388,34 +394,108 @@ fn link_row<'a>(
     })
     .into()
 }
-/// Reset or keep the rollback indices: a two-button segmented control.
-fn rollback_choice(app: &App) -> Element<'_, Message> {
+/// The chosen rollback handling, shown on the final check.
+fn rollback_value(app: &App) -> String {
+    match app.rollback_mode {
+        lapiswitch_core::deviceinfo::RollbackMode::Reset => {
+            app.t("초기화 (32개 → 0)", "Reset (32 → 0)").into()
+        }
+        lapiswitch_core::deviceinfo::RollbackMode::Keep => app.t("유지", "Keep").into(),
+    }
+}
+/// Reset or keep the rollback indices, chosen after the country code or
+/// from the final check.
+fn rollback_modal(app: &App) -> iced::widget::Container<'_, Message> {
     use lapiswitch_core::deviceinfo::RollbackMode;
-    let mut choices = row![].spacing(4);
-    for (mode, name) in [
+    let mut choices = column![].spacing(4);
+    for (mode, name, detail) in [
         (
             RollbackMode::Reset,
             app.t("초기화 (32개 → 0)", "Reset (32 → 0)"),
+            app.t(
+                "32개 모두 0으로 기록합니다. 더 낮은 펌웨어도 설치할 수 있습니다.",
+                "All 32 are written as 0, so lower firmware can be installed.",
+            ),
         ),
-        (RollbackMode::Keep, app.t("유지", "Keep")),
+        (
+            RollbackMode::Keep,
+            app.t("유지", "Keep"),
+            app.t(
+                "기존 값을 유지합니다. 펌웨어가 더 낮으면 TWRP에서 초기화 또는 취소를 묻습니다.",
+                "Values are kept; if the firmware is lower, TWRP asks to reset or cancel.",
+            ),
+        ),
     ] {
-        let selected = app.rollback_mode == mode;
+        let selected = app.rollback_draft == mode;
         choices = choices.push(
-            button(label(name).size(13).color(if selected {
-                fluent::p().on_accent
-            } else {
-                ink()
-            }))
-            .padding([6, 14])
-            .on_press_maybe((!app.busy()).then_some(Message::Rollback(mode)))
-            .style(if selected {
-                fluent::accent_style
-            } else {
-                fluent::standard_style
+            button(
+                row![
+                    label(if selected { "●" } else { "○" })
+                        .size(17)
+                        .color(accent()),
+                    column![label(name).size(15), small(detail)].spacing(2)
+                ]
+                .spacing(13)
+                .align_y(Alignment::Center),
+            )
+            .on_press(Message::Rollback(mode))
+            .padding([12, 14])
+            .width(Fill)
+            .style(move |theme, state| {
+                let mut style = button::secondary(theme, state);
+                style.background = Some(if selected { pale() } else { card_color() }.into());
+                style
             }),
         );
     }
-    choices.into()
+    panel(
+        column![
+            label(app.t("롤백인덱스 선택", "Choose rollback handling")).size(25),
+            choices,
+            row![
+                space().width(Fill),
+                action(app.t("취소", "Cancel"), Message::RollbackCancel, true).style(soft_style),
+                action(app.t("선택", "Select"), Message::RollbackApply, true)
+            ]
+            .spacing(12),
+        ]
+        .spacing(16),
+    )
+    .max_width(590)
+}
+/// Average width of a path character in 14px text.
+pub(super) const PATH_CHAR: f32 = 8.2;
+/// Width left for a group row's value next to a control `control` wide.
+fn value_width(app: &App, control: f32) -> f32 {
+    // Navigation, page padding and the scrollbar gutter.
+    let page = (app.window_width - 290.0 - 36.0).min(1000.0) - 18.0 - 8.0;
+    page - 32.0 - FIELD_KEY - 16.0 - control
+}
+/// A path cut in the middle to fit `width` pixels of 14px text, keeping
+/// the drive and the folder name: `D:\…FU_ROW_OPEN_USER_…_260929\image`.
+pub(super) fn short_path(path: &std::path::Path, width: f32) -> String {
+    let full = path.display().to_string();
+    let budget = ((width / PATH_CHAR) as usize).max(12);
+    let chars: Vec<char> = full.chars().collect();
+    if chars.len() <= budget {
+        return full;
+    }
+    let head = match chars.iter().position(|c| matches!(c, '\\' | '/')) {
+        Some(i) if i < budget / 3 => i + 1,
+        _ => 0,
+    };
+    let tail = budget - head - 1;
+    let mut short: String = chars[..head].iter().collect();
+    short.push('…');
+    short.extend(&chars[chars.len() - tail..]);
+    short
+}
+/// The firmware folder, shortened to fit a value column of `width`.
+fn folder_value(app: &App, width: f32) -> String {
+    app.folder
+        .as_deref()
+        .map(|p| short_path(p, width))
+        .unwrap_or_else(|| app.t("선택되지 않음", "Not selected").into())
 }
 /// The chosen country code for the flashing options and final check.
 fn country_value(app: &App) -> String {
@@ -450,9 +530,8 @@ fn stepper(app: &App) -> Element<'_, Message> {
     };
     let active = match page {
         Page::Firmware => 0,
-        Page::Options => 1,
-        Page::Confirm => 2,
-        _ => 3,
+        Page::Confirm => 1,
+        _ => 2,
     };
     let mut crumbs = row![].spacing(8).align_y(Alignment::Center);
     let flow = label(app.t(
@@ -536,7 +615,6 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Page::Dashboard => dashboard_view::dashboard(app),
         Page::Edit => edit(app),
         Page::Firmware => firmware(app),
-        Page::Options => options(app),
         Page::Confirm => confirm(app),
         Page::Progress => progress(app),
         Page::Result => result(app),
@@ -672,6 +750,8 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Some(conflicts::modal(app))
     } else if app.country_open {
         Some(country_view::modal(app))
+    } else if app.rollback_open {
+        Some(rollback_modal(app))
     } else if app.license_open {
         Some(licenses_view::modal(app))
     } else {
@@ -720,15 +800,11 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         .spacing(4),
         group(vec![group_row(
             app.t("펌웨어 폴더", "Firmware folder"),
-            label(
-                app.folder
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| app.t("선택되지 않음", "Not selected").into())
-            )
-            .size(14)
-            .color(muted())
-            .into(),
+            label(folder_value(app, value_width(app, 120.0)))
+                .size(14)
+                .color(muted())
+                .wrapping(iced::widget::text::Wrapping::None)
+                .into(),
             Some(
                 action(
                     app.t("폴더 선택", "Choose folder"),
@@ -815,63 +891,6 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         footer(app, Some((Message::Next, app.report.is_some()))),
     )
 }
-fn options(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
-    let steps = flash_steps(app);
-    let content = column![
-        column![
-            label(steps[1]).size(28),
-            label(app.t(
-                "플래싱 후 적용할 국가 코드와 롤백인덱스 처리 방식을 정합니다.",
-                "Choose the country code applied after flashing and how rollback indices are handled.",
-            ))
-            .size(14)
-            .color(muted())
-        ]
-        .spacing(4),
-        group(vec![
-            link_row(
-                app.t("국가 코드", "Country code"),
-                country_value(app),
-                Message::CountryOpen,
-                !app.busy(),
-            ),
-            group_row(
-                app.t("롤백인덱스", "Rollback indices"),
-                label(match app.rollback_mode {
-                    lapiswitch_core::deviceinfo::RollbackMode::Reset => app.t(
-                        "32개 모두 0으로 기록합니다. 더 낮은 펌웨어도 설치할 수 있습니다.",
-                        "All 32 are written as 0, so lower firmware can be installed.",
-                    ),
-                    lapiswitch_core::deviceinfo::RollbackMode::Keep => app.t(
-                        "기존 값을 유지합니다. 펌웨어가 더 낮으면 TWRP에서 초기화 또는 취소를 묻습니다.",
-                        "Values are kept; if the firmware is lower, TWRP asks to reset or cancel.",
-                    ),
-                })
-                .size(13)
-                .color(muted())
-                .into(),
-                Some(rollback_choice(app)),
-            ),
-            group_row(
-                app.t("로그 및 백업 위치", "Logs and backup location"),
-                label(app.output.display().to_string())
-                    .size(13)
-                    .color(muted())
-                    .into(),
-                None,
-            ),
-        ]),
-        small(app.t(
-            "로그 및 백업 위치는 설정에서 바꿀 수 있습니다.",
-            "Change the log and backup location in Settings.",
-        )),
-    ]
-    .spacing(12);
-    (
-        content.into(),
-        footer(app, Some((Message::Next, app.options().is_some()))),
-    )
-}
 /// Region conversion always erases user data.
 /// What the reboot about to be confirmed does. An edit installs firmware
 /// only when it changed the region, which the editor decided in TWRP.
@@ -935,7 +954,7 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let idle = !app.busy();
     let content = column![
         column![
-            label(steps[2]).size(28),
+            label(steps[1]).size(28),
             label(app.t(
                 "기기 한 대를 연결하고 USB 연결을 유지하세요. 항목을 눌러 바꿀 수 있습니다.",
                 "Connect one device and keep USB connected. Select an item to change it.",
@@ -973,17 +992,15 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             ),
             link_row(
                 app.t("펌웨어 폴더", "Firmware folder"),
-                app.folder
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default(),
+                folder_value(app, value_width(app, 30.0)),
                 Message::Pick(Picker::Firmware),
                 idle,
             ),
-            group_row(
+            link_row(
                 app.t("롤백인덱스", "Rollback indices"),
-                space().into(),
-                Some(rollback_choice(app)),
+                rollback_value(app),
+                Message::RollbackOpen,
+                idle,
             ),
         ]),
         checkbox(app.agreed)
@@ -1246,7 +1263,7 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let header: Element<'_, Message> = if matches!(app.run_kind, RunKind::Convert | RunKind::Resume)
     {
         column![
-            label(flash_steps(app)[3]).size(28),
+            label(flash_steps(app)[2]).size(28),
             label(heading).size(14).color(muted())
         ]
         .spacing(4)

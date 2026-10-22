@@ -36,7 +36,7 @@ The software is provided **“AS IS,” without warranty**, to the extent permit
 ## Features
 
 - **DeviceInfo editing (default)** — edit every field of the DeviceInfo structure map read in TWRP, including region, rollback indices and security/structure fields. Inputs must match each field's type and size, and the change list is reviewed before writing. A region change requires selecting and checking that region's firmware folder and then installs it with a data reset; without a region change the original configuration is restored and the tablet just reboots.
-- **Guided firmware flashing** — firmware folder check (region read from vendor_boot), flashing options and a final check.
+- **Guided firmware flashing** — firmware folder check (region read from vendor_boot), country code and rollback choices, and a final check.
 - **Device monitoring** — ADB, Fastboot and EDL status on the **device card** page (top of the navigation), with driver checks and supported installation options.
 - **Backup and verification** — original partition backups and full 4096-byte DeviceInfo readback verification after writing.
 - **Conversion options** — country code selection and rollback index reset (default) or preservation. With preservation, a firmware whose rollback indices are lower than the values stored in DeviceInfo opens a prompt in TWRP: reset them to 0 and continue, or cancel and automatically restore the original configuration.

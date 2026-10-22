@@ -27,7 +27,6 @@ enum Page {
     /// DeviceInfo edit setup: EDL loader and consent.
     Edit,
     Firmware,
-    Options,
     Confirm,
     Progress,
     Result,
@@ -75,6 +74,11 @@ enum Message {
     Picked(Picker, Option<PathBuf>),
     Country(String),
     Rollback(lapiswitch_core::deviceinfo::RollbackMode),
+    RollbackOpen,
+    RollbackCancel,
+    RollbackApply,
+    /// The window's new width, used to shorten long paths.
+    Resized(f32),
     CountryOpen,
     LicenseOpen,
     LicenseClose,
@@ -131,6 +135,9 @@ struct App {
     report: Option<FirmwareReport>,
     country: Option<String>,
     rollback_mode: lapiswitch_core::deviceinfo::RollbackMode,
+    rollback_open: bool,
+    rollback_draft: lapiswitch_core::deviceinfo::RollbackMode,
+    window_width: f32,
     recovery_transition: Option<lapiswitch_core::recovery_flow::Transition>,
     recovery_detail: Option<String>,
     country_open: bool,
@@ -174,9 +181,9 @@ struct App {
     rollback_confirmation: Option<(String, Sender<bool>)>,
     /// The live DeviceInfo editor while the tablet waits in TWRP.
     editor: Option<editor::Editor>,
-    /// The country picker opened by Continue on the firmware page; Cancel
-    /// returns there.
-    country_from_next: bool,
+    /// The country and rollback pickers opened in turn by Continue on the
+    /// firmware page; the last choice moves on to the final check.
+    choosing_from_next: bool,
     /// Windows is in dark mode; used when the theme follows the system.
     system_dark: bool,
     logs: VecDeque<String>,
@@ -216,6 +223,13 @@ impl App {
             report: None,
             country: None,
             rollback_mode: lapiswitch_core::deviceinfo::RollbackMode::Reset,
+            rollback_open: false,
+            rollback_draft: lapiswitch_core::deviceinfo::RollbackMode::Reset,
+            window_width: if std::env::args().any(|a| a == "--compact") {
+                900.0
+            } else {
+                1080.0
+            },
             recovery_transition: None,
             recovery_detail: None,
             country_open: false,
@@ -257,7 +271,7 @@ impl App {
             firmware_confirmation: None,
             rollback_confirmation: None,
             editor: None,
-            country_from_next: false,
+            choosing_from_next: false,
             system_dark: false,
             logs: VecDeque::new(),
             log_path: None,
@@ -365,7 +379,7 @@ impl App {
             self.page
         };
         match page {
-            Page::Firmware | Page::Options | Page::Confirm | Page::Resume => true,
+            Page::Firmware | Page::Confirm | Page::Resume => true,
             Page::Progress | Page::Result => {
                 !matches!(self.run_kind, RunKind::Restore | RunKind::Edit)
             }
@@ -577,6 +591,7 @@ impl App {
             return Task::none();
         }
         match message {
+            Message::Resized(width) => self.window_width = width,
             Message::FocusMove(reverse) => {
                 return if reverse {
                     iced::widget::operation::focus_previous()
@@ -584,8 +599,6 @@ impl App {
                     iced::widget::operation::focus_next()
                 };
             }
-            Message::Rollback(mode) if !self.busy() => self.rollback_mode = mode,
-            Message::Rollback(_) => {}
             // Previews keep the theme chosen on the command line.
             Message::SystemTheme(mode) if !self.demo => {
                 self.system_dark = mode == iced::theme::Mode::Dark;
@@ -780,6 +793,11 @@ impl App {
                         | Message::CountryApply
                         | Message::CountryCancel
                 ) => {}
+            _ if self.rollback_open
+                && !matches!(
+                    message,
+                    Message::Rollback(_) | Message::RollbackApply | Message::RollbackCancel
+                ) => {}
             _ if self.archive_confirmation.is_some()
                 && !matches!(
                     message,
@@ -791,17 +809,13 @@ impl App {
                 self.error = None;
                 self.page = match self.page {
                     Page::Firmware if self.report.is_some() => {
-                        // The country code is the first choice of the
-                        // options; cancelling it returns to the firmware.
+                        // Choose the country code, then the rollback
+                        // handling; cancelling either stays here.
                         self.country_open = true;
                         self.country_search.clear();
                         self.country_draft = self.country.clone();
-                        self.country_from_next = true;
-                        Page::Options
-                    }
-                    Page::Options if self.options().is_some() => {
-                        self.agreed = false;
-                        Page::Confirm
+                        self.choosing_from_next = true;
+                        Page::Firmware
                     }
                     other => other,
                 };
@@ -811,8 +825,7 @@ impl App {
                 self.agreed = false;
                 self.page = match self.page {
                     Page::Firmware => Page::Dashboard,
-                    Page::Options => Page::Firmware,
-                    Page::Confirm => Page::Options,
+                    Page::Confirm => Page::Firmware,
                     Page::Settings => self.return_page,
                     _ => Page::Dashboard,
                 };
@@ -871,15 +884,35 @@ impl App {
             Message::CountryCancel => {
                 self.country_open = false;
                 self.country_draft = None;
-                if std::mem::take(&mut self.country_from_next) {
-                    self.page = Page::Firmware;
-                }
+                self.choosing_from_next = false;
             }
             Message::CountryApply if self.country_open && self.country_draft.is_some() => {
                 self.country = self.country_draft.take();
                 self.country_open = false;
-                self.country_from_next = false;
                 self.agreed = false;
+                if self.choosing_from_next {
+                    self.rollback_open = true;
+                    self.rollback_draft = self.rollback_mode;
+                }
+            }
+            Message::RollbackOpen if !self.busy() => {
+                self.rollback_open = true;
+                self.rollback_draft = self.rollback_mode;
+            }
+            Message::Rollback(mode) if self.rollback_open && !self.busy() => {
+                self.rollback_draft = mode;
+            }
+            Message::RollbackCancel => {
+                self.rollback_open = false;
+                self.choosing_from_next = false;
+            }
+            Message::RollbackApply if self.rollback_open && !self.busy() => {
+                self.rollback_mode = self.rollback_draft;
+                self.rollback_open = false;
+                self.agreed = false;
+                if std::mem::take(&mut self.choosing_from_next) {
+                    self.page = Page::Confirm;
+                }
             }
             Message::Agree(agreed) => self.agreed = agreed,
             Message::Start => return self.start_conversion(),
@@ -1216,6 +1249,9 @@ impl App {
                     Some(Message::FocusMove(modifiers.shift()))
                 }
                 iced::Event::Window(iced::window::Event::CloseRequested) => Some(Message::Close),
+                iced::Event::Window(iced::window::Event::Resized(size)) => {
+                    Some(Message::Resized(size.width))
+                }
                 _ => None,
             }),
         ])
@@ -1228,7 +1264,9 @@ impl App {
             Picker::Firmware => {
                 let region = self.region.unwrap_or(Region::Row);
                 self.region = Some(region);
-                self.folder = Some("Demo/firmware/image".into());
+                self.folder = Some(
+                    r"D:\TB520FU_ROW_OPEN_USER_Q29300.0_A17_ZUI_18.5.10.037_ST_260929\image".into(),
+                );
                 self.report = Some(demo_report(region));
             }
             Picker::Backup => {
@@ -1319,12 +1357,12 @@ impl App {
                 };
             }
             "country" => {
-                self.page = Page::Options;
+                self.page = Page::Firmware;
                 self.country_open = true;
                 self.country_draft = Some("KR".into());
             }
             "country-search" => {
-                self.page = Page::Options;
+                self.page = Page::Firmware;
                 self.country_open = true;
                 self.country_draft = Some("KR".into());
                 self.country_search = "ko".into();
@@ -1337,9 +1375,13 @@ impl App {
                 self.country = None;
             }
             "firmware" => self.page = Page::Firmware,
-            "options" => self.page = Page::Options,
+            "options" => self.page = Page::Confirm,
+            "rollback" => {
+                self.page = Page::Confirm;
+                let _ = self.update(Message::RollbackOpen);
+            }
             "options-unselected" => {
-                self.page = Page::Options;
+                self.page = Page::Confirm;
                 self.country = None;
             }
             "wrong-device" => {
@@ -1973,7 +2015,7 @@ mod tests {
             app.page = Page::Settings;
             assert!(!app.conversion_steps_visible());
         }
-        for page in [Page::Firmware, Page::Options, Page::Confirm, Page::Resume] {
+        for page in [Page::Firmware, Page::Confirm, Page::Resume] {
             app.page = page;
             assert!(app.conversion_steps_visible());
             app.return_page = page;
@@ -2078,41 +2120,62 @@ mod tests {
         assert!(app.options().is_some());
     }
     #[test]
-    fn flashing_starts_at_the_firmware_check_and_continue_opens_the_country_picker() {
+    fn continue_chooses_the_country_then_rollback_then_shows_the_final_check() {
+        use lapiswitch_core::deviceinfo::RollbackMode;
         let mut app = App::base(true);
         assert_eq!(app.region, None);
         let _ = app.update(Message::Convert);
         assert_eq!(app.page, Page::Firmware);
         // Continue needs a checked firmware.
         let _ = app.update(Message::Next);
-        assert_eq!(app.page, Page::Firmware);
         assert!(!app.country_open);
         app.event(Event::Validated(Ok(demo_report(Region::Prc))));
         assert_eq!(app.region, Some(Region::Prc));
-        // Continue opens the options with the country picker on top.
+        // Cancelling the country stays on the firmware check.
         let _ = app.update(Message::Next);
-        assert_eq!(app.page, Page::Options);
         assert!(app.country_open);
-        // Cancel returns to the firmware check.
         let _ = app.update(Message::CountryCancel);
         assert_eq!(app.page, Page::Firmware);
-        assert!(!app.country_open);
-        // Applying a code stays on the options.
+        assert!(!app.country_open && !app.rollback_open);
+        // Cancelling the rollback choice stays there too.
         let _ = app.update(Message::Next);
         let _ = app.update(Message::Country("KR".into()));
         let _ = app.update(Message::CountryApply);
-        assert_eq!(app.page, Page::Options);
+        assert!(app.rollback_open);
+        let _ = app.update(Message::RollbackCancel);
+        assert_eq!(app.page, Page::Firmware);
         assert_eq!(app.country.as_deref(), Some("KR"));
-        // A picker opened from the options only closes on cancel.
-        let _ = app.update(Message::CountryOpen);
-        let _ = app.update(Message::CountryCancel);
-        assert_eq!(app.page, Page::Options);
+        // Both choices lead to the final check.
         let _ = app.update(Message::Next);
+        let _ = app.update(Message::CountryApply);
+        let _ = app.update(Message::Rollback(RollbackMode::Keep));
+        let _ = app.update(Message::RollbackApply);
         assert_eq!(app.page, Page::Confirm);
+        assert_eq!(app.rollback_mode, RollbackMode::Keep);
+        // From the final check each picker only closes.
+        let _ = app.update(Message::CountryOpen);
+        let _ = app.update(Message::CountryApply);
+        assert!(!app.rollback_open);
+        let _ = app.update(Message::RollbackOpen);
+        let _ = app.update(Message::Rollback(RollbackMode::Reset));
+        let _ = app.update(Message::RollbackCancel);
+        assert_eq!(app.page, Page::Confirm);
+        assert_eq!(app.rollback_mode, RollbackMode::Keep);
         let _ = app.update(Message::Back);
-        let _ = app.update(Message::Back);
+        assert_eq!(app.page, Page::Firmware);
         let _ = app.update(Message::Back);
         assert_eq!(app.page, Page::Dashboard);
+    }
+    #[test]
+    fn long_paths_are_shortened_in_the_middle() {
+        let path = std::path::Path::new(
+            r"D:\TB520FU_ROW_OPEN_USER_Q29300.0_A17_ZUI_18.5.10.037_ST_260929\image",
+        );
+        assert_eq!(view::short_path(path, 1000.0), path.display().to_string());
+        let short = view::short_path(path, 400.0);
+        assert!(short.starts_with(r"D:\…"), "{short}");
+        assert!(short.ends_with(r"_260929\image"), "{short}");
+        assert!(short.chars().count() <= (400.0 / view::PATH_CHAR) as usize);
     }
     #[test]
     fn resume_gate_blocks_recovery_uncertain_or_corrupt_state() {
@@ -2165,6 +2228,7 @@ mod tests {
                 "rollback-confirm",
                 "preflight",
                 "options-country",
+                "rollback",
                 "edl-start-warning",
                 "deviceinfo-edit",
                 "deviceinfo-editor",
@@ -2222,17 +2286,25 @@ mod tests {
             app.rollback_mode,
             lapiswitch_core::deviceinfo::RollbackMode::Reset
         );
+        let _ = app.update(Message::RollbackOpen);
         let _ = app.update(Message::Rollback(
             lapiswitch_core::deviceinfo::RollbackMode::Keep,
         ));
         assert_eq!(
             app.rollback_mode,
+            lapiswitch_core::deviceinfo::RollbackMode::Reset
+        );
+        let _ = app.update(Message::RollbackApply);
+        assert_eq!(
+            app.rollback_mode,
             lapiswitch_core::deviceinfo::RollbackMode::Keep
         );
         app.activity = Some(Activity::Run);
+        let _ = app.update(Message::RollbackOpen);
         let _ = app.update(Message::Rollback(
             lapiswitch_core::deviceinfo::RollbackMode::Reset,
         ));
+        let _ = app.update(Message::RollbackApply);
         assert_eq!(
             app.rollback_mode,
             lapiswitch_core::deviceinfo::RollbackMode::Keep
