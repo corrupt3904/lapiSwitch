@@ -67,9 +67,17 @@ pub(super) fn panel<'a>(
 }
 /// Fluent InfoBar: icon, message and a severity tint.
 pub(super) fn infobar<'a>(severity: Severity, value: impl Into<String>) -> Element<'a, Message> {
+    infobar_with(severity.glyph(), severity, value)
+}
+/// An InfoBar with its own icon in the severity's tint.
+fn infobar_with<'a>(
+    glyph: char,
+    severity: Severity,
+    value: impl Into<String>,
+) -> Element<'a, Message> {
     container(
         row![
-            icon(severity.glyph()).color(severity.icon_color()),
+            icon(glyph).color(severity.icon_color()),
             label(value).size(14).width(Fill)
         ]
         .spacing(12),
@@ -104,11 +112,13 @@ pub(super) fn field<'a>(key: impl Into<String>, value: impl Into<String>) -> Ele
     .style(fluent::card_style)
     .into()
 }
+/// Something that failed: a red bar with a crossed circle.
 fn error_note<'a>(error: &str) -> Element<'a, Message> {
-    warning_note(error.to_owned())
+    infobar(Severity::Error, error.to_owned())
 }
+/// A serious caution before acting: a red bar with a warning triangle.
 fn warning_note<'a>(value: impl Into<String>) -> Element<'a, Message> {
-    infobar(Severity::Error, value)
+    infobar_with(glyph::WARNING, Severity::Error, value)
 }
 pub(super) fn notification<'a>(
     content: impl Into<Element<'a, Message>>,
@@ -398,7 +408,7 @@ fn link_row<'a>(
 fn rollback_value(app: &App) -> String {
     match app.rollback_mode {
         lapiswitch_core::deviceinfo::RollbackMode::Reset => {
-            app.t("초기화 (32개 → 0)", "Reset (32 → 0)").into()
+            app.t("초기화 (기본값)", "Reset (default)").into()
         }
         lapiswitch_core::deviceinfo::RollbackMode::Keep => app.t("유지", "Keep").into(),
     }
@@ -411,7 +421,7 @@ fn rollback_modal(app: &App) -> iced::widget::Container<'_, Message> {
     for (mode, name, detail) in [
         (
             RollbackMode::Reset,
-            app.t("초기화 (32개 → 0)", "Reset (32 → 0)"),
+            app.t("초기화 (기본값)", "Reset (default)"),
             app.t(
                 "32개 모두 0으로 기록합니다. 더 낮은 펌웨어도 설치할 수 있습니다.",
                 "All 32 are written as 0, so lower firmware can be installed.",
@@ -462,6 +472,35 @@ fn rollback_modal(app: &App) -> iced::widget::Container<'_, Message> {
         .spacing(16),
     )
     .max_width(590)
+}
+/// How a region change affects later flashing, from the final check.
+fn region_notice(app: &App) -> iced::widget::Container<'_, Message> {
+    panel(
+        column![
+            row![
+                icon(glyph::ALERT).size(22).color(danger()),
+                label(app.t("Region 변경 안내", "About the region change")).size(25)
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+            label(app.t(
+                "본 툴은 기기 자체의 Region을 변경하는 방식으로 작동합니다.\n따라서 이후 LTBOX에서 펌웨어 플래싱할때 '기기 지역 선택' 옵션에서 변경된 Region으로 선택해야 합니다.",
+                "This tool works by changing the device's own region.\nWhen you later flash firmware with LTBox, choose the changed region in its 'Device region' option.",
+            ))
+            .size(15),
+            label(app.t(
+                "만약 내수용 기기에 본 툴을 사용하여 글로벌 펌웨어를 설치한 경우, 이후 Pixel 등 커스텀 펌웨어를 설치할 때는 반드시 ROW 버전을 선택해야 합니다.\n또한, 내수 펌웨어로 복귀할 경우에도 반드시 본 툴을 통해 내수 펌웨어를 플래싱해야 정상적인 OTA 업데이트가 지원됩니다.",
+                "If you installed global firmware on a China-market device with this tool, always choose the ROW version when you later install custom firmware such as Pixel.\nTo return to China firmware, flash it with this tool as well; otherwise OTA updates will not work normally.",
+            ))
+            .size(15),
+            row![
+                space().width(Fill),
+                action(app.t("확인", "Confirm"), Message::RegionNoticeClose, true)
+            ],
+        ]
+        .spacing(16),
+    )
+    .max_width(640)
 }
 /// Average width of a path character in 14px text.
 pub(super) const PATH_CHAR: f32 = 8.2;
@@ -606,7 +645,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         )));
     }
     if let Some(error) = &app.error {
-        body = body.push(warning_note(error.clone()));
+        body = body.push(error_note(error));
     }
     if let Some(notice) = &app.notice {
         body = body.push(notification_note(notice.clone()));
@@ -752,6 +791,8 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Some(country_view::modal(app))
     } else if app.rollback_open {
         Some(rollback_modal(app))
+    } else if app.region_notice_open {
+        Some(region_notice(app))
     } else if app.license_open {
         Some(licenses_view::modal(app))
     } else {
@@ -977,7 +1018,13 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 ))
                 .size(14)
                 .into(),
-                None,
+                Some(
+                    button(icon(glyph::ALERT).size(16).color(danger()))
+                        .padding([4, 8])
+                        .on_press(Message::RegionNoticeOpen)
+                        .style(fluent::subtle_style)
+                        .into(),
+                ),
             ),
             group_row(
                 app.t("사용자 데이터", "User data"),

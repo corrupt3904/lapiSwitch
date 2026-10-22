@@ -143,6 +143,8 @@ pub(crate) mod glyph {
     pub const INFO: char = '\u{E946}';
     pub const WARNING: char = '\u{E7BA}';
     pub const ERROR: char = '\u{EA39}';
+    /// A circle with an exclamation mark.
+    pub const ALERT: char = '\u{E783}';
     pub const COMPLETED: char = '\u{E930}';
 }
 

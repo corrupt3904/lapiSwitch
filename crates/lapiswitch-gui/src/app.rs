@@ -76,6 +76,8 @@ enum Message {
     Rollback(lapiswitch_core::deviceinfo::RollbackMode),
     RollbackOpen,
     RollbackCancel,
+    RegionNoticeOpen,
+    RegionNoticeClose,
     RollbackApply,
     /// The window's new width, used to shorten long paths.
     Resized(f32),
@@ -142,6 +144,7 @@ struct App {
     recovery_detail: Option<String>,
     country_open: bool,
     license_open: bool,
+    region_notice_open: bool,
     license_search: String,
     license_selection: usize,
     country_search: String,
@@ -181,8 +184,8 @@ struct App {
     rollback_confirmation: Option<(String, Sender<bool>)>,
     /// The live DeviceInfo editor while the tablet waits in TWRP.
     editor: Option<editor::Editor>,
-    /// The country and rollback pickers opened in turn by Continue on the
-    /// firmware page; the last choice moves on to the final check.
+    /// The country picker opened by Continue on the firmware page: Select
+    /// moves on to the final check, Cancel stays.
     choosing_from_next: bool,
     /// Windows is in dark mode; used when the theme follows the system.
     system_dark: bool,
@@ -234,6 +237,7 @@ impl App {
             recovery_detail: None,
             country_open: false,
             license_open: false,
+            region_notice_open: false,
             license_search: String::new(),
             license_selection: 0,
             country_search: String::new(),
@@ -890,9 +894,8 @@ impl App {
                 self.country = self.country_draft.take();
                 self.country_open = false;
                 self.agreed = false;
-                if self.choosing_from_next {
-                    self.rollback_open = true;
-                    self.rollback_draft = self.rollback_mode;
+                if std::mem::take(&mut self.choosing_from_next) {
+                    self.page = Page::Confirm;
                 }
             }
             Message::RollbackOpen if !self.busy() => {
@@ -902,17 +905,13 @@ impl App {
             Message::Rollback(mode) if self.rollback_open && !self.busy() => {
                 self.rollback_draft = mode;
             }
-            Message::RollbackCancel => {
-                self.rollback_open = false;
-                self.choosing_from_next = false;
-            }
+            Message::RollbackCancel => self.rollback_open = false,
+            Message::RegionNoticeOpen => self.region_notice_open = true,
+            Message::RegionNoticeClose => self.region_notice_open = false,
             Message::RollbackApply if self.rollback_open && !self.busy() => {
                 self.rollback_mode = self.rollback_draft;
                 self.rollback_open = false;
                 self.agreed = false;
-                if std::mem::take(&mut self.choosing_from_next) {
-                    self.page = Page::Confirm;
-                }
             }
             Message::Agree(agreed) => self.agreed = agreed,
             Message::Start => return self.start_conversion(),
@@ -1379,6 +1378,10 @@ impl App {
             "rollback" => {
                 self.page = Page::Confirm;
                 let _ = self.update(Message::RollbackOpen);
+            }
+            "region-notice" => {
+                self.page = Page::Confirm;
+                let _ = self.update(Message::RegionNoticeOpen);
             }
             "options-unselected" => {
                 self.page = Page::Confirm;
@@ -2120,7 +2123,7 @@ mod tests {
         assert!(app.options().is_some());
     }
     #[test]
-    fn continue_chooses_the_country_then_rollback_then_shows_the_final_check() {
+    fn continue_chooses_the_country_then_shows_the_final_check() {
         use lapiswitch_core::deviceinfo::RollbackMode;
         let mut app = App::base(true);
         assert_eq!(app.region, None);
@@ -2136,31 +2139,32 @@ mod tests {
         assert!(app.country_open);
         let _ = app.update(Message::CountryCancel);
         assert_eq!(app.page, Page::Firmware);
-        assert!(!app.country_open && !app.rollback_open);
-        // Cancelling the rollback choice stays there too.
+        assert!(!app.country_open);
+        // Selecting it goes straight to the final check, resetting by default.
         let _ = app.update(Message::Next);
         let _ = app.update(Message::Country("KR".into()));
         let _ = app.update(Message::CountryApply);
-        assert!(app.rollback_open);
-        let _ = app.update(Message::RollbackCancel);
-        assert_eq!(app.page, Page::Firmware);
+        assert_eq!(app.page, Page::Confirm);
+        assert!(!app.rollback_open);
         assert_eq!(app.country.as_deref(), Some("KR"));
-        // Both choices lead to the final check.
-        let _ = app.update(Message::Next);
+        assert_eq!(app.rollback_mode, RollbackMode::Reset);
+        // From the final check each picker only closes.
+        let _ = app.update(Message::CountryOpen);
         let _ = app.update(Message::CountryApply);
+        assert_eq!(app.page, Page::Confirm);
+        let _ = app.update(Message::RollbackOpen);
+        let _ = app.update(Message::Rollback(RollbackMode::Keep));
+        let _ = app.update(Message::RollbackCancel);
+        assert_eq!(app.rollback_mode, RollbackMode::Reset);
+        let _ = app.update(Message::RollbackOpen);
         let _ = app.update(Message::Rollback(RollbackMode::Keep));
         let _ = app.update(Message::RollbackApply);
         assert_eq!(app.page, Page::Confirm);
         assert_eq!(app.rollback_mode, RollbackMode::Keep);
-        // From the final check each picker only closes.
-        let _ = app.update(Message::CountryOpen);
-        let _ = app.update(Message::CountryApply);
-        assert!(!app.rollback_open);
-        let _ = app.update(Message::RollbackOpen);
-        let _ = app.update(Message::Rollback(RollbackMode::Reset));
-        let _ = app.update(Message::RollbackCancel);
-        assert_eq!(app.page, Page::Confirm);
-        assert_eq!(app.rollback_mode, RollbackMode::Keep);
+        let _ = app.update(Message::RegionNoticeOpen);
+        assert!(app.region_notice_open);
+        let _ = app.update(Message::RegionNoticeClose);
+        assert!(!app.region_notice_open);
         let _ = app.update(Message::Back);
         assert_eq!(app.page, Page::Firmware);
         let _ = app.update(Message::Back);
@@ -2229,6 +2233,7 @@ mod tests {
                 "preflight",
                 "options-country",
                 "rollback",
+                "region-notice",
                 "edl-start-warning",
                 "deviceinfo-edit",
                 "deviceinfo-editor",
