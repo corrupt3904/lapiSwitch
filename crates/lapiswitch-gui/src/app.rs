@@ -396,6 +396,14 @@ impl App {
             "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.",
         )
     }
+    /// The checked firmware names another model than the connected device.
+    /// EDL reports no model, so the run identifies the device itself then.
+    fn firmware_model_differs(&self) -> bool {
+        match (&self.report, self.device.supported()) {
+            (Some(report), Some(device)) => report.device != device,
+            _ => false,
+        }
+    }
     fn can_start(&self) -> bool {
         self.start_blocker().is_none()
     }
@@ -460,6 +468,11 @@ impl App {
             self.t(
                 "펌웨어 폴더를 선택해 검사를 완료해 주세요.",
                 "Choose a firmware folder and complete its check.",
+            )
+        } else if self.firmware_model_differs() {
+            self.t(
+                "기기와 펌웨어의 모델이 다릅니다. 기기에 맞는 펌웨어 폴더를 선택해 주세요.",
+                "The firmware is for a different model than the connected device. Choose firmware for this model.",
             )
         } else if self.options().is_none() {
             self.t(
@@ -1393,6 +1406,11 @@ impl App {
                 self.device.snapshot.name = "Unsupported tablet".into();
                 self.agreed = true;
             }
+            "model-mismatch" => {
+                self.page = Page::Confirm;
+                self.device.snapshot.model = "TB522FU".into();
+                self.agreed = true;
+            }
             "resume" | "confirm-pending" | "archive-run" => {
                 self.page = if screen == "resume" {
                     Page::Resume
@@ -2169,6 +2187,20 @@ mod tests {
         assert_eq!(app.page, Page::Firmware);
         let _ = app.update(Message::Back);
         assert_eq!(app.page, Page::Dashboard);
+    }
+    #[test]
+    fn firmware_for_another_model_blocks_the_start() {
+        let mut app = App::base(true);
+        app.seed_preview("confirm");
+        app.agreed = true;
+        assert!(app.can_start(), "{:?}", app.start_blocker());
+        app.seed_preview("model-mismatch");
+        assert!(app.firmware_model_differs());
+        assert!(!app.can_start());
+        // EDL names no model; the run checks the device itself.
+        app.device.snapshot.model.clear();
+        assert!(!app.firmware_model_differs());
+        let _view = app.view();
     }
     #[test]
     fn long_paths_are_shortened_in_the_middle() {

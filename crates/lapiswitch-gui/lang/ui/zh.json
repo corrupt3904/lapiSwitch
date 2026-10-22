@@ -257,6 +257,7 @@
   "The device model is unknown. Check the device connection.": "无法确认设备型号。请检查设备连接状态。",
   "The device must be able to boot normally before starting this operation.": "只有在设备能够正常开机时才能进行此操作。",
   "The driver installer is running. Please wait for it to finish.": "驱动安装程序正在运行，请等待安装完成。",
+  "The firmware is for a different model than the connected device. Choose firmware for this model.": "所连接设备与固件的型号不同。请选择与设备型号相符的固件文件夹。",
   "The firmware's rollback indices are lower than those stored in the device's DeviceInfo. Installed as is, rollback protection would stop it from booting.": "要安装的固件回滚索引低于设备 DeviceInfo 中保存的值。直接安装会因回滚保护而无法启动。",
   "The region field must be PRC or ROW.": "区域字段必须为 PRC 或 ROW。",
   "The saved run cannot be checked. Review the error above.": "无法检查之前的任务记录。请查看上方的错误。",

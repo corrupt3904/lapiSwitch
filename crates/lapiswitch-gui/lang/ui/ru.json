@@ -257,6 +257,7 @@
   "The device model is unknown. Check the device connection.": "Не удаётся определить модель устройства. Проверьте подключение устройства.",
   "The device must be able to boot normally before starting this operation.": "Начать можно, только если устройство нормально загружается.",
   "The driver installer is running. Please wait for it to finish.": "Идёт установка драйвера. Дождитесь её завершения.",
+  "The firmware is for a different model than the connected device. Choose firmware for this model.": "Модель прошивки не совпадает с подключённым устройством. Выберите прошивку для этой модели.",
   "The firmware's rollback indices are lower than those stored in the device's DeviceInfo. Installed as is, rollback protection would stop it from booting.": "Индексы отката прошивки ниже значений, сохранённых в DeviceInfo устройства. При такой установке защита от отката не даст устройству загрузиться.",
   "The region field must be PRC or ROW.": "Поле региона должно быть PRC или ROW.",
   "The saved run cannot be checked. Review the error above.": "Не удалось проверить сохранённую операцию. Посмотрите ошибку выше.",

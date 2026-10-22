@@ -257,6 +257,7 @@
   "The device model is unknown. Check the device connection.": "端末のモデルを確認できません。端末の接続状態を確認してください。",
   "The device must be able to boot normally before starting this operation.": "デバイスが正常に起動できる状態の場合のみ作業できます。",
   "The driver installer is running. Please wait for it to finish.": "ドライバーのインストーラーを実行中です。完了するまでお待ちください。",
+  "The firmware is for a different model than the connected device. Choose firmware for this model.": "接続された端末とファームウェアのモデルが異なります。端末のモデルに合ったファームウェアフォルダーを選択してください。",
   "The firmware's rollback indices are lower than those stored in the device's DeviceInfo. Installed as is, rollback protection would stop it from booting.": "インストールするファームウェアのロールバックインデックスが、デバイスの DeviceInfo に保存された値より低くなっています。このままインストールすると、ロールバック保護により起動しません。",
   "The region field must be PRC or ROW.": "リージョンフィールドは PRC または ROW である必要があります。",
   "The saved run cannot be checked. Review the error above.": "前回の作業記録を確認できません。上のエラーを確認してください。",
