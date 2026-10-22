@@ -3,6 +3,7 @@ use super::*;
 use crate::device::Mode;
 use iced::widget::{column, container, image, row, svg};
 use iced::{Alignment, Fill};
+use std::sync::{Mutex, OnceLock};
 
 pub(super) fn status(app: &App) -> String {
     if app.device.snapshot.error.is_some() {
@@ -56,18 +57,36 @@ pub(super) fn badge(app: &App) -> Element<'_, Message> {
 /// generic tablet.
 fn portrait(app: &App, width: f32, height: f32) -> Element<'_, Message> {
     if let Some(bytes) = app.device.supported().and_then(|device| device.image()) {
-        image(image::Handle::from_bytes(bytes))
+        image(device_image(bytes))
             .width(width)
             .height(height)
             .into()
     } else {
-        svg(svg::Handle::from_memory(
-            include_bytes!("../../assets/generic_tablet.svg").as_slice(),
-        ))
+        static GENERIC: OnceLock<svg::Handle> = OnceLock::new();
+        svg(GENERIC
+            .get_or_init(|| {
+                svg::Handle::from_memory(
+                    include_bytes!("../../assets/generic_tablet.svg").as_slice(),
+                )
+            })
+            .clone())
         .width(width)
         .height(height)
         .into()
     }
+}
+/// One handle per device picture. A new handle gets a new id, so building
+/// it in every view would decode and scale the PNG again on every frame.
+fn device_image(bytes: &'static [u8]) -> image::Handle {
+    static HANDLES: Mutex<Vec<(usize, image::Handle)>> = Mutex::new(Vec::new());
+    let key = bytes.as_ptr() as usize;
+    let mut handles = HANDLES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, handle)) = handles.iter().find(|(k, _)| *k == key) {
+        return handle.clone();
+    }
+    let handle = image::Handle::from_bytes(bytes);
+    handles.push((key, handle.clone()));
+    handle
 }
 fn device_name(app: &App) -> &str {
     let d = &app.device.snapshot;
