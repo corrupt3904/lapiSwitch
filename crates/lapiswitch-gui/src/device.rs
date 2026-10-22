@@ -96,6 +96,10 @@ impl Monitor {
     pub fn supported(&self) -> Option<lapiswitch_core::device::Device> {
         lapiswitch_core::device::Device::identify(&self.snapshot.model)
     }
+    /// A known device whose DeviceInfo is only dumped, never written.
+    pub fn dump_only(&self) -> bool {
+        self.supported().is_some_and(|device| !device.writable())
+    }
     pub fn unsupported_model(&self) -> bool {
         let model = self.snapshot.model.trim();
         !model.is_empty() && !lapiswitch_core::prepare::supported_model(model)

@@ -1,4 +1,4 @@
-//! A supported device: a folder in `devices/` with `flow = true`. Model
+//! A known device: a folder in `devices/` with `deviceinfo_read = true`. Model
 //! names, firmware rules, the pinned TWRP and the processing methods come
 //! from its `device.toml`; code never branches on a model name.
 use crate::deviceinfo::map::Layout;
@@ -74,8 +74,42 @@ impl Device {
     pub fn image(self) -> Option<&'static [u8]> {
         self.0.image
     }
-    pub fn layout(self) -> Layout {
+    /// The DeviceInfo field map; every writable device has one.
+    pub fn layout(self) -> Option<Layout> {
         Layout::of(self.0)
+    }
+    /// The field map needed to write DeviceInfo, or why it cannot be written.
+    pub fn write_layout(self) -> Result<Layout, String> {
+        match self.layout() {
+            Some(layout) if self.writable() => Ok(layout),
+            _ => Err(format!(
+                "{}은(는) DeviceInfo 쓰기를 지원하지 않습니다. 덤프만 할 수 있습니다.",
+                self.model()
+            )),
+        }
+    }
+    /// The field map of a device that has one, also when it is only dumped:
+    /// a saved write is still verified and restored with it.
+    pub fn field_map(self) -> Result<Layout, String> {
+        self.layout().ok_or_else(|| {
+            format!(
+                "{}의 DeviceInfo 필드 맵(deviceinfo.toml)이 없습니다.",
+                self.model()
+            )
+        })
+    }
+    /// The size the DeviceInfo helper is told: the logical structure, or
+    /// the whole shared buffer for a device that is only dumped.
+    pub fn deviceinfo_size(self) -> usize {
+        self.layout()
+            .map_or(crate::deviceinfo::SHARED_SIZE, |layout| {
+                layout.logical_size()
+            })
+    }
+    /// Firmware flashing and DeviceInfo editing (`deviceinfo_write`). A
+    /// device without it is only dumped.
+    pub fn writable(self) -> bool {
+        self.0.deviceinfo_write
     }
     fn flow(self) -> &'static Flow {
         self.0.flow.as_ref().expect("only flow devices are listed")

@@ -36,13 +36,13 @@ fn generate(root: &Path) -> Result<String> {
             println!("cargo:rerun-if-changed={}", folder.join(name).display());
         }
         let model = folder.file_name().unwrap().to_string_lossy().into_owned();
-        let (device, flow) = device(folder, &model).map_err(|e| format!("{model}: {e}"))?;
-        flows += usize::from(flow);
+        let (device, read) = device(folder, &model).map_err(|e| format!("{model}: {e}"))?;
+        flows += usize::from(read);
         code.push_str(&device);
     }
     code.push_str("];\n");
     if flows == 0 {
-        return Err("flow = true인 기기가 하나도 없습니다.".into());
+        return Err("deviceinfo_read = true인 기기가 하나도 없습니다.".into());
     }
     Ok(code)
 }
@@ -85,10 +85,16 @@ fn table<'a>(doc: &'a Table, key: &str, place: &str) -> Result<&'a Table> {
 
 const FLOW_KEYS: [&str; 4] = ["firmware", "installed", "twrp", "country"];
 
+fn flag(doc: &DocumentMut, key: &str) -> Result<bool> {
+    doc.get(key)
+        .and_then(Item::as_bool)
+        .ok_or_else(|| format!("device.toml: `{key}`(true/false)가 필요합니다."))
+}
+
 fn device(folder: &Path, model: &str) -> Result<(String, bool)> {
     let doc = read(&folder.join("device.toml"))?;
     let place = "device.toml";
-    let mut allowed = vec!["model", "codename", "flow"];
+    let mut allowed = vec!["model", "codename", "deviceinfo_read", "deviceinfo_write"];
     allowed.extend(FLOW_KEYS);
     only(&doc, &allowed, place)?;
     if string(&doc, "model", place)? != model {
@@ -101,14 +107,18 @@ fn device(folder: &Path, model: &str) -> Result<(String, bool)> {
                 .ok_or("device.toml: `codename`은 문자열이어야 합니다.")?,
         ),
     };
-    let flow = doc
-        .get("flow")
-        .and_then(Item::as_bool)
-        .ok_or("device.toml: `flow`(true/false)가 필요합니다.")?;
-    let flow_code = if flow {
+    let read = flag(&doc, "deviceinfo_read")?;
+    let write = flag(&doc, "deviceinfo_write")?;
+    if write && !read {
+        return Err(
+            "device.toml: deviceinfo_write = true에는 deviceinfo_read = true가 필요합니다.".into(),
+        );
+    }
+    // Reading already runs the backup, TWRP and restore flow.
+    let flow_code = if read {
         if codename.is_none() {
             return Err(
-                "device.toml: flow = true에는 `codename`이 필요합니다 (TWRP ro.product.device 확인용)."
+                "device.toml: deviceinfo_read = true에는 `codename`이 필요합니다 (TWRP ro.product.device 확인용)."
                     .into(),
             );
         }
@@ -117,7 +127,7 @@ fn device(folder: &Path, model: &str) -> Result<(String, bool)> {
         for key in FLOW_KEYS {
             if doc.contains_key(key) {
                 return Err(format!(
-                    "device.toml: flow = false인 기기에는 [{key}]를 두지 않습니다."
+                    "device.toml: deviceinfo_read = false인 기기에는 [{key}]를 두지 않습니다."
                 ));
             }
         }
@@ -132,12 +142,20 @@ fn device(folder: &Path, model: &str) -> Result<(String, bool)> {
     } else {
         "None".to_owned()
     };
-    let deviceinfo = deviceinfo(&read(&folder.join("deviceinfo.toml"))?)?;
+    // Writing needs the field map; a dump saves the raw bytes without one.
+    let map = folder.join("deviceinfo.toml");
+    let deviceinfo = if map.is_file() {
+        format!("Some({})", deviceinfo(&self::read(&map)?)?)
+    } else if write {
+        return Err("deviceinfo_write = true에는 deviceinfo.toml이 필요합니다.".into());
+    } else {
+        "None".to_owned()
+    };
     Ok((
         format!(
-            "    Device {{\n        model: {model:?},\n        codename: {codename:?},\n        flow: {flow_code},\n        image: {image},\n        deviceinfo: {deviceinfo},\n    }},\n"
+            "    Device {{\n        model: {model:?},\n        codename: {codename:?},\n        deviceinfo_read: {read},\n        deviceinfo_write: {write},\n        flow: {flow_code},\n        image: {image},\n        deviceinfo: {deviceinfo},\n    }},\n"
         ),
-        flow,
+        read,
     ))
 }
 

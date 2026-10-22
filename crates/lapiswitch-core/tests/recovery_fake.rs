@@ -178,7 +178,7 @@ fn sample(r: lapiswitch_core::region::Region) -> Vec<u8> {
 }
 /// Synthetic DeviceInfo shaped like `device`'s map.
 fn sample_for(device: Device, r: lapiswitch_core::region::Region) -> Vec<u8> {
-    let at = device.layout().region_offset();
+    let at = device.layout().unwrap().region_offset();
     let mut b = vec![0x5A; deviceinfo::SHARED_SIZE];
     b[..13].copy_from_slice(b"ANDROID-BOOT!");
     b[0xCC8..0xCD0].copy_from_slice(b"deadbeef");
@@ -193,7 +193,7 @@ fn tb522fu() -> Device {
 fn mode(state: &RunState) -> RollbackMode {
     match state.request {
         Request::Convert { rollback_mode, .. } => rollback_mode,
-        Request::Edit => panic!("not a conversion"),
+        Request::Edit | Request::Dump => panic!("not a conversion"),
     }
 }
 struct Info {
@@ -448,7 +448,7 @@ impl Setup {
         backup.mark(TransactionStage::S4Done).unwrap();
         recovery_flow::checkpoint(&mut state, &store, Phase::RecoveryWaiting).unwrap();
         let info = Info {
-            layout: device.layout(),
+            layout: device.layout().unwrap(),
             bytes: sample_for(device, lapiswitch_core::region::Region::Prc),
             writes: 0,
             reads: 0,
@@ -539,7 +539,7 @@ fn reset_backs_up_before_one_write_and_preserves_all_other_bytes() {
     s.transact().unwrap();
     assert_eq!(s.info.writes, 1);
     assert_eq!(
-        deviceinfo::indices(tb520fu().layout(), &s.info.bytes),
+        deviceinfo::indices(tb520fu().layout().unwrap(), &s.info.bytes),
         [0; 32]
     );
     assert_eq!(s.info.bytes, conversion(&before, &s, RollbackMode::Reset));
@@ -549,8 +549,9 @@ fn reset_backs_up_before_one_write_and_preserves_all_other_bytes() {
 /// Region and optional rollback reset only; every other byte as read.
 fn conversion(before: &[u8], s: &Setup, mode: RollbackMode) -> Vec<u8> {
     let edits =
-        deviceinfo::conversion_edits(tb520fu().layout(), before, s.firmware.region, mode).unwrap();
-    let planned = map::apply(tb520fu().layout(), before, &edits).unwrap();
+        deviceinfo::conversion_edits(tb520fu().layout().unwrap(), before, s.firmware.region, mode)
+            .unwrap();
+    let planned = map::apply(tb520fu().layout().unwrap(), before, &edits).unwrap();
     for (n, (a, b)) in before.iter().zip(&planned).enumerate() {
         if a != b {
             assert!(
@@ -601,7 +602,7 @@ fn keep_lower_firmware_reset_answer_persists_reset_and_zeroes_all_indices() {
     assert_eq!(s.asked.len(), 1);
     assert_eq!(s.info.writes, 1);
     assert_eq!(
-        deviceinfo::indices(tb520fu().layout(), &s.info.bytes),
+        deviceinfo::indices(tb520fu().layout().unwrap(), &s.info.bytes),
         [0; 32]
     );
     assert_eq!(s.info.bytes, conversion(&before, &s, RollbackMode::Reset));
@@ -647,12 +648,12 @@ fn keep_with_equal_or_higher_firmware_never_prompts_and_preserves_indices() {
         // Unrelated locations are not compared, even when far above 20.
         s.info.bytes[0x898..0x998].fill(0x5A);
         store_indices(&mut s.info.bytes, boot, vbmeta_system);
-        let before = deviceinfo::indices(tb520fu().layout(), &s.info.bytes);
+        let before = deviceinfo::indices(tb520fu().layout().unwrap(), &s.info.bytes);
         s.transact().unwrap();
         assert!(s.asked.is_empty(), "{boot}/{vbmeta_system}");
         assert_eq!(s.info.writes, 1);
         assert_eq!(
-            deviceinfo::indices(tb520fu().layout(), &s.info.bytes),
+            deviceinfo::indices(tb520fu().layout().unwrap(), &s.info.bytes),
             before
         );
         assert_eq!(mode(&saved_state(&s)), RollbackMode::Keep);
@@ -676,7 +677,7 @@ fn reset_mode_never_compares_or_prompts() {
     s.transact().unwrap();
     assert!(s.asked.is_empty());
     assert_eq!(
-        deviceinfo::indices(tb520fu().layout(), &s.info.bytes),
+        deviceinfo::indices(tb520fu().layout().unwrap(), &s.info.bytes),
         [0; 32]
     );
 }
@@ -1403,7 +1404,7 @@ impl DeviceInfoIo for RestoreInfo {
         let j: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&self.journal).unwrap()).unwrap();
         assert_eq!(j["phase"], "BootRequested");
-        map::check_plan(tb520fu().layout(), b, p)
+        map::check_plan(tb520fu().layout().unwrap(), b, p)
     }
     fn apply(
         &mut self,
@@ -1681,7 +1682,7 @@ fn reverse_restore_writes_the_full_original_handles_both_slots_and_blocks_uncert
         );
         assert_eq!(shared.borrow().1, 1);
         assert_eq!(
-            deviceinfo::region(tb520fu().layout(), &shared.borrow().0).unwrap(),
+            deviceinfo::region(tb520fu().layout().unwrap(), &shared.borrow().0).unwrap(),
             lapiswitch_core::region::Region::Prc
         );
         // The complete original, rollback indices included.
@@ -2120,9 +2121,16 @@ fn edit_without_region_change_writes_once_binds_no_firmware_and_never_flashes() 
         s.transact().unwrap();
         assert_eq!(s.edits_shown, 1);
         assert_eq!(s.info.writes, 1);
-        assert_eq!(deviceinfo::indices(tb520fu().layout(), &s.info.bytes)[5], 7);
+        assert_eq!(
+            deviceinfo::indices(tb520fu().layout().unwrap(), &s.info.bytes)[5],
+            7
+        );
         // Only the edited field differs.
-        let field = tb520fu().layout().field("rollback_index[5]").unwrap();
+        let field = tb520fu()
+            .layout()
+            .unwrap()
+            .field("rollback_index[5]")
+            .unwrap();
         for (n, (a, b)) in before.iter().zip(&s.info.bytes).enumerate() {
             if a != b {
                 assert!(field.range().contains(&n), "{n:#x}");
@@ -2241,7 +2249,7 @@ fn an_edit_interrupted_after_its_plan_resumes_with_the_recorded_values() {
     assert_eq!(s.edits_shown, 1);
     assert_eq!(s.info.writes, 1);
     assert_eq!(
-        deviceinfo::indices(tb520fu().layout(), &s.info.bytes)[1],
+        deviceinfo::indices(tb520fu().layout().unwrap(), &s.info.bytes)[1],
         0x10
     );
 }
@@ -2282,10 +2290,64 @@ fn reverse_restore_of_an_edit_targets_the_complete_original() {
 }
 
 #[test]
+fn a_dump_only_device_refuses_writes_after_reading() {
+    let mut s = Setup::edit_for(tb522fu(), Slot::A);
+    s.edit = Some(edit_request(&[("rollback_index[3]", "20")], None));
+    assert!(s.transact().unwrap_err().contains("덤프만"));
+    assert_eq!(s.info.writes, 0);
+}
+
+#[test]
+fn a_dump_saves_two_matching_reads_and_never_writes() {
+    for device in [tb520fu(), tb522fu()] {
+        let mut s = Setup::edit_for(device, Slot::A);
+        let root = s._dir.path().join("dumps");
+        s.state.dump_root = Some(root.clone());
+        let folder = recovery_flow::dump(
+            &mut s.info,
+            &s.backup,
+            &s.state,
+            &mut Ui::default(),
+            &mut vec![],
+        )
+        .unwrap();
+        assert_eq!(folder.parent(), Some(root.as_path()));
+        let name = folder.file_name().unwrap().to_str().unwrap();
+        let prefix = format!("Deviceinfo_dump_{}_", device.model());
+        assert!(name[prefix.len()..].parse::<i64>().is_ok(), "{name}");
+        assert_eq!(
+            std::fs::read(folder.join("deviceinfo.bin")).unwrap(),
+            s.info.bytes
+        );
+        let info: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(folder.join("info.json")).unwrap()).unwrap();
+        assert_eq!(info["model"], device.model());
+        assert_eq!(info["size"], 4096);
+        assert_eq!(s.info.writes, 0);
+        // Reads that differ save nothing.
+        s.info.unstable = true;
+        s.info.reads = 0;
+        std::fs::remove_dir_all(&root).unwrap();
+        let error = recovery_flow::dump(
+            &mut s.info,
+            &s.backup,
+            &s.state,
+            &mut Ui::default(),
+            &mut vec![],
+        )
+        .unwrap_err();
+        assert!(error.contains("일치하지"), "{error}");
+        assert!(!root.exists());
+        assert_eq!(s.info.writes, 0);
+    }
+}
+
+#[test]
+#[ignore = "TB522FU deviceinfo_write = false; enable together with the flag."]
 fn a_tb522fu_edit_uses_its_own_map_and_backup() {
     use lapiswitch_core::region::Region;
     let device = tb522fu();
-    let layout = device.layout();
+    let layout = device.layout().unwrap();
     let mut s = Setup::edit_for(device, Slot::B);
     assert_eq!(s.backup.device(), device);
     assert!(s.backup.file_path("oemowninfo.img").is_ok());
@@ -2361,6 +2423,7 @@ fn oemowninfo() -> lapiswitch_core::country::oemowninfo::OemOwnInfo {
 }
 
 #[test]
+#[ignore = "TB522FU deviceinfo_write = false; enable together with the flag."]
 fn tb522fu_country_runs_after_firmware_in_its_own_partition_only() {
     for slot in [Slot::A, Slot::B] {
         for code in [None, Some("CN"), Some("KR"), Some("DE")] {
@@ -2399,6 +2462,7 @@ fn tb522fu_country_runs_after_firmware_in_its_own_partition_only() {
 }
 
 #[test]
+#[ignore = "TB522FU deviceinfo_write = false; enable together with the flag."]
 fn a_lost_country_write_response_is_verified_on_resume_without_a_second_write() {
     let (mut s, mut d) = tb522fu_finish_setup(Slot::B, Some("KR"));
     d.inner.fail_writes.insert(3);
@@ -2429,6 +2493,7 @@ fn a_lost_country_write_response_is_verified_on_resume_without_a_second_write() 
 }
 
 #[test]
+#[ignore = "TB522FU deviceinfo_write = false; enable together with the flag."]
 fn a_corrupt_country_readback_keeps_evidence_and_never_rewrites() {
     let (mut s, mut d) = tb522fu_finish_setup(Slot::A, Some("KR"));
     d.inner.corrupt_writes.insert(3);

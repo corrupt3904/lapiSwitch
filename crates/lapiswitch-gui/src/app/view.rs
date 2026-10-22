@@ -168,9 +168,11 @@ fn nav_section(app: &App) -> usize {
         Page::Edit => 2,
         Page::Recovery => 3,
         Page::Settings => 4,
+        Page::Dump => 5,
         Page::Progress | Page::Result => match app.run_kind {
             RunKind::Convert => 1,
             RunKind::Edit => 2,
+            RunKind::Dump => 5,
             RunKind::Restore => 3,
             RunKind::Resume => 0,
         },
@@ -196,6 +198,7 @@ fn navigation(app: &App) -> Element<'_, Message> {
     let current = nav_section(app);
     let idle = !app.busy();
     let supported = !app.device.unsupported_model();
+    let writable = supported && !app.device.dump_only();
     let item = |index: usize,
                 glyph: char,
                 name: &'static str,
@@ -283,7 +286,7 @@ fn navigation(app: &App) -> Element<'_, Message> {
             glyph::FLASH,
             app.t("펌웨어 플래싱", "Firmware flashing"),
             Message::Convert,
-            idle && supported,
+            idle && writable,
             false
         ),
         item(
@@ -291,6 +294,14 @@ fn navigation(app: &App) -> Element<'_, Message> {
             glyph::EDIT,
             app.t("DeviceInfo 수정", "Edit DeviceInfo"),
             Message::Edit,
+            idle && writable,
+            false
+        ),
+        item(
+            5,
+            glyph::SAVE,
+            app.t("DeviceInfo 덤프", "Dump DeviceInfo"),
+            Message::Dump,
             idle && supported,
             false
         ),
@@ -531,9 +542,11 @@ pub(super) fn short_path(path: &std::path::Path, width: f32) -> String {
 }
 /// The firmware folder, shortened to fit a value column of `width`.
 fn folder_value(app: &App, width: f32) -> String {
-    app.folder
-        .as_deref()
-        .map(|p| short_path(p, width))
+    path_value(app, app.folder.as_deref(), width)
+}
+/// A chosen path shortened to `width`, or "Not selected".
+fn path_value(app: &App, path: Option<&std::path::Path>, width: f32) -> String {
+    path.map(|p| short_path(p, width))
         .unwrap_or_else(|| app.t("선택되지 않음", "Not selected").into())
 }
 /// The chosen country code for the flashing options and final check.
@@ -662,6 +675,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
     let (content, footer) = match app.page {
         Page::Dashboard => dashboard_view::dashboard(app),
         Page::Edit => edit(app),
+        Page::Dump => dump(app),
         Page::Firmware => firmware(app),
         Page::Confirm => confirm(app),
         Page::Progress => progress(app),
@@ -946,6 +960,12 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
 /// only when it changed the region, which the editor decided in TWRP.
 fn transition_text(app: &App) -> &'static str {
     use lapiswitch_core::recovery_flow::Transition;
+    if app.run_kind == RunKind::Dump {
+        return app.t(
+            "태블릿을 TWRP Recovery로 재부팅합니다. TWRP에서 DeviceInfo를 읽어 저장한 뒤 원본 구성으로 복구합니다. 기기에는 쓰지 않습니다.",
+            "Reboot to TWRP. DeviceInfo is read and saved there, then the original configuration is restored. Nothing is written to DeviceInfo.",
+        );
+    }
     let edit = app.run_kind == RunKind::Edit;
     match (app.recovery_transition, edit) {
         (Some(Transition::Twrp), false) => app.t("태블릿을 TWRP Recovery로 재부팅합니다. TWRP에서 DeviceInfo를 백업한 뒤 선택한 리전과 롤백 옵션을 적용하고 검증합니다.", "Reboot to TWRP to back up, update and verify DeviceInfo."),
@@ -966,6 +986,7 @@ pub(super) fn request_label(app: &App, state: &lapiswitch_core::state::RunState)
                 target.token()
             )
         }
+        Request::Dump => app.t("DeviceInfo 덤프", "DeviceInfo dump").into(),
         Request::Edit => match &state.firmware {
             Some(binding) => format!(
                 "{} · {}",
@@ -1147,12 +1168,15 @@ fn overall_progress(app: &App, show_steps: bool) -> Element<'_, Message> {
             steps.len(),
             steps[progress.current].title(language)
         )),
-        small(app.t(
-            "소요 시간 비중을 고려하며, 펌웨어 설치는 실제 전체 전송량을 반영합니다.",
-            "Weighted by expected work; firmware installation follows actual total transfer."
-        )),
     ]
     .spacing(8);
+    // Only a run that installs firmware weights its transfer.
+    if steps.contains(&crate::progress::Step::Firmware) {
+        content = content.push(small(app.t(
+            "소요 시간 비중을 고려하며, 펌웨어 설치는 실제 전체 전송량을 반영합니다.",
+            "Weighted by expected work; firmware installation follows actual total transfer.",
+        )));
+    }
     if show_steps {
         // Five cards per row keep all ten new steps visible at minimum width.
         for (row_index, group) in steps.chunks(5).enumerate() {
@@ -1221,6 +1245,14 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "Editing DeviceInfo",
             "연결을 유지해 주세요. 단계가 끝나면 자동으로 넘어갑니다.",
             "Keep USB connected. Each step advances automatically.",
+        )
+    } else if app.run_kind == RunKind::Dump {
+        title(
+            app,
+            "DeviceInfo 덤프를 진행하고 있습니다",
+            "Dumping DeviceInfo",
+            "연결을 유지해 주세요. 덤프를 저장한 뒤 원본 구성으로 자동 복구합니다.",
+            "Keep USB connected. After the dump is saved, the original configuration is restored automatically.",
         )
     } else {
         title(
@@ -1313,6 +1345,7 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         match app.run_kind {
             RunKind::Restore => app.t("원본 복구를 마쳤습니다", "Original backup restored"),
             RunKind::Edit => app.t("DeviceInfo 수정을 마쳤습니다", "DeviceInfo edit completed"),
+            RunKind::Dump => app.t("DeviceInfo 덤프를 마쳤습니다", "DeviceInfo dump completed"),
             _ => app.t("펌웨어 플래싱을 마쳤습니다", "Firmware flashing completed"),
         }
     } else {
@@ -1335,8 +1368,19 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             content = content.push(infobar(Severity::Success, match app.run_kind {
                 RunKind::Restore => app.t("원래 리전과 원본 구성을 확인·복구한 뒤 시스템 부팅을 요청했습니다. 경고와 기기의 실제 부팅 상태를 확인해 주세요.", "Original region and configuration were verified/restored, then system boot was requested. Check warnings and actual device boot."),
                 RunKind::Edit => app.t("DeviceInfo 변경과 원본 구성 복원을 마쳤습니다. 리전을 바꾼 경우 펌웨어도 설치했습니다. 기기의 실제 부팅을 확인해 주세요.", "DeviceInfo changes and the original configuration restore are complete. Firmware was installed if the region changed. Check actual device boot."),
+                RunKind::Dump => app.t("DeviceInfo를 저장하고 원본 구성으로 복구한 뒤 시스템 부팅을 요청했습니다. 기기의 실제 부팅을 확인해 주세요.", "DeviceInfo was saved and the original configuration restored, then system boot was requested. Check actual device boot."),
                 _ => app.t("펌웨어 쓰기와 마무리 단계를 마쳤습니다. 기기의 실제 부팅과 국가 코드를 확인해 주세요.", "Firmware writes and final steps are complete. Check actual device boot and country code."),
             }));
+            if let Some(folder) = &app.dump_folder {
+                content = content.push(group(vec![group_row(
+                    app.t("덤프 폴더", "Dump folder"),
+                    label(folder.display().to_string())
+                        .size(13)
+                        .color(muted())
+                        .into(),
+                    None,
+                )]));
+            }
             for warning in warnings {
                 content = content.push(note(warning, true));
             }
@@ -1377,6 +1421,86 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
 }
 /// DeviceInfo edit setup. Values are chosen later from the live DeviceInfo
 /// read in TWRP; only the EDL loader is needed now.
+/// DeviceInfo dump setup: EDL loader, save location and consent.
+fn dump(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
+    let value = |path: Option<&std::path::Path>| -> Element<'_, Message> {
+        label(path_value(app, path, value_width(app, 120.0)))
+            .size(14)
+            .color(muted())
+            .wrapping(iced::widget::text::Wrapping::None)
+            .into()
+    };
+    let content = column![
+        title(
+            app,
+            "DeviceInfo 덤프",
+            "Dump DeviceInfo",
+            "TWRP에서 DeviceInfo를 읽어 파일로 저장합니다. 기기에는 쓰지 않습니다.",
+            "Read DeviceInfo in TWRP and save it to a file. Nothing is written to the device."
+        ),
+        group(vec![
+            group_row(
+                app.t("EDL 로더", "EDL loader"),
+                value(app.loader.as_deref()),
+                Some(
+                    action(
+                        app.t("파일 선택", "Choose file"),
+                        Message::Pick(Picker::Loader),
+                        !app.busy(),
+                    )
+                    .into(),
+                ),
+            ),
+            group_row(
+                app.t("저장 위치", "Save location"),
+                value(app.preferences.dump_root.as_deref()),
+                Some(
+                    action(
+                        app.t("폴더 선택", "Choose folder"),
+                        Message::Pick(Picker::DumpRoot),
+                        !app.busy(),
+                    )
+                    .into(),
+                ),
+            ),
+        ]),
+        small(app.t(
+            "저장 위치에 Deviceinfo_dump_<모델>_<유닉스 시간> 폴더를 만들고 deviceinfo.bin(4096바이트)과 info.json을 저장합니다.",
+            "A Deviceinfo_dump_<model>_<unix time> folder with deviceinfo.bin (4096 bytes) and info.json is created in the save location.",
+        )),
+        note(
+            app.t(
+                "원본 백업 → TWRP 부팅 → DeviceInfo 읽기·저장 → 원본 구성 복원 → 재부팅 순서로 자동 진행됩니다. 작업이 끝날 때까지 USB 연결을 유지하세요.",
+                "Back up originals → boot TWRP → read and save DeviceInfo → restore the original configuration → reboot, all automatically. Keep USB connected until it finishes.",
+            ),
+            false,
+        ),
+        checkbox(app.agreed)
+            .label(app.t(
+                "위 안내를 확인했으며 DeviceInfo 덤프를 진행하겠습니다.",
+                "I have read the instructions and want to dump DeviceInfo.",
+            ))
+            .on_toggle(Message::Agree),
+    ]
+    .spacing(16);
+    (
+        content.into(),
+        start_footer(
+            app,
+            [
+                action(app.t("이전", "Back"), Message::Back, !app.busy())
+                    .style(soft_style)
+                    .into(),
+                action(
+                    app.t("덤프 시작", "Start dump"),
+                    Message::Start,
+                    app.can_start(),
+                )
+                .into(),
+            ],
+        ),
+    )
+}
 fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let mut content = column![
         title(

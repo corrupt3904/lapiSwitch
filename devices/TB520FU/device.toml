@@ -4,8 +4,10 @@ model = "TB520FU"
 # ADB/EDL에서 모델명 대신 보일 수 있는 코드네임 (선택)
 codename = "lapis"
 # true: 이 기기로 백업·TWRP·DeviceInfo 수정·복구 흐름을 실행합니다.
-# false: DeviceInfo 필드 정의만 있고 작업 흐름에는 연결하지 않습니다.
-flow = true
+# true: DeviceInfo 덤프를 지원합니다. 백업·TWRP·원본 복원 흐름을 실행하므로 [firmware]·[installed]·[twrp]·[country]가 필요합니다.
+deviceinfo_read = true
+# true: DeviceInfo 쓰기(펌웨어 플래싱·DeviceInfo 수정)를 지원합니다. deviceinfo.toml이 필요합니다.
+deviceinfo_write = true
 
 # 공식 펌웨어 폴더 검사 (flow = true일 때 필수)
 [firmware]

@@ -4,7 +4,7 @@ use worker::WaitTicket;
 impl App {
     pub(super) fn can_stop_wait(&self, ticket: WaitTicket) -> bool {
         self.activity == Some(Activity::Run)
-            && self.progress.flow == Flow::Recovery
+            && self.progress.flow != Flow::Restore
             && self.wait_ticket == Some(ticket)
             && self.reboot_confirmation.is_none()
             && self.edl_confirmation.is_none()

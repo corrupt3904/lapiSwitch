@@ -92,7 +92,7 @@ pub fn recovery_misc(original: &[u8]) -> Result<Vec<u8>, String> {
 mod tests {
     use super::*;
     fn layout() -> map::Layout {
-        crate::device::tb520fu().layout()
+        crate::device::tb520fu().layout().unwrap()
     }
     pub fn sample(r: Region) -> Vec<u8> {
         let mut b: Vec<u8> = (0..SHARED_SIZE).map(|i| (i * 17 + 5) as u8).collect();

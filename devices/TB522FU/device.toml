@@ -3,8 +3,11 @@
 model = "TB522FU"
 # ADB/EDL에서 모델명 대신 보일 수 있는 코드네임
 codename = "mojito"
-# true: 이 기기로 백업·TWRP·DeviceInfo 수정·복구 흐름을 실행합니다.
-flow = true
+# true: DeviceInfo 덤프를 지원합니다. 백업·TWRP·원본 복원 흐름을 실행하므로 [firmware]·[installed]·[twrp]·[country]가 필요합니다.
+deviceinfo_read = true
+# true: DeviceInfo 쓰기(펌웨어 플래싱·DeviceInfo 수정)를 지원합니다. deviceinfo.toml이 필요합니다.
+# 쓰기 검증 전까지 덤프만 지원합니다.
+deviceinfo_write = false
 
 # 공식 펌웨어 폴더 검사
 [firmware]

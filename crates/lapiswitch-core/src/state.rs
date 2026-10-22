@@ -56,6 +56,9 @@ pub enum Request {
     /// Fields chosen in TWRP after reading the live DeviceInfo. Firmware is
     /// required (and bound then) only when the region changes.
     Edit,
+    /// DeviceInfo is read in TWRP and saved under `dump_root`; nothing is
+    /// written and the original configuration is restored right after.
+    Dump,
 }
 
 /// Options of the firmware installation. Installing firmware always erases
@@ -232,6 +235,9 @@ pub struct RunState {
     pub slot: Option<Slot>,
     pub persist_fingerprint: Option<String>,
     pub warnings: Vec<String>,
+    /// Folder a dump is saved under, in its own `Deviceinfo_dump_*` folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dump_root: Option<PathBuf>,
 }
 
 impl RunState {
@@ -268,6 +274,25 @@ impl RunState {
         )
     }
 
+    /// A DeviceInfo dump into `dump_root`; works without a field map.
+    pub fn dump(
+        device: Option<Device>,
+        loader: &Path,
+        backup_dir: &Path,
+        dump_root: &Path,
+    ) -> Result<Self, String> {
+        let mut state = Self::build(
+            Request::Dump,
+            device,
+            loader,
+            None,
+            FlashOptions::new(None)?,
+            backup_dir,
+        )?;
+        state.dump_root = Some(dump_root.to_path_buf());
+        Ok(state)
+    }
+
     fn build(
         request: Request,
         device: Option<Device>,
@@ -297,6 +322,7 @@ impl RunState {
             slot: None,
             persist_fingerprint: None,
             warnings: vec![],
+            dump_root: None,
         })
     }
 

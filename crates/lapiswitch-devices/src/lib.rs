@@ -146,11 +146,18 @@ pub struct Flow {
 pub struct Device {
     pub model: &'static str,
     pub codename: Option<&'static str>,
-    /// `None`: only the DeviceInfo map is defined.
+    /// DeviceInfo can be read and dumped; the backup, TWRP and restore flow
+    /// runs for the device.
+    pub deviceinfo_read: bool,
+    /// DeviceInfo can be written: firmware flashing and DeviceInfo editing.
+    /// The device is supported only with this flag.
+    pub deviceinfo_write: bool,
+    /// Present exactly when `deviceinfo_read` is set.
     pub flow: Option<Flow>,
     /// `devices/<MODEL>/image.png`, shown on the Dashboard.
     pub image: Option<&'static [u8]>,
-    pub deviceinfo: DeviceInfoMap,
+    /// `devices/<MODEL>/deviceinfo.toml`, required to write.
+    pub deviceinfo: Option<DeviceInfoMap>,
 }
 
 include!(concat!(env!("OUT_DIR"), "/devices.rs"));
@@ -162,7 +169,7 @@ pub fn find(model: &str) -> Option<&'static Device> {
         .find(|device| device.model.eq_ignore_ascii_case(model.trim()))
 }
 
-/// Devices the workflow runs for (`flow = true`).
+/// Devices the workflow runs for (`deviceinfo_read = true`).
 pub fn flow_devices() -> impl Iterator<Item = &'static Device> {
     DEVICES.iter().filter(|device| device.flow.is_some())
 }
@@ -175,7 +182,12 @@ mod tests {
     fn every_device_map_covers_its_logical_size_and_has_the_required_fields() {
         assert!(!DEVICES.is_empty());
         for device in DEVICES {
-            let map = &device.deviceinfo;
+            assert_eq!(device.flow.is_some(), device.deviceinfo_read);
+            assert!(!device.deviceinfo_write || device.deviceinfo_read);
+            let Some(map) = &device.deviceinfo else {
+                assert!(!device.deviceinfo_write, "{}", device.model);
+                continue;
+            };
             let mut next = 0;
             for field in map.fields {
                 assert_eq!(field.offset, next, "{} {}", device.model, field.key);
@@ -208,6 +220,11 @@ mod tests {
         assert!(matches!(mojito.country, Country::Oemowninfo(o) if o.offset == 0xE4));
         assert_ne!(lapis.twrp.sha256, mojito.twrp.sha256);
         assert!(find("TB520FU").unwrap().image.is_some());
+        assert!(find("TB522FU").unwrap().image.is_some());
+        // TB522FU is dumped only until its DeviceInfo writes are validated.
+        assert!(find("TB520FU").unwrap().deviceinfo_write);
+        assert!(!find("TB522FU").unwrap().deviceinfo_write);
+        assert!(find("TB522FU").unwrap().deviceinfo_read);
         assert!(find("TB999FU").is_none());
     }
 }

@@ -8,7 +8,10 @@ use crate::region::Region;
 
 /// A device's DeviceInfo field layout, from `devices/<MODEL>/deviceinfo.toml`.
 #[derive(Clone, Copy)]
-pub struct Layout(&'static lapiswitch_devices::Device);
+pub struct Layout {
+    model: &'static str,
+    map: &'static lapiswitch_devices::DeviceInfoMap,
+}
 
 impl PartialEq for Layout {
     fn eq(&self, other: &Self) -> bool {
@@ -61,22 +64,25 @@ impl Field {
 pub const ROLLBACK_COUNT: usize = 32;
 
 impl Layout {
-    pub fn of(device: &'static lapiswitch_devices::Device) -> Self {
-        Self(device)
+    /// `None` for a device without `deviceinfo.toml`.
+    pub fn of(device: &'static lapiswitch_devices::Device) -> Option<Self> {
+        device.deviceinfo.as_ref().map(|map| Self {
+            model: device.model,
+            map,
+        })
     }
     /// The layout of a device in `devices/`, by model name.
     pub fn find(model: &str) -> Option<Self> {
-        lapiswitch_devices::find(model).map(Self)
+        lapiswitch_devices::find(model).and_then(Self::of)
     }
     pub fn model(self) -> &'static str {
-        self.0.model
+        self.model
     }
     pub fn logical_size(self) -> usize {
-        self.0.deviceinfo.logical_size
+        self.map.logical_size
     }
     fn offset(self, key: &str) -> usize {
-        self.0
-            .deviceinfo
+        self.map
             .fields
             .iter()
             .find(|field| field.key == key)
@@ -93,8 +99,7 @@ impl Layout {
     /// The whole logical structure in offset order, without gaps.
     pub fn fields(self) -> Vec<Field> {
         use lapiswitch_devices::Kind as K;
-        self.0
-            .deviceinfo
+        self.map
             .fields
             .iter()
             .map(|field| Field {
@@ -523,7 +528,9 @@ mod tests {
     #[ignore = "Set LAPISWITCH_DEVICEINFO_<MODEL> (e.g. LAPISWITCH_DEVICEINFO_TB520FU) to local dumps."]
     fn real_dumps_match_the_structure_maps() {
         for device in lapiswitch_devices::DEVICES {
-            let layout = Layout::of(device);
+            let Some(layout) = Layout::of(device) else {
+                continue;
+            };
             let var = format!("LAPISWITCH_DEVICEINFO_{}", layout.model());
             let Some(path) = std::env::var_os(&var) else {
                 continue;

@@ -26,6 +26,8 @@ enum Page {
     Dashboard,
     /// DeviceInfo edit setup: EDL loader and consent.
     Edit,
+    /// DeviceInfo dump setup: EDL loader, save location and consent.
+    Dump,
     Firmware,
     Confirm,
     Progress,
@@ -46,6 +48,7 @@ enum Activity {
 enum RunKind {
     Convert,
     Edit,
+    Dump,
     Resume,
     Restore,
 }
@@ -57,6 +60,7 @@ enum Picker {
     Loader,
     EditorFirmware,
     Export,
+    DumpRoot,
 }
 #[derive(Debug, Clone)]
 enum Message {
@@ -66,6 +70,7 @@ enum Message {
     Home,
     Convert,
     Edit,
+    Dump,
     Editor(editor::EditorMessage),
     Recovery,
     Settings,
@@ -171,6 +176,8 @@ struct App {
     recovery_folder: Option<PathBuf>,
     recovery_summary: Option<String>,
     loader: Option<PathBuf>,
+    /// The folder the last DeviceInfo dump was saved in.
+    dump_folder: Option<PathBuf>,
     progress: RunProgress,
     comparison: Vec<String>,
     wait_control: worker::WaitControl,
@@ -264,6 +271,7 @@ impl App {
             recovery_folder: None,
             recovery_summary: None,
             loader: None,
+            dump_folder: None,
             progress: RunProgress::new(Flow::Recovery),
             comparison: vec![],
             wait_control: worker::WaitControl::default(),
@@ -384,9 +392,10 @@ impl App {
         };
         match page {
             Page::Firmware | Page::Confirm | Page::Resume => true,
-            Page::Progress | Page::Result => {
-                !matches!(self.run_kind, RunKind::Restore | RunKind::Edit)
-            }
+            Page::Progress | Page::Result => !matches!(
+                self.run_kind,
+                RunKind::Restore | RunKind::Edit | RunKind::Dump
+            ),
             _ => false,
         }
     }
@@ -455,6 +464,14 @@ impl App {
                     "Unsupported device. Connect a supported device.",
                 ),
             )
+        } else if self.device.dump_only() && self.page != Page::Dump {
+            (
+                Some(Error),
+                self.t(
+                    "이 기기는 DeviceInfo 덤프만 지원합니다. 펌웨어 플래싱과 DeviceInfo 수정은 할 수 없습니다.",
+                    "This device supports DeviceInfo dumps only. Firmware flashing and DeviceInfo editing are unavailable.",
+                ),
+            )
         } else if self.device.fastboot() {
             (Some(Warning), self.fastboot_start_text())
         } else if !self.device.startable() {
@@ -473,6 +490,34 @@ impl App {
                     "Check or install the required drivers.",
                 ),
             )
+        } else if self.page == Page::Dump {
+            if self.loader.is_none() {
+                (
+                    None,
+                    self.t(
+                        "EDL 로더 파일을 선택해 주세요.",
+                        "Select the EDL loader file.",
+                    ),
+                )
+            } else if self.preferences.dump_root.is_none() {
+                (
+                    None,
+                    self.t(
+                        "덤프 저장 위치를 선택해 주세요.",
+                        "Choose where to save the dump.",
+                    ),
+                )
+            } else if !self.agreed {
+                (
+                    None,
+                    self.t(
+                        "DeviceInfo 덤프 안내를 확인하고 동의 항목을 체크해 주세요.",
+                        "Read the DeviceInfo dump notice and select the consent checkbox.",
+                    ),
+                )
+            } else {
+                return None;
+            }
         } else if self.page == Page::Edit {
             if self.loader.is_none() {
                 (
@@ -591,6 +636,7 @@ impl App {
         self.notice = None;
         self.progress = RunProgress::new(match kind {
             RunKind::Restore => Flow::Restore,
+            RunKind::Dump => Flow::Dump,
             _ => Flow::Recovery,
         });
         self.wait_control = worker::WaitControl::default();
@@ -604,6 +650,7 @@ impl App {
         self.firmware_confirmation = None;
         self.rollback_confirmation = None;
         self.editor = None;
+        self.dump_folder = None;
         self.recovery_transition = None;
         self.recovery_detail = None;
         self.logs.clear();
@@ -899,13 +946,18 @@ impl App {
                 self.agreed = false;
                 self.error = None;
             }
-            Message::Convert if !self.device.unsupported_model() => {
+            Message::Convert if !self.device.unsupported_model() && !self.device.dump_only() => {
                 self.page = Page::Firmware;
                 self.agreed = false;
                 self.error = None;
             }
-            Message::Edit if !self.device.unsupported_model() => {
+            Message::Edit if !self.device.unsupported_model() && !self.device.dump_only() => {
                 self.page = Page::Edit;
+                self.agreed = false;
+                self.error = None;
+            }
+            Message::Dump if !self.device.unsupported_model() => {
+                self.page = Page::Dump;
                 self.agreed = false;
                 self.error = None;
             }
@@ -1060,7 +1112,8 @@ impl App {
                             Picker::Firmware
                             | Picker::Output
                             | Picker::Backup
-                            | Picker::EditorFirmware => {
+                            | Picker::EditorFirmware
+                            | Picker::DumpRoot => {
                                 dialog.pick_folder().await.map(|f| f.path().to_owned())
                             }
                             Picker::Loader => dialog
@@ -1109,6 +1162,14 @@ impl App {
                 }
             }
             Picker::Output => {}
+            Picker::DumpRoot => {
+                let previous = self.preferences.dump_root.replace(path);
+                if self.save_preferences() {
+                    self.agreed = false;
+                } else {
+                    self.preferences.dump_root = previous;
+                }
+            }
             Picker::Backup => {
                 self.recovery_folder = Some(path.clone());
                 self.recovery_summary = None;
@@ -1144,7 +1205,10 @@ impl App {
         match event {
             Event::ConfirmUnrecognizedFirmware(tx) => {
                 if self.activity == Some(Activity::Run)
-                    && matches!(self.run_kind, RunKind::Convert | RunKind::Edit)
+                    && matches!(
+                        self.run_kind,
+                        RunKind::Convert | RunKind::Edit | RunKind::Dump
+                    )
                 {
                     self.firmware_confirmation = Some(tx);
                 }
@@ -1241,6 +1305,7 @@ impl App {
             }
             Event::LogPath(path) => self.log_path = Some(path),
             Event::Backup(path) => self.backup_path = Some(path),
+            Event::Dumped(folder) => self.dump_folder = Some(folder),
             Event::Progress(step) => self.progress.step(step),
             Event::RecoveryPhase(phase) => {
                 self.progress.recovery_phase(phase);
@@ -1332,6 +1397,7 @@ impl App {
                 self.recovery_summary = Some("TB520FU · slot a · ROW · 5 files (DEMO)".into());
             }
             Picker::Loader => self.loader = Some("Demo/loader.melf".into()),
+            Picker::DumpRoot => self.preferences.dump_root = Some("Demo/dumps".into()),
             Picker::EditorFirmware => {
                 if let Some(editor) = self.editor.as_mut()
                     && let Some(region) = editor.target_region()
@@ -1542,6 +1608,20 @@ impl App {
                 self.loader = Some("Demo/loader.melf".into());
                 self.agreed = true;
             }
+            "dump" | "dump-only" => {
+                self.page = Page::Dump;
+                self.loader = Some("Demo/loader.melf".into());
+                self.preferences.dump_root = Some("Demo/dumps".into());
+                if screen == "dump-only" {
+                    self.device.snapshot.model = "TB522FU".into();
+                    self.device.snapshot.name = "Lenovo Legion Y900".into();
+                }
+            }
+            "dump-result" => {
+                self.reset_progress(RunKind::Dump);
+                self.dump_folder = Some("Demo/dumps/Deviceinfo_dump_TB520FU_1792000000".into());
+                self.event(Event::Finished(Ok(vec![])));
+            }
             "deviceinfo-editor"
             | "deviceinfo-editor-custom"
             | "deviceinfo-editor-rollback"
@@ -1549,7 +1629,11 @@ impl App {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
-                let layout = self.device.supported().expect("demo device").layout();
+                let layout = self
+                    .device
+                    .supported()
+                    .and_then(|device| device.layout())
+                    .expect("demo device map");
                 let mut editor = editor::Editor::new(layout, demo_deviceinfo(layout), tx);
                 if screen == "deviceinfo-editor-custom" {
                     editor.tab = editor::Tab::Custom;
@@ -1762,6 +1846,7 @@ fn demo_saved_state(stage: Stage) -> lapiswitch_core::state::RunState {
         slot: None,
         persist_fingerprint: None,
         warnings: vec![],
+        dump_root: None,
     }
 }
 fn demo_report(region: Region) -> FirmwareReport {
@@ -2235,6 +2320,55 @@ mod tests {
         assert_eq!(app.page, Page::Dashboard);
     }
     #[test]
+    fn a_dump_only_device_opens_only_the_dump_and_the_dump_needs_its_choices() {
+        let mut app = App::base(true);
+        app.seed_preview("dump-only");
+        assert!(app.device.dump_only());
+        let _ = app.update(Message::Home);
+        for message in [Message::Convert, Message::Edit] {
+            let _ = app.update(message);
+            assert_eq!(app.page, Page::Dashboard);
+        }
+        let _ = app.update(Message::Dump);
+        assert_eq!(app.page, Page::Dump);
+        app.loader = None;
+        app.preferences.dump_root = None;
+        assert!(app.start_blocker().unwrap().contains("EDL"));
+        app.demo_pick(Picker::Loader);
+        assert!(app.start_blocker().unwrap().contains("저장 위치"));
+        app.demo_pick(Picker::DumpRoot);
+        assert!(app.start_blocker().unwrap().contains("동의"));
+        app.agreed = true;
+        assert!(app.can_start(), "{:?}", app.start_blocker());
+        // The flashing check refuses it too, with a problem InfoBar.
+        app.page = Page::Edit;
+        assert!(matches!(
+            app.start_issue(),
+            Some((Some(fluent::Severity::Error), reason)) if reason.contains("덤프만")
+        ));
+        // A writable device still opens every task.
+        app.device.snapshot.model = "TB520FU".into();
+        let _ = app.update(Message::Home);
+        let _ = app.update(Message::Edit);
+        assert_eq!(app.page, Page::Edit);
+    }
+    #[test]
+    fn a_dump_run_shows_its_folder_on_the_result() {
+        let mut app = App::base(true);
+        app.seed_preview("dump-result");
+        assert_eq!(app.page, Page::Result);
+        assert_eq!(app.progress.flow, Flow::Dump);
+        assert!(app.dump_folder.is_some());
+        drop(app.view());
+        app.reset_progress(RunKind::Dump);
+        assert!(app.dump_folder.is_none());
+        app.event(Event::Dumped("Demo/dumps/x".into()));
+        assert_eq!(
+            app.dump_folder.as_deref(),
+            Some(std::path::Path::new("Demo/dumps/x"))
+        );
+    }
+    #[test]
     fn firmware_for_another_model_blocks_the_start() {
         let mut app = App::base(true);
         app.seed_preview("confirm");
@@ -2314,6 +2448,9 @@ mod tests {
                 "region-notice",
                 "edl-start-warning",
                 "deviceinfo-edit",
+                "dump",
+                "dump-only",
+                "dump-result",
                 "deviceinfo-editor",
                 "deviceinfo-editor-custom",
                 "deviceinfo-editor-rollback",

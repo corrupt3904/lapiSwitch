@@ -139,6 +139,7 @@ pub(crate) mod glyph {
     pub const FLASH: char = '\u{E896}';
     pub const HISTORY: char = '\u{E81C}';
     pub const SETTINGS: char = '\u{E713}';
+    pub const SAVE: char = '\u{E74E}';
     pub const CHEVRON: char = '\u{E76C}';
     pub const INFO: char = '\u{E946}';
     pub const WARNING: char = '\u{E7BA}';

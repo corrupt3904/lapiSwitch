@@ -6,7 +6,7 @@
 devices/
   TB520FU/
     device.toml      기기 정보와 처리 방식
-    deviceinfo.toml  DeviceInfo 필드 맵
+    deviceinfo.toml  DeviceInfo 필드 맵 (쓰기 지원 기기에 필요)
     image.png        기기 화면·왼쪽 메뉴의 기기 이미지 (선택)
   TB522FU/
     ...
@@ -21,7 +21,8 @@ devices/
 | 항목 | 내용 |
 |---|---|
 | `model`, `codename` | 모델명(폴더 이름과 같음)과 코드네임. ADB 모델명·펌웨어 지문·TWRP `ro.product.device`에서 기기를 알아보는 데 씁니다. |
-| `flow` | `true`면 작업 흐름을 실행합니다. `false`면 DeviceInfo 필드 맵만 둡니다. |
+| `deviceinfo_read` | `true`면 DeviceInfo 덤프를 지원합니다. 백업·TWRP·원본 복원 흐름을 실행하므로 `codename`과 `[firmware]`·`[installed]`·`[twrp]`·`[country]`가 필요합니다. `deviceinfo.toml` 없이도 덤프할 수 있습니다. `false`면 DeviceInfo 필드 맵만 둡니다. |
+| `deviceinfo_write` | `true`면 DeviceInfo 쓰기(펌웨어 플래싱·DeviceInfo 수정)를 지원하며, 이 기기를 지원 기기로 표시합니다. `deviceinfo_read = true`와 `deviceinfo.toml`이 필요합니다. `false`면 덤프만 지원합니다. |
 | `[firmware]` | EDL 로더 이름, 필수 이미지, `region_marker`(펌웨어 vendor_boot DTB에서 리전을 읽는 방식) |
 | `[installed]` | 현재 설치된 펌웨어의 허용 범위. `scheme`과 `[[installed.allow]]` 항목 |
 | `[twrp]` | 사용할 TWRP Release의 태그·이름·크기·SHA-256·URL |
@@ -43,11 +44,12 @@ devices/
 ## 기기 추가
 
 1. `devices/<모델명>/` 폴더를 만들고 기존 기기 파일을 복사해 고칩니다.
-2. 필드 맵만 먼저 넣을 때는 `flow = false`로 두고 `[firmware]` 등은 넣지 않습니다.
+2. 덤프부터 하려면 `deviceinfo_read = true`, `deviceinfo_write = false`로 두고 `deviceinfo.toml` 없이 시작할 수 있습니다. 필드 맵만 먼저 넣을 때는 둘 다 `false`로 두고 `[firmware]` 등은 넣지 않습니다.
 3. 빌드하면 다음을 자동으로 검사합니다.
    - 필드가 0부터 `logical_size`까지 빈틈·겹침 없이 덮는지, 중복 key가 없는지
    - 필수 필드(`magic`, `is_unlocked`, `is_unlock_critical`, `region`, `rollback_index[0..31]`)와 형식별 크기
-   - `flow = true`이면 `codename`, `[firmware]`, `[installed]`, `[twrp]`, `[country]`가 모두 있는지, 알 수 없는 항목이나 값이 없는지
+   - `deviceinfo_read = true`이면 `codename`, `[firmware]`, `[installed]`, `[twrp]`, `[country]`가 모두 있는지, 알 수 없는 항목이나 값이 없는지
+   - `deviceinfo_write = true`이면 `deviceinfo_read = true`이고 `deviceinfo.toml`이 있는지
 4. TWRP Release의 라이선스 고지를 `crates/lapiswitch-gui/assets/licenses.json`에 추가합니다. 테스트가 모든 기기의 TWRP 고지를 확인합니다.
 5. 실제 덤프가 있으면 `LAPISWITCH_DEVICEINFO_<모델명>` 환경 변수에 경로를 지정하고
    `cargo test -p lapiswitch-core -- --ignored real_dump`로 필드 맵을 덤프와 맞춰 볼 수 있습니다.

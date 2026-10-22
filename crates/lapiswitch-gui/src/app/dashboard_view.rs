@@ -108,6 +108,13 @@ pub(super) fn device_card(app: &App) -> Element<'_, Message> {
             label(device_name(app)).size(14),
             small(if d.model.is_empty() {
                 status(app)
+            } else if app.device.dump_only() {
+                format!(
+                    "{} · {} · {}",
+                    d.model,
+                    status(app),
+                    app.t("덤프만 지원", "Dump only")
+                )
             } else {
                 format!("{} · {}", d.model, status(app))
             })
@@ -232,6 +239,9 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
     .width(Fill)
     .style(super::fluent::card_style);
     let support = match app.device.supported() {
+        Some(device) if !device.writable() => {
+            format!("{} · {device}", app.t("덤프만 지원", "Dump only"))
+        }
         Some(device) => format!("{} · {device}", app.t("지원 기기", "Supported")),
         None if app.device.unsupported_model() => {
             app.t("지원하지 않는 기기", "Not supported").into()

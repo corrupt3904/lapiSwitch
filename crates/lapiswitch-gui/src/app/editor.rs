@@ -841,6 +841,7 @@ mod tests {
         lapiswitch_core::device::Device::find("TB520FU")
             .unwrap()
             .layout()
+            .unwrap()
     }
     fn open() -> (App, std::sync::mpsc::Receiver<Option<EditRequest>>) {
         let mut app = App::base(true);

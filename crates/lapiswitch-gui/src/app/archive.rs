@@ -14,7 +14,7 @@ impl App {
 
     pub(super) fn start_conversion(&mut self) -> Task<Message> {
         self.refresh_pending();
-        if !matches!(self.page, Page::Confirm | Page::Edit) || !self.can_start() {
+        if !matches!(self.page, Page::Confirm | Page::Edit | Page::Dump) || !self.can_start() {
             self.error = self.start_blocker().map(str::to_owned);
             return Task::none();
         }
@@ -38,10 +38,24 @@ impl App {
     pub(super) fn start_verified(&mut self) {
         // A second instance may have left a run while the device was probed.
         self.refresh_pending();
-        if !matches!(self.page, Page::Confirm | Page::Edit) || !self.can_start() {
+        if !matches!(self.page, Page::Confirm | Page::Edit | Page::Dump) || !self.can_start() {
             self.error = self.start_blocker().map(str::to_owned);
         } else if let Some(pending) = &self.pending {
             self.archive_confirmation = Some(pending.state.clone());
+        } else if self.page == Page::Dump {
+            self.launch(
+                worker::Action::Dump {
+                    device: self.device.supported(),
+                    loader: self.loader.clone().expect("validated loader"),
+                    output: self.output.clone(),
+                    dump_root: self
+                        .preferences
+                        .dump_root
+                        .clone()
+                        .expect("validated dump location"),
+                },
+                RunKind::Dump,
+            );
         } else if self.page == Page::Edit {
             self.launch(
                 worker::Action::Edit {

@@ -57,6 +57,14 @@ pub enum Action {
         loader: PathBuf,
         output: PathBuf,
     },
+    /// DeviceInfo dump into its own folder under `dump_root`, then the
+    /// original configuration is restored.
+    Dump {
+        device: Option<Device>,
+        loader: PathBuf,
+        output: PathBuf,
+        dump_root: PathBuf,
+    },
     Resume,
     Restore {
         backup: PathBuf,
@@ -74,6 +82,8 @@ pub enum Event {
     ConfirmRollbackReset(String, Sender<bool>),
     /// The live DeviceInfo, shown in the editor; `None` cancels the run.
     EditDeviceInfo(map::Layout, Vec<u8>, Sender<Option<EditRequest>>),
+    /// The folder a DeviceInfo dump was saved in.
+    Dumped(PathBuf),
     /// Editor-side firmware check for a changed region (the run checks again).
     EditorFirmware(Result<FirmwareReport, String>),
     BackupChecked(Result<String, String>),
@@ -259,6 +269,9 @@ impl lapiswitch_core::recovery_flow::Ui for ChannelUi {
         rx.recv()
             .map_err(|_| "재부팅 확인이 취소되어 현재 단계를 보존했습니다.".into())
     }
+    fn dumped(&mut self, folder: &Path) {
+        let _ = self.tx.send(Event::Dumped(folder.to_owned()));
+    }
     fn status(&mut self, text: &str, waiting: bool) {
         let ticket = if waiting {
             self.wait_control.begin(self.phase)
@@ -315,6 +328,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 let firmware = check_firmware(&approved.image_dir, Some(approved.region))
                     .map_err(|e| e.to_string())?;
                 confirm_approval(&approved, &firmware)?;
+                firmware.device.write_layout()?;
                 let builder = BackupBuilder::create(&output, Some(firmware.device))?;
                 let state = RunState::convert(&firmware, rollback_mode, options, builder.path())?;
                 start_new(
@@ -337,8 +351,34 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 if !loader.is_file() {
                     return Err(format!("EDL 로더 파일이 없습니다: {}", loader.display()));
                 }
+                if let Some(device) = device {
+                    device.write_layout()?;
+                }
                 let builder = BackupBuilder::create(&output, device)?;
                 let state = RunState::edit(device, &loader, builder.path())?;
+                start_new(
+                    state,
+                    builder,
+                    None,
+                    &request.state_path,
+                    &store,
+                    tx,
+                    &mut ui,
+                    &mut log,
+                )
+            }
+            Action::Dump {
+                device,
+                loader,
+                output,
+                dump_root,
+            } => {
+                let _ = tx.send(Event::Progress(Step::Check));
+                if !loader.is_file() {
+                    return Err(format!("EDL 로더 파일이 없습니다: {}", loader.display()));
+                }
+                let builder = BackupBuilder::create(&output, device)?;
+                let state = RunState::dump(device, &loader, builder.path(), &dump_root)?;
                 start_new(
                     state,
                     builder,
@@ -546,6 +586,10 @@ fn start_new(
         log,
     )
     .map_err(|e| e.to_string())?;
+    // An edit started in EDL learns its device only now.
+    if state.request != lapiswitch_core::state::Request::Dump {
+        prepared.report.device.write_layout()?;
+    }
     let twrp = match twrp.take() {
         Some(twrp) => twrp,
         None => acquire_twrp(prepared.report.device, state_path, tx, log)?,
@@ -750,6 +794,7 @@ mod edl_start_tests {
             slot: Some(Slot::A),
             persist_fingerprint: None,
             warnings: vec![],
+            dump_root: None,
         };
         store.save(&state).unwrap();
         let journal = dir.path().join("transaction.json");

@@ -103,6 +103,8 @@ pub trait Ui {
         before: &[u8],
     ) -> Result<Option<EditRequest>, String>;
     fn status(&mut self, text: &str, stoppable: bool);
+    /// A DeviceInfo dump was saved in this folder.
+    fn dumped(&mut self, _folder: &Path) {}
     fn cancelled(&self) -> bool;
     fn finish_wait(&mut self) -> bool;
 }
@@ -296,7 +298,7 @@ fn verify_evidence(backup: &VerifiedBackup, state: &RunState) -> Result<(), Stri
         .as_ref()
         .ok_or("DeviceInfo 검증 증거가 없습니다.")?;
     let dir = attempt_dir(backup, &record.directory)?;
-    let (before, planned) = saved_plan(backup.device().layout(), &dir, record)?;
+    let (before, planned) = saved_plan(backup.device().field_map()?, &dir, record)?;
     let final_read = dir.join("after_independent.bin");
     if backup::hash_file(&final_read, None)?
         != (
@@ -307,7 +309,7 @@ fn verify_evidence(backup: &VerifiedBackup, state: &RunState) -> Result<(), Stri
         return Err("DeviceInfo 최종 재읽기 검증 증거가 변경되었습니다.".into());
     }
     let after = std::fs::read(final_read).map_err(|e| e.to_string())?;
-    map::check_plan(backup.device().layout(), &before, &after)?;
+    map::check_plan(backup.device().field_map()?, &before, &after)?;
     deviceinfo::verify(&planned, &after, &after)
 }
 
@@ -640,7 +642,7 @@ fn choose_edits(
     ui: &mut impl Ui,
     log: &mut Vec<String>,
 ) -> Result<Option<map::Edits>, String> {
-    let layout = state.device()?.layout();
+    let layout = state.device()?.write_layout()?;
     match state.request {
         Request::Convert {
             target,
@@ -656,6 +658,7 @@ fn choose_edits(
                 rollback_mode,
             )?))
         }
+        Request::Dump => Err("DeviceInfo 덤프는 값을 바꾸지 않습니다.".into()),
         Request::Edit => {
             ui.status(
                 "DeviceInfo를 읽었습니다. 수정할 값을 입력하고 변경 내용을 확인하세요.",
@@ -805,7 +808,7 @@ pub fn transact(
             .clone()
             .ok_or("DeviceInfo 의도 기록 없음")?;
         let dir = attempt_dir(backup, &record.directory)?;
-        let (before, planned) = saved_plan(backup.device().layout(), &dir, &record)?;
+        let (before, planned) = saved_plan(backup.device().field_map()?, &dir, &record)?;
         let verify = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
         let a = device.read(&verify.path().join("resume_1"), log)?;
         let b = device.read(&verify.path().join("resume_2"), log)?;
@@ -846,7 +849,7 @@ pub fn transact(
     // Preserve the very first read immediately, even if a later check fails.
     let scratch = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
     let before = device.read(&scratch.path().join("read1"), log)?;
-    let layout = backup.device().layout();
+    let layout = backup.device().write_layout()?;
     layout.check_buffer(&before)?;
     let original = attempt.join("before_shared_1.bin");
     if original.try_exists().map_err(|e| e.to_string())? {
@@ -940,6 +943,68 @@ pub fn transact(
     Ok(Outcome::Verified)
 }
 
+/// DeviceInfo dump: two independent reads must match. The 4096 bytes are
+/// saved as `Deviceinfo_dump_<MODEL>_<unix time>/deviceinfo.bin` with an
+/// `info.json` under the chosen folder. Nothing is written to the device and
+/// no field map is needed.
+pub fn dump(
+    device: &mut impl DeviceInfoIo,
+    backup: &VerifiedBackup,
+    state: &RunState,
+    ui: &mut impl Ui,
+    log: &mut Vec<String>,
+) -> Result<PathBuf, String> {
+    backup.verify()?;
+    stopped(ui)?;
+    let root = state
+        .dump_root
+        .as_deref()
+        .ok_or("덤프 저장 위치가 없습니다.")?;
+    ui.status("DeviceInfo를 두 번 읽어 비교합니다.", false);
+    let scratch = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
+    let first = device.read(&scratch.path().join("dump1"), log)?;
+    let second = device.read(&scratch.path().join("dump2"), log)?;
+    if first.len() != deviceinfo::SHARED_SIZE {
+        return Err(format!(
+            "DeviceInfo를 {}바이트 읽었습니다. {}바이트여야 합니다.",
+            first.len(),
+            deviceinfo::SHARED_SIZE
+        ));
+    }
+    if first != second {
+        return Err(
+            "DeviceInfo 독립 읽기 두 개가 일치하지 않습니다. 덤프를 저장하지 않았습니다.".into(),
+        );
+    }
+    let model = backup.device();
+    let now = chrono::Utc::now();
+    std::fs::create_dir_all(root).map_err(|e| format!("{}: {e}", root.display()))?;
+    let folder = root.join(format!("Deviceinfo_dump_{model}_{}", now.timestamp()));
+    std::fs::create_dir(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+    let bin = folder.join("deviceinfo.bin");
+    backup::write_new(&bin, &first)?;
+    let info = serde_json::json!({
+        "model": model.model(),
+        "codename": model.codename(),
+        "dumped_at": now.to_rfc3339(),
+        "unix_time": now.timestamp(),
+        "size": first.len(),
+        "sha256": backup::digest_bytes(&first),
+        "logical_size": model.layout().map(|layout| layout.logical_size()),
+        "slot": state.slot,
+    });
+    backup::write_new(
+        &folder.join("info.json"),
+        &serde_json::to_vec_pretty(&info).map_err(|e| e.to_string())?,
+    )?;
+    if std::fs::read(&bin).map_err(|e| e.to_string())? != first {
+        return Err("저장한 DeviceInfo 덤프를 다시 읽어 확인하지 못했습니다.".into());
+    }
+    live!(log, "DeviceInfo 덤프를 저장했습니다: {}", folder.display());
+    ui.dumped(&folder);
+    Ok(folder)
+}
+
 /// The user cancelled at the rollback prompt while TWRP is running and
 /// DeviceInfo is unwritten. Reboot to EDL and run the verified original
 /// restore (GPT, Recovery, vendor_boot), then archive the restored run.
@@ -958,6 +1023,22 @@ pub fn cancel_to_original(
         "작업을 취소하고 원본 구성으로 복구합니다. EDL로 전환합니다.",
         false,
     );
+    back_to_original(device, recovery, backup, loader, store, clock, ui, log)
+}
+
+/// TWRP is running and DeviceInfo is unwritten: reboot to EDL, restore the
+/// verified originals and archive the restored run.
+#[allow(clippy::too_many_arguments)]
+fn back_to_original(
+    device: &mut impl FinishIo,
+    recovery: &mut impl restore::Session,
+    backup: &VerifiedBackup,
+    loader: &Path,
+    store: &StateStore,
+    clock: &mut impl workflow::Clock,
+    ui: &mut impl Ui,
+    log: &mut Vec<String>,
+) -> Result<Vec<String>, String> {
     recovery.verify_identity(backup)?;
     if let Err(e) = recovery.reboot_edl() {
         live!(log, "원본 복구 EDL 재부팅 응답: {e}. 연결을 확인합니다.");
@@ -1086,6 +1167,33 @@ pub fn finish(
         }
         ui.phase(Phase::RecoveryWaiting);
         let mut recovery = native::Recovery::wait(backup, ui, log)?;
+        if state.request == Request::Dump {
+            ui.phase(Phase::Planned);
+            let folder = dump(&mut recovery, backup, state, ui, log)?;
+            ui.status(
+                "DeviceInfo 덤프를 저장했습니다. 원본 구성으로 복구합니다. EDL로 전환합니다.",
+                false,
+            );
+            let warnings = back_to_original(
+                device,
+                &mut recovery,
+                backup,
+                &loader,
+                store,
+                &mut workflow::native::SystemClock::default(),
+                ui,
+                log,
+            )
+            .map_err(|error| {
+                format!(
+                    "DeviceInfo 덤프는 저장했습니다: {}\n원본 구성 자동 복구를 완료하지 못했습니다: {error}\n백업과 작업 기록을 보존했습니다. 기기를 EDL로 연결해 원본 복구를 진행하세요.",
+                    folder.display()
+                )
+            })?;
+            state.warnings.extend(warnings);
+            live!(log, "DeviceInfo 덤프와 원본 구성 복원을 마쳤습니다.");
+            return Ok(());
+        }
         ui.phase(Phase::Planned);
         if transact(&mut recovery, backup, &mut firmware, state, store, ui, log)?
             == Outcome::Cancelled

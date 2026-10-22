@@ -250,6 +250,8 @@ pub struct Preferences {
     pub mask_serial: bool,
     pub kernel: bool,
     pub storage_root: Option<PathBuf>,
+    /// Where DeviceInfo dumps are saved, apart from logs and backups.
+    pub dump_root: Option<PathBuf>,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -259,6 +261,7 @@ impl Default for Preferences {
             mask_serial: true,
             kernel: ltbox_device::driver::kernel_mode_supported(),
             storage_root: None,
+            dump_root: None,
         }
     }
 }

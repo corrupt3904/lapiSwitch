@@ -5,6 +5,8 @@ use lapiswitch_core::recovery_flow::Phase;
 pub enum Flow {
     Recovery,
     Restore,
+    /// DeviceInfo dump: the recovery flow without writes or firmware.
+    Dump,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -14,6 +16,8 @@ pub enum Step {
     StageRecovery,
     Twrp,
     DeviceInfo,
+    /// Read and save DeviceInfo (dump).
+    Dump,
     Edl,
     Originals,
     Firmware,
@@ -28,6 +32,7 @@ impl Step {
             Self::StageRecovery => language.text("GPT·TWRP 준비", "Prepare GPT / TWRP"),
             Self::Twrp => language.text("TWRP 연결", "Connect TWRP"),
             Self::DeviceInfo => language.text("DeviceInfo 변경·검증", "DeviceInfo / verify"),
+            Self::Dump => language.text("DeviceInfo 읽기·저장", "Read / save DeviceInfo"),
             Self::Edl => language.text("EDL 연결", "Connect EDL"),
             Self::Originals => language.text("원본 복원·검증", "Restore / verify"),
             Self::Firmware => language.text("펌웨어 설치", "Install firmware"),
@@ -62,6 +67,17 @@ impl Flow {
                 Finish,
             ],
             Self::Restore => &[Check, Edl, Originals, Finish],
+            Self::Dump => &[
+                Check,
+                Device,
+                Backup,
+                StageRecovery,
+                Twrp,
+                Dump,
+                Edl,
+                Originals,
+                Finish,
+            ],
         }
     }
 }
@@ -93,10 +109,15 @@ impl RunProgress {
         }
     }
     pub fn recovery_phase(&mut self, phase: Phase) {
-        if self.flow != Flow::Recovery {
+        if self.flow == Flow::Restore {
             return;
         }
         let step = match phase {
+            Phase::Planned | Phase::WritePending | Phase::RegionVerified
+                if self.flow == Flow::Dump =>
+            {
+                Step::Dump
+            }
             Phase::Preflight => Step::Device,
             Phase::BackedUp | Phase::Staging | Phase::Staged => Step::StageRecovery,
             Phase::RecoveryRequested | Phase::RecoveryWaiting => Step::Twrp,
@@ -137,7 +158,7 @@ mod tests {
     use super::*;
     #[test]
     fn every_milestone_is_visible_and_only_success_reaches_one_hundred() {
-        for flow in [Flow::Recovery, Flow::Restore] {
+        for flow in [Flow::Recovery, Flow::Restore, Flow::Dump] {
             let mut progress = RunProgress::new(flow);
             for (index, step) in flow.steps().iter().enumerate() {
                 progress.step(*step);

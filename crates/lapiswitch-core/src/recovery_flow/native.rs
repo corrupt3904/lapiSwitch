@@ -197,7 +197,7 @@ impl Recovery {
         format!(
             "{remote}/deviceinfo --logical-size 0x{size:X} --ta {ta} --expected {remote}/expected{tag}.bin --planned {remote}/planned{tag}.bin",
             remote = self.remote,
-            size = self.device.layout().logical_size(),
+            size = self.device.deviceinfo_size(),
         )
     }
     fn pull(&mut self, remote: &str, out: &Path, expected: Option<u64>) -> Result<Vec<u8>, String> {
@@ -333,7 +333,7 @@ impl DeviceInfoIo for Recovery {
             &format!(
                 "{}/deviceinfo --logical-size 0x{:X} --read --ta {} --out-prefix {prefix}",
                 self.remote,
-                self.device.layout().logical_size(),
+                self.device.deviceinfo_size(),
                 ta
             ),
             true,
@@ -355,7 +355,7 @@ impl DeviceInfoIo for Recovery {
     ) -> Result<(), String> {
         self.prepared = None;
         let ta = self.active_keymaster()?;
-        map::check_plan(self.device.layout(), before, planned)?;
+        map::check_plan(self.device.write_layout()?, before, planned)?;
         self.reads += 1;
         let tag = self.reads;
         let (before_hash, planned_hash) =
