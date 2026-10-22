@@ -3,7 +3,7 @@
 use super::view::*;
 use super::*;
 use iced::widget::{self, button, checkbox, column, container, row, scrollable, space, text_input};
-use iced::{Alignment, Border, Color, Fill};
+use iced::{Alignment, Border, Fill};
 use lapiswitch_core::deviceinfo::map::{self, Class, Field, Kind, Layout};
 use lapiswitch_core::recovery_flow::EditRequest;
 use std::collections::BTreeMap;
@@ -355,14 +355,14 @@ fn tab_label(app: &App, tab: Tab) -> &'static str {
 
 /// One selectable option; the chosen one is highlighted.
 fn choice<'a>(text: String, selected: bool, message: EditorMessage) -> Element<'a, Message> {
-    button(
-        label(text)
-            .size(14)
-            .color(if selected { Color::WHITE } else { INK }),
-    )
+    button(label(text).size(14).color(if selected {
+        super::fluent::p().on_accent
+    } else {
+        ink()
+    }))
     .padding([7, 14])
     .style(if selected {
-        button::primary
+        super::fluent::accent_style
     } else {
         soft_style
     })
@@ -430,13 +430,9 @@ fn choice_row<'a>(
 /// Changed fields get a red outline so edits stand out.
 fn changed_border(changed: bool) -> Border {
     Border {
-        color: if changed {
-            Color::from_rgb8(187, 42, 52)
-        } else {
-            LINE
-        },
+        color: if changed { danger() } else { line() },
         width: if changed { 2.0 } else { 1.0 },
-        radius: 10.0.into(),
+        radius: super::fluent::CARD_RADIUS.into(),
     }
 }
 
@@ -445,7 +441,7 @@ fn basic_box<'a>(content: widget::Column<'a, Message>, changed: bool) -> Element
         .padding(12)
         .width(Fill)
         .style(move |_| container::Style {
-            background: Some(if changed { PALE } else { Color::WHITE }.into()),
+            background: Some(if changed { pale() } else { card_color() }.into()),
             border: changed_border(changed),
             ..Default::default()
         })
@@ -560,7 +556,7 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
     ]
     .spacing(6);
     if let Some(error) = editor.error(field) {
-        content = content.push(small(error).color(Color::from_rgb8(187, 42, 52)));
+        content = content.push(small(error).color(danger()));
     } else if changed {
         content = content.push(small(format!(
             "{}: {}",
@@ -572,7 +568,7 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
         .padding(12)
         .width(Fill)
         .style(move |_| container::Style {
-            background: Some(if changed { PALE } else { Color::WHITE }.into()),
+            background: Some(if changed { pale() } else { card_color() }.into()),
             border: changed_border(changed),
             ..Default::default()
         })
@@ -645,7 +641,7 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
     let changes = editor.changes();
     let mut list = column![].spacing(6);
     for change in &changes {
-        let danger = change.field.class == Class::Protected;
+        let risky = change.field.class == Class::Protected;
         list = list.push(
             column![
                 label(format!(
@@ -653,11 +649,7 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
                     change.field.key, change.field.offset, change.field.size
                 ))
                 .size(14)
-                .color(if danger {
-                    Color::from_rgb8(187, 42, 52)
-                } else {
-                    INK
-                }),
+                .color(if risky { danger() } else { ink() }),
                 small(format!(
                     "{} → {}",
                     short(&change.before),
@@ -675,7 +667,10 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
                 app.t("바뀌는 필드 {count}개", "{count} fields change")
                     .replace("{count}", &changes.len().to_string())
             ),
-            scrollable(list).height(if flash { 340 } else { 380 }),
+            scrollable(list)
+                .direction(super::fluent::thin_scrollbar())
+                .style(super::fluent::scroll_style)
+                .height(if flash { 340 } else { 380 }),
             if flash {
                 row![
                     small(app.t("국가 코드", "Country code")),
@@ -704,7 +699,7 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
                 action(app.t("이전", "Back"), Message::Editor(EditorMessage::Review(false)), true)
                     .style(soft_style),
                 action(app.t("적용", "Apply"), Message::Editor(EditorMessage::Apply), true)
-                    .style(if editor.protected_changed() || flash { button::danger } else { button::primary }),
+                    .style(if editor.protected_changed() || flash { super::fluent::danger_style } else { super::fluent::accent_style }),
             ]
             .spacing(12),
         ]
@@ -791,7 +786,10 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
         }
         .spacing(12)
         .align_y(Alignment::Center),
-        scrollable(list).height(400),
+        scrollable(list)
+            .direction(super::fluent::thin_scrollbar())
+            .style(super::fluent::scroll_style)
+            .height(400),
     ]
     .spacing(14);
     if let Some(region) = region_box(app, editor) {

@@ -235,10 +235,21 @@ impl Language {
         });
     }
 }
+/// Light or dark appearance; `System` follows Windows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeChoice {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
     pub language: Language,
+    pub theme: ThemeChoice,
     pub mask_serial: bool,
     pub kernel: bool,
     pub storage_root: Option<PathBuf>,
@@ -247,6 +258,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             language: Language::Korean,
+            theme: ThemeChoice::System,
             mask_serial: true,
             kernel: ltbox_device::driver::kernel_mode_supported(),
             storage_root: None,

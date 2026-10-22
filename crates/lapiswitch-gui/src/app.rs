@@ -3,6 +3,7 @@ mod conflicts;
 mod country_view;
 mod dashboard_view;
 mod editor;
+mod fluent;
 mod licenses_view;
 mod settings_view;
 mod view;
@@ -93,6 +94,10 @@ enum Message {
     ConfirmArchiveRun,
     RunArchived(Result<PathBuf, String>),
     Language(Language),
+    /// Light, dark or follow Windows (Settings).
+    Theme(crate::settings::ThemeChoice),
+    /// Windows' current light or dark mode.
+    SystemTheme(iced::theme::Mode),
     Mask(bool),
     Kernel(bool),
     CheckDrivers,
@@ -171,6 +176,8 @@ struct App {
     rollback_confirmation: Option<(String, Sender<bool>)>,
     /// The live DeviceInfo editor while the tablet waits in TWRP.
     editor: Option<editor::Editor>,
+    /// Windows is in dark mode; used when the theme follows the system.
+    system_dark: bool,
     logs: VecDeque<String>,
     log_path: Option<PathBuf>,
     backup_path: Option<PathBuf>,
@@ -249,6 +256,7 @@ impl App {
             firmware_confirmation: None,
             rollback_confirmation: None,
             editor: None,
+            system_dark: false,
             logs: VecDeque::new(),
             log_path: None,
             backup_path: None,
@@ -283,6 +291,7 @@ impl App {
                 app.preferences.language = language;
                 app.preferences.language.install();
             }
+            app.system_dark = std::env::args().any(|arg| arg == "--dark");
             app.seed_preview(preview.trim_start_matches("--demo="));
             app.snapshot =
                 std::env::args().find_map(|arg| arg.strip_prefix("--snapshot=").map(PathBuf::from));
@@ -291,7 +300,20 @@ impl App {
             worker::drivers(app.tx.clone());
             app.driver_checking = true;
         }
-        (app, Task::none())
+        let theme = if app.demo {
+            Task::none()
+        } else {
+            iced::system::theme().map(Message::SystemTheme)
+        };
+        (app, theme)
+    }
+    /// The effective dark mode: Settings, or Windows when it follows the system.
+    fn dark(&self) -> bool {
+        match self.preferences.theme {
+            crate::settings::ThemeChoice::System => self.system_dark,
+            crate::settings::ThemeChoice::Light => false,
+            crate::settings::ThemeChoice::Dark => true,
+        }
     }
     fn t(&self, ko: &'static str, en: &'static str) -> &'static str {
         self.preferences.language.text(ko, en)
@@ -562,6 +584,11 @@ impl App {
             }
             Message::Rollback(mode) if !self.busy() => self.rollback_mode = mode,
             Message::Rollback(_) => {}
+            // Previews keep the theme chosen on the command line.
+            Message::SystemTheme(mode) if !self.demo => {
+                self.system_dark = mode == iced::theme::Mode::Dark;
+            }
+            Message::SystemTheme(_) => {}
             Message::Tick => {
                 while let Ok(event) = self.rx.try_recv() {
                     self.event(event);
@@ -863,6 +890,10 @@ impl App {
                     },
                     RunKind::Restore,
                 );
+            }
+            Message::Theme(theme) => {
+                self.preferences.theme = theme;
+                self.save_preferences();
             }
             Message::Language(language) => {
                 self.preferences.language = language;
@@ -1180,6 +1211,7 @@ impl App {
     fn subscription(&self) -> Subscription<Message> {
         Subscription::batch([
             iced::time::every(worker::POLL_INTERVAL).map(|_| Message::Tick),
+            iced::system::theme_changes().map(Message::SystemTheme),
             iced::event::listen_with(|event, status, _| match event {
                 iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
                     key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Tab),
@@ -1655,16 +1687,7 @@ fn demo_report(region: Region) -> FirmwareReport {
 pub fn run() -> iced::Result {
     iced::application(App::new, App::update, App::view)
         .title(crate::brand::NAME)
-        .theme(|_: &App| {
-            Theme::custom(
-                crate::brand::NAME,
-                iced::theme::Palette {
-                    primary: iced::Color::from_rgb8(36, 89, 198),
-                    text: iced::Color::from_rgb8(25, 39, 62),
-                    ..iced::theme::Palette::LIGHT
-                },
-            )
-        })
+        .theme(|app: &App| fluent::iced_theme(app.dark()))
         .settings(iced::Settings {
             id: Some("org.tb520fu.region-tool".into()),
             default_font: iced::Font::with_name("Noto Sans KR"),
@@ -2169,9 +2192,11 @@ mod tests {
                 "twrp-stop-confirm",
                 "edl-stop-confirm",
             ] {
+                // Korean in light, English in dark: every page in both themes.
                 let mut app = App::base(true);
                 app.seed_preview(screen);
                 app.preferences.language = language;
+                app.system_dark = language == Language::English;
                 let _view = app.view();
             }
         }
@@ -2321,6 +2346,40 @@ mod tests {
         assert_eq!(
             app.progress.flow.steps()[app.progress.current],
             Step::Device
+        );
+    }
+}
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::settings::ThemeChoice;
+
+    #[test]
+    fn the_theme_follows_windows_unless_light_or_dark_is_chosen() {
+        let mut app = App::base(false);
+        assert_eq!(app.preferences.theme, ThemeChoice::System);
+        assert!(!app.dark());
+        let _ = app.update(Message::SystemTheme(iced::theme::Mode::Dark));
+        assert!(app.dark());
+        app.preferences.theme = ThemeChoice::Light;
+        assert!(!app.dark());
+        app.preferences.theme = ThemeChoice::Dark;
+        let _ = app.update(Message::SystemTheme(iced::theme::Mode::Light));
+        assert!(app.dark());
+        app.preferences.theme = ThemeChoice::System;
+        assert!(!app.dark());
+        // Previews keep the theme chosen on the command line.
+        let mut preview = App::base(true);
+        let _ = preview.update(Message::SystemTheme(iced::theme::Mode::Dark));
+        assert!(!preview.dark());
+        // The saved choice round-trips.
+        let json = serde_json::to_string(&ThemeChoice::Dark).unwrap();
+        assert_eq!(json, "\"dark\"");
+        assert_eq!(
+            serde_json::from_str::<crate::settings::Preferences>("{}")
+                .unwrap()
+                .theme,
+            ThemeChoice::System
         );
     }
 }

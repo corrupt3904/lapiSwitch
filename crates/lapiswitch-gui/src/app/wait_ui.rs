@@ -39,7 +39,6 @@ impl App {
 
 pub(super) fn button(app: &App) -> Option<Element<'_, Message>> {
     use super::view::*;
-    use iced::widget::button;
     let ticket = app.wait_ticket?;
     if !app.can_stop_wait(ticket) && !app.wait_control.stopped() {
         return None;
@@ -54,7 +53,7 @@ pub(super) fn button(app: &App) -> Option<Element<'_, Message>> {
             Message::StopWait(ticket),
             app.can_stop_wait(ticket),
         )
-        .style(button::danger)
+        .style(super::fluent::danger_style)
         .into(),
     )
 }
@@ -62,7 +61,7 @@ pub(super) fn button(app: &App) -> Option<Element<'_, Message>> {
 pub(super) fn modal(app: &App, ticket: WaitTicket) -> iced::widget::Container<'_, Message> {
     use super::view::*;
     use iced::Fill;
-    use iced::widget::{button, column, row, space};
+    use iced::widget::{column, row, space};
     let message = if ticket.phase == lapiswitch_core::recovery_flow::Phase::RecoveryWaiting {
         app.t(
             "작업을 중지하시겠습니까? 추후 ADB(TWRP) 연결이 되었을 때 계속 진행하거나, EDL로 수동 진입하여 원본 복구를 진행할 수 있습니다",
@@ -86,7 +85,7 @@ pub(super) fn modal(app: &App, ticket: WaitTicket) -> iced::widget::Container<'_
                     Message::ConfirmStopWait(ticket),
                     app.can_stop_wait(ticket)
                 )
-                .style(button::danger)
+                .style(super::fluent::danger_style)
             ]
             .spacing(12),
         ]

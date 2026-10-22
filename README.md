@@ -37,12 +37,12 @@ The software is provided **“AS IS,” without warranty**, to the extent permit
 
 - **DeviceInfo editing (default)** — edit every field of the DeviceInfo structure map read in TWRP, including region, rollback indices and security/structure fields. Inputs must match each field's type and size, and the change list is reviewed before writing. A region change requires selecting and checking that region's firmware folder and then installs it with a data reset; without a region change the original configuration is restored and the tablet just reboots.
 - **Guided region conversion** — target region, firmware checks, conversion options and a final review.
-- **Device monitoring** — ADB, Fastboot and EDL status on the Dashboard, with driver checks and supported installation options.
+- **Device monitoring** — ADB, Fastboot and EDL status on the **Device** page, with driver checks and supported installation options.
 - **Backup and verification** — original partition backups and full 4096-byte DeviceInfo readback verification after writing.
 - **Conversion options** — country code selection and rollback index reset (default) or preservation. With preservation, a firmware whose rollback indices are lower than the values stored in DeviceInfo opens a prompt in TWRP: reset them to 0 and continue, or cancel and automatically restore the original configuration.
 - **Saved progress** — resume and original-configuration restore, subject to the saved state and verified backup evidence.
 
-Interface languages: 한국어, English, 简体中文, 日本語 and Русский.
+Interface languages: 한국어, English, 简体中文, 日本語 and Русский. The interface follows the Windows 11 style with light and dark themes (default: follow Windows).
 
 ## Supported configuration
 
@@ -61,7 +61,7 @@ Per-device values (model, version limits, TWRP, country-code location and Device
 
 1. Download the Windows ZIP and its `.zip.sha256` checksum from [Releases](https://github.com/corrupt3904/lapiSwitch/releases). Verify the checksum, then extract the ZIP.
 2. Run `lapiSwitch.exe`. Follow the app's USB driver guidance and install supported drivers if required.
-3. Boot the tablet to Android, enable USB debugging and connect it. Confirm its model and connection state on the **Dashboard** and approve the USB debugging prompt. Conversion starts from ADB (or EDL); it cannot start from Fastboot.
+3. Boot the tablet to Android, enable USB debugging and connect it. Confirm its model and connection state on the **Device** page and approve the USB debugging prompt. Conversion starts from ADB (or EDL); it cannot start from Fastboot.
 4. Select **Edit DeviceInfo** and choose the EDL loader. Once DeviceInfo is read in TWRP, change values in the editor, review the changes and apply. For a region change, choose that region's firmware folder in the editor. To convert to a region chosen up front, select **Region conversion** and choose the target region, firmware folder and conversion options.
 5. Keep USB connected and follow the reboot prompts until the operation finishes.
 
@@ -80,7 +80,7 @@ The default data location is `%LOCALAPPDATA%\lapiSwitch`:
 
 Change the root folder under **Settings → Logs and backup location**. Keep the complete backup folder and saved records together.
 
-Use **Recovery** on the Dashboard to restore the backed-up GPT, Recovery and vendor_boot configuration and, when DeviceInfo was changed, the complete original DeviceInfo. **This does not roll back the entire installed firmware.**
+Use **Restore original** in the navigation to restore the backed-up GPT, Recovery and vendor_boot configuration and, when DeviceInfo was changed, the complete original DeviceInfo. **This does not roll back the entire installed firmware.**
 
 Resume and restore depend on the available evidence. If the DeviceInfo write result cannot be established or backup verification fails, the app may refuse automatic recovery.
 

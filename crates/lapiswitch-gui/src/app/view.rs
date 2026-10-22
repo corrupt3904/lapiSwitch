@@ -1,3 +1,4 @@
+use super::fluent::{self, Severity, glyph, icon};
 use super::*;
 use iced::widget::{
     self, button, checkbox, column, container, opaque, progress_bar, row, scrollable, space, stack,
@@ -5,180 +6,136 @@ use iced::widget::{
 };
 use iced::{Alignment, Background, Border, Color, Fill};
 use lapiswitch_core::state::Request;
-pub(super) const INK: Color = Color::from_rgb8(25, 39, 62);
-pub(super) const MUTED: Color = Color::from_rgb8(100, 116, 139);
-pub(super) const ACCENT: Color = Color::from_rgb8(36, 89, 198);
-pub(super) const PALE: Color = Color::from_rgb8(238, 244, 255);
-pub(super) const LINE: Color = Color::from_rgb8(221, 229, 240);
-/// Very light gray for unselected choices and secondary actions.
-pub(super) const SOFT: Color = Color::from_rgb8(242, 244, 247);
-const SOFT_HOVER: Color = Color::from_rgb8(231, 235, 241);
-const DANGER: Color = Color::from_rgb8(187, 42, 52);
-const FIELD_KEY: f32 = 165.0;
-fn faded(style: button::Style, status: button::Status) -> button::Style {
-    if status != button::Status::Disabled {
-        return style;
-    }
-    button::Style {
-        background: style.background.map(|b| b.scale_alpha(0.5)),
-        text_color: style.text_color.scale_alpha(0.5),
-        ..style
+/// Palette shortcuts; every color follows the active light or dark theme.
+pub(super) fn ink() -> Color {
+    fluent::p().text
+}
+pub(super) fn muted() -> Color {
+    fluent::p().text_secondary
+}
+pub(super) fn accent() -> Color {
+    fluent::p().accent
+}
+pub(super) fn pale() -> Color {
+    fluent::p().accent_soft
+}
+pub(super) fn line() -> Color {
+    fluent::p().card_border
+}
+pub(super) fn danger() -> Color {
+    fluent::p().danger
+}
+pub(super) fn card_color() -> Color {
+    fluent::p().card
+}
+const FIELD_KEY: f32 = 200.0;
+/// Four-sided padding: top, right, bottom, left.
+pub(super) fn pad(top: u16, right: u16, bottom: u16, left: u16) -> iced::Padding {
+    iced::Padding {
+        top: top.into(),
+        right: right.into(),
+        bottom: bottom.into(),
+        left: left.into(),
     }
 }
-/// Very light gray button with dark text and a thin outline.
-pub(super) fn soft_style(_: &Theme, status: button::Status) -> button::Style {
-    faded(
-        button::Style {
-            background: Some(
-                match status {
-                    button::Status::Hovered | button::Status::Pressed => SOFT_HOVER,
-                    _ => SOFT,
-                }
-                .into(),
-            ),
-            text_color: INK,
-            border: Border {
-                color: LINE,
-                width: 1.0,
-                radius: 2.0.into(),
-            },
-            ..Default::default()
-        },
-        status,
-    )
+/// A small section heading above a group of cards.
+pub(super) fn section<'a>(value: impl Into<String>) -> Element<'a, Message> {
+    container(label(value).size(14))
+        .padding(pad(12, 0, 2, 2))
+        .into()
 }
-/// Transparent until hovered: the header icon and idle navigation.
-pub(super) fn quiet_style(_: &Theme, status: button::Status) -> button::Style {
-    faded(
-        button::Style {
-            background: match status {
-                button::Status::Hovered | button::Status::Pressed => Some(SOFT_HOVER.into()),
-                _ => None,
-            },
-            text_color: INK,
-            border: Border {
-                radius: 2.0.into(),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        status,
-    )
+/// Standard (secondary) button.
+pub(super) fn soft_style(theme: &Theme, status: button::Status) -> button::Style {
+    fluent::standard_style(theme, status)
 }
 pub(super) fn label<'a>(value: impl Into<String>) -> widget::Text<'a> {
     text(transcript::readable_paths(&value.into()))
         .shaping(widget::text::Shaping::Advanced)
-        .color(INK)
+        .color(ink())
 }
 pub(super) fn small<'a>(value: impl Into<String>) -> widget::Text<'a> {
-    label(value).size(13).color(MUTED)
+    label(value).size(13).color(muted())
 }
+/// Card surface; dialogs use it too.
 pub(super) fn panel<'a>(
     content: impl Into<Element<'a, Message>>,
 ) -> widget::Container<'a, Message> {
     container(content)
         .padding(24)
         .width(Fill)
-        .style(|_| container::Style {
-            background: Some(Color::WHITE.into()),
-            border: Border {
-                color: LINE,
-                width: 1.0,
-                radius: 16.0.into(),
-            },
-            ..Default::default()
-        })
+        .style(fluent::card_style)
+}
+/// Fluent InfoBar: icon, message and a severity tint.
+pub(super) fn infobar<'a>(severity: Severity, value: impl Into<String>) -> Element<'a, Message> {
+    container(
+        row![
+            icon(severity.glyph()).color(severity.icon_color()),
+            label(value).size(14).width(Fill)
+        ]
+        .spacing(12),
+    )
+    .padding([12, 16])
+    .width(Fill)
+    .style(severity.style())
+    .into()
 }
 pub(super) fn note<'a>(value: impl Into<String>, warning: bool) -> Element<'a, Message> {
-    container(label(value).size(14))
-        .padding(14)
-        .width(Fill)
-        .style(move |_| container::Style {
-            background: Some(
-                if warning {
-                    Color::from_rgb8(255, 247, 228)
-                } else {
-                    PALE
-                }
-                .into(),
-            ),
-            border: Border {
-                radius: 10.0.into(),
-                ..Default::default()
-            },
-            ..Default::default()
-        })
-        .into()
+    infobar(
+        if warning {
+            Severity::Warning
+        } else {
+            Severity::Info
+        },
+        value,
+    )
 }
+/// A settings-card row: name on the left, value on the right.
 pub(super) fn field<'a>(key: impl Into<String>, value: impl Into<String>) -> Element<'a, Message> {
-    // Wide enough for 12 CJK characters, so Japanese labels don't wrap mid-word.
-    row![small(key).width(FIELD_KEY), label(value).width(Fill)]
-        .spacing(12)
-        .into()
+    container(
+        row![
+            label(key).size(14).width(FIELD_KEY),
+            label(value).size(14).color(muted()).width(Fill)
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center),
+    )
+    .padding([14, 16])
+    .width(Fill)
+    .style(fluent::card_style)
+    .into()
 }
 fn error_note<'a>(error: &str) -> Element<'a, Message> {
     warning_note(error.to_owned())
 }
 fn warning_note<'a>(value: impl Into<String>) -> Element<'a, Message> {
-    container(label(value).size(14).color(DANGER))
-        .padding(14)
-        .width(Fill)
-        .style(|_| container::Style {
-            background: Some(Color::from_rgb8(255, 247, 228).into()),
-            border: Border {
-                color: DANGER,
-                width: 1.0,
-                radius: 10.0.into(),
-            },
-            ..Default::default()
-        })
-        .into()
+    infobar(Severity::Error, value)
 }
 pub(super) fn notification<'a>(
     content: impl Into<Element<'a, Message>>,
 ) -> widget::Container<'a, Message> {
-    panel(content).padding(14)
+    panel(content).padding([12, 16])
 }
 pub(super) fn notification_note<'a>(value: impl Into<String>) -> Element<'a, Message> {
-    notification(label(value).size(14)).into()
+    infobar(Severity::Info, value)
 }
 pub(super) fn recovery_style(theme: &Theme, status: button::Status) -> button::Style {
-    let mut style = button::secondary(theme, status);
-    let disabled = status == button::Status::Disabled;
-    let red = if disabled { MUTED } else { DANGER };
-    style.background = Some(
-        match status {
-            button::Status::Hovered | button::Status::Pressed => Color::from_rgb8(255, 240, 241),
-            _ => Color::WHITE,
-        }
-        .into(),
-    );
-    style.text_color = red;
-    style.border.color = red;
-    style.border.width = 1.0;
-    style
+    fluent::danger_outline_style(theme, status)
 }
-/// White rounded pill with a thin outline: connection status and DEMO.
-pub(super) fn pill_style(_: &Theme) -> container::Style {
-    container::Style {
-        background: Some(Color::WHITE.into()),
-        border: Border {
-            color: LINE,
-            width: 1.0,
-            radius: 999.0.into(),
-        },
-        ..Default::default()
-    }
+pub(super) fn pill_style(theme: &Theme) -> container::Style {
+    fluent::pill_style(theme)
 }
+/// The accent button; secondary actions override the style.
 pub(super) fn action<'a>(
     title: &'static str,
     message: Message,
     enabled: bool,
 ) -> widget::Button<'a, Message> {
     button(text(title).shaping(widget::text::Shaping::Advanced))
-        .padding([11, 20])
+        .padding([8, 20])
+        .style(fluent::accent_style)
         .on_press_maybe(enabled.then_some(message))
 }
+/// Page header: Fluent title and a one-line description.
 pub(super) fn title<'a>(
     app: &App,
     ko: &'static str,
@@ -186,48 +143,129 @@ pub(super) fn title<'a>(
     sub_ko: &'static str,
     sub_en: &'static str,
 ) -> Element<'a, Message> {
-    column![label(app.t(ko, en)).size(29), small(app.t(sub_ko, sub_en))]
-        .spacing(8)
-        .into()
+    column![
+        label(app.t(ko, en)).size(28),
+        label(app.t(sub_ko, sub_en)).size(14).color(muted())
+    ]
+    .spacing(4)
+    .into()
 }
-pub(super) fn view(app: &App) -> Element<'_, Message> {
-    let mut header = row![
-        row![
-            widget::image(crate::brand::image()).width(44).height(44),
-            column![
-                label(crate::brand::NAME).size(24),
-                small(crate::brand::subtitle())
+/// Which navigation item the current page belongs to.
+fn nav_section(app: &App) -> usize {
+    match app.page {
+        Page::Dashboard | Page::Resume => 0,
+        Page::Edit => 1,
+        Page::Region | Page::Firmware | Page::Options | Page::Confirm => 2,
+        Page::Recovery => 3,
+        Page::Settings => 4,
+        Page::Progress | Page::Result => match app.run_kind {
+            RunKind::Edit => 1,
+            RunKind::Convert => 2,
+            RunKind::Restore => 3,
+            RunKind::Resume => 0,
+        },
+    }
+}
+/// Windows 11 settings-style navigation: app title, the connected device
+/// and one item per task. Locked while an operation runs.
+fn navigation(app: &App) -> Element<'_, Message> {
+    let current = nav_section(app);
+    let idle = !app.busy();
+    let supported = !app.device.unsupported_model();
+    let item = |index: usize, glyph: char, name: &'static str, message: Message, enabled: bool| {
+        let selected = current == index;
+        let marker = container(space().width(3).height(16)).style(move |_| container::Style {
+            background: selected.then(|| fluent::p().accent.into()),
+            border: Border {
+                radius: 2.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        button(
+            row![
+                marker,
+                icon(glyph),
+                text(name).size(14).shaping(widget::text::Shaping::Advanced)
             ]
-            .spacing(2)
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center),
-        space().width(Fill),
-        dashboard_view::badge(app),
-        widget::tooltip(
-            button(
-                widget::svg(widget::svg::Handle::from_memory(
-                    include_bytes!("../../assets/settings.svg").as_slice(),
-                ))
-                .width(24)
-                .height(24)
-            )
-            .padding(12)
-            .on_press_maybe((!app.busy()).then_some(Message::Settings))
-            .style(quiet_style),
-            app.t("설정", "Settings"),
-            widget::tooltip::Position::Bottom,
-        ),
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([9, 6])
+        .on_press_maybe(enabled.then_some(message))
+        .style(move |theme, status| {
+            let mut style = fluent::subtle_style(theme, status);
+            if selected {
+                style.background = Some(fluent::p().subtle_selected.into());
+                style.text_color = fluent::p().text;
+            }
+            style
+        })
+    };
+    let mut brand = row![
+        widget::image(crate::brand::image()).width(20).height(20),
+        label(crate::brand::NAME).size(13)
     ]
     .spacing(10)
     .align_y(Alignment::Center);
     if app.demo {
-        header = header.push(
-            container(label("DEMO").size(12).color(ACCENT))
-                .padding([8, 12])
+        brand = brand.push(space().width(Fill)).push(
+            container(label("DEMO").size(11).color(accent()))
+                .padding([2, 8])
                 .style(pill_style),
         );
     }
+    column![
+        container(brand).padding([0, 6]),
+        container(dashboard_view::device_card(app)).padding(pad(14, 0, 10, 0)),
+        item(0, glyph::HOME, app.t("기기", "Device"), Message::Home, idle),
+        item(
+            1,
+            glyph::EDIT,
+            app.t("DeviceInfo 수정", "Edit DeviceInfo"),
+            Message::Edit,
+            idle && supported
+        ),
+        item(
+            2,
+            glyph::GLOBE,
+            app.t("리전 변환", "Region conversion"),
+            Message::Convert,
+            idle && supported
+        ),
+        item(
+            3,
+            glyph::HISTORY,
+            app.t("원본 복구", "Restore original"),
+            Message::Recovery,
+            idle
+        ),
+        space().height(Fill),
+        item(
+            4,
+            glyph::SETTINGS,
+            app.t("설정", "Settings"),
+            Message::Settings,
+            idle
+        ),
+        container(
+            column![
+                small(super::supported_models()).size(12),
+                small(format!("v{} · GPL-3.0", env!("CARGO_PKG_VERSION"))).size(12)
+            ]
+            .spacing(2)
+        )
+        .padding(pad(8, 6, 0, 6)),
+    ]
+    .spacing(4)
+    .width(290)
+    .height(Fill)
+    .padding([20, 12])
+    .into()
+}
+/// Region conversion steps as a Fluent breadcrumb above the page.
+fn stepper(app: &App) -> Element<'_, Message> {
     let steps = [
         app.t("리전 선택", "Target region"),
         app.t("펌웨어 검사", "Firmware"),
@@ -235,58 +273,40 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         app.t("최종 확인", "Review"),
         app.t("진행 / 결과", "Progress / result"),
     ];
-    let active = match app.page {
+    let page = if app.page == Page::Settings {
+        app.return_page
+    } else {
+        app.page
+    };
+    let active = match page {
         Page::Region => 0,
         Page::Firmware => 1,
         Page::Options => 2,
         Page::Confirm => 3,
-        Page::Progress | Page::Result => 4,
-        _ => 9,
+        _ => 4,
     };
-    let mut nav = column![
-        action("Dashboard", Message::Home, !app.busy())
-            .width(Fill)
-            .style(if app.page == Page::Dashboard {
-                button::primary
-            } else {
-                quiet_style
-            })
-    ]
-    .spacing(12);
-    if app.conversion_steps_visible() {
-        nav = nav.push(small(app.t("변환 순서", "CONVERSION")));
-        for (i, step) in steps.iter().enumerate() {
-            let selected = i == active;
-            nav = nav.push(
-                container(
-                    row![
-                        label(format!("{:02}", i + 1)).size(14).color(if selected {
-                            ACCENT
-                        } else {
-                            MUTED
-                        }),
-                        label(*step).size(14)
-                    ]
-                    .spacing(12),
-                )
-                .padding([13, 14])
-                .width(Fill)
-                .style(move |_| container::Style {
-                    background: selected.then_some(PALE.into()),
-                    border: Border {
-                        radius: 9.0.into(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                }),
-            );
+    let mut crumbs = row![].spacing(8).align_y(Alignment::Center);
+    for (i, step) in steps.iter().enumerate() {
+        if i > 0 {
+            crumbs = crumbs.push(icon(glyph::CHEVRON).size(10).color(muted()));
         }
+        let (color, size) = if i == active {
+            (ink(), 14)
+        } else if i < active {
+            (accent(), 13)
+        } else {
+            (muted(), 13)
+        };
+        crumbs = crumbs.push(label(format!("{} {step}", i + 1)).size(size).color(color));
     }
-    nav = nav
-        .push(space().height(Fill))
-        .push(small(super::supported_models()))
-        .push(small(format!("v{} · GPL-3.0", env!("CARGO_PKG_VERSION"))));
-    let mut body = column![].spacing(18);
+    crumbs.into()
+}
+pub(super) fn view(app: &App) -> Element<'_, Message> {
+    fluent::set_dark(app.dark());
+    let mut body = column![].spacing(12);
+    if app.conversion_steps_visible() {
+        body = body.push(stepper(app));
+    }
     if app.demo {
         body = body.push(notification_note(app.t(
             "미리보기 · 기기에 연결하거나 파일을 변경하지 않습니다.",
@@ -351,23 +371,33 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Page::Resume => resume(app),
     };
     body = body
-        .push(scrollable(panel(content)).width(Fill).height(Fill))
-        .push(footer);
+        .push(
+            scrollable(
+                container(content)
+                    .max_width(1000)
+                    .padding(pad(4, 18, 24, 0)),
+            )
+            .direction(fluent::thin_scrollbar())
+            .style(fluent::scroll_style)
+            .width(Fill)
+            .height(Fill),
+        )
+        .push(container(footer).max_width(1000).padding(pad(0, 18, 0, 0)));
     let root: Element<'_, Message> = container(
-        column![
-            header,
-            row![container(nav).width(190).height(Fill), body.width(Fill)]
-                .spacing(24)
+        row![
+            navigation(app),
+            container(body)
+                .padding(pad(28, 24, 20, 12))
+                .width(Fill)
                 .height(Fill)
         ]
-        .spacing(25),
+        .height(Fill),
     )
-    .padding(26)
     .width(Fill)
     .height(Fill)
     .style(|_| container::Style {
-        background: Some(Color::from_rgb8(245, 247, 251).into()),
-        text_color: Some(INK),
+        background: Some(fluent::p().bg.into()),
+        text_color: Some(ink()),
         ..Default::default()
     })
     .into();
@@ -375,33 +405,28 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Some(panel(column![
             label(app.t("진행 중인 작업을 종료할까요?", "Close the running operation?")).size(24),
             label(if app.activity == Some(Activity::Install) { app.t("드라이버 설치 프로그램이 실행 중입니다. 설치가 끝날 때까지 기다려 주세요.", "The driver installer is running. Please wait for it to finish.") } else { app.t("쓰기 도중 종료하면 기기가 부팅되지 않을 수 있습니다. 저장된 단계와 백업으로 이어하기 또는 복구가 필요할 수 있습니다.", "Closing during writes can leave the device unable to boot. Resume or restore may be required using the saved state and backup.") }),
-            row![space().width(Fill), action(app.t("계속 진행", "Keep running"), Message::Stay, true), action(app.t("앱 종료", "Close app"), Message::Exit, true).style(button::danger)].spacing(12),
+            row![space().width(Fill), action(app.t("계속 진행", "Keep running"), Message::Stay, true), action(app.t("앱 종료", "Close app"), Message::Exit, true).style(super::fluent::danger_style)].spacing(12),
         ].spacing(20)).max_width(560))
     } else if app.firmware_confirmation.is_some() {
         Some(panel(column![
-            label(app.t("순정롬 확인 불가", "Stock firmware could not be verified")).size(25).color(DANGER),
+            label(app.t("순정롬 확인 불가", "Stock firmware could not be verified")).size(25).color(danger()),
             label(app.t(
                 "기기의 펌웨어가 순정롬 버전 검사를 통과하지 못했습니다. 커스텀롬, GSI 또는 테스트 빌드일 가능성이 높습니다. 계속 작업을 진행하시겠습니까?",
                 "The device firmware could not pass the stock firmware version check. It may be a custom ROM, GSI or test build. Do you want to continue?"
-            )).color(DANGER),
+            )).color(danger()),
             row![
                 space().width(Fill),
                 action(app.t("취소", "Cancel"), Message::ConfirmUnrecognizedFirmware(false), true).style(soft_style),
                 action(app.t("계속 진행", "Continue"), Message::ConfirmUnrecognizedFirmware(true), true),
             ].spacing(12),
-        ].spacing(20)).style(|_| container::Style {
-            background: Some(Color::from_rgb8(255, 247, 228).into()),
-            text_color: Some(DANGER),
-            border: Border { color: DANGER, width: 2.0, radius: 16.0.into() },
-            ..Default::default()
-        }).max_width(620))
+        ].spacing(20)).style(fluent::warning_dialog_style).max_width(620))
     } else if let Some((details, _)) = &app.rollback_confirmation {
         Some(panel(column![
-            label(app.t("롤백인덱스 경고", "Rollback index warning")).size(25).color(DANGER),
+            label(app.t("롤백인덱스 경고", "Rollback index warning")).size(25).color(danger()),
             label(app.t(
                 "설치할 펌웨어의 롤백인덱스가 기기 DeviceInfo에 저장된 값보다 낮습니다. 이대로 설치하면 롤백 방지로 부팅되지 않습니다.",
                 "The firmware's rollback indices are lower than those stored in the device's DeviceInfo. Installed as is, rollback protection would stop it from booting."
-            )).color(DANGER),
+            )).color(danger()),
             small(details.clone()),
             label(app.t(
                 "0으로 초기화 후 계속: DeviceInfo의 32개 롤백인덱스를 0으로 기록하고 작업을 계속합니다.",
@@ -414,14 +439,9 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             row![
                 space().width(Fill),
                 action(app.t("작업 취소 · 원본 복구", "Cancel · Restore originals"), Message::ConfirmRollbackReset(false), true).style(soft_style),
-                action(app.t("0으로 초기화 후 계속", "Reset to 0 and continue"), Message::ConfirmRollbackReset(true), true).style(button::danger),
+                action(app.t("0으로 초기화 후 계속", "Reset to 0 and continue"), Message::ConfirmRollbackReset(true), true).style(super::fluent::danger_style),
             ].spacing(12),
-        ].spacing(20)).style(|_| container::Style {
-            background: Some(Color::from_rgb8(255, 247, 228).into()),
-            text_color: Some(DANGER),
-            border: Border { color: DANGER, width: 2.0, radius: 16.0.into() },
-            ..Default::default()
-        }).max_width(660))
+        ].spacing(20)).style(fluent::warning_dialog_style).max_width(660))
     } else if let Some(editor) = &app.editor {
         // The country picker opens over the editor for a region change.
         Some(if app.country_open {
@@ -467,13 +487,9 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             small("TWRP · DeviceInfo"),
             label(app.t("재부팅 전 확인", "Before rebooting")).size(25),
             label(transition_text(app)),
-            label(app.t("작업이 완료될 때까지 PC와 태블릿의 USB 연결을 유지해 주세요. 케이블을 분리하거나 프로그램을 종료하지 마세요.", "Keep the tablet connected to the PC by USB until the operation is complete. Do not unplug the cable or close this app.")).color(DANGER),
+            label(app.t("작업이 완료될 때까지 PC와 태블릿의 USB 연결을 유지해 주세요. 케이블을 분리하거나 프로그램을 종료하지 마세요.", "Keep the tablet connected to the PC by USB until the operation is complete. Do not unplug the cable or close this app.")).color(danger()),
             row![space().width(Fill), action(app.t("확인", "Confirm"), Message::ConfirmRecoveryReboot, true)],
-        ].spacing(20)).style(|_| container::Style {
-            background: Some(Color::WHITE.into()),
-            border: Border { color: DANGER, width: 2.0, radius: 16.0.into() },
-            ..Default::default()
-        }).max_width(620))
+        ].spacing(20)).style(fluent::warning_dialog_style).max_width(620))
     } else if let Some(ticket) = app.stop_confirmation {
         Some(wait_ui::modal(app, ticket))
     } else if app.archive_confirmation.is_some() {
@@ -491,7 +507,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         stack![
             root,
             opaque(container(modal).center(Fill).style(|_| container::Style {
-                background: Some(Background::Color(Color::from_rgba8(16, 28, 48, 0.55))),
+                background: Some(Background::Color(fluent::p().scrim)),
                 ..Default::default()
             }))
         ]
@@ -544,11 +560,11 @@ fn region(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             .on_press_maybe((!app.busy()).then_some(Message::Region(region)))
             .style(move |theme, status| {
                 let mut style = button::secondary(theme, status);
-                style.background = Some(if selected { PALE } else { Color::WHITE }.into());
+                style.background = Some(if selected { pale() } else { card_color() }.into());
                 style.border = Border {
-                    color: if selected { ACCENT } else { LINE },
+                    color: if selected { accent() } else { line() },
                     width: if selected { 2.0 } else { 1.0 },
-                    radius: 12.0.into(),
+                    radius: fluent::CARD_RADIUS.into(),
                 };
                 style
             }),
@@ -643,12 +659,12 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
 }
 fn options(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let mut content = column![title(app, "변환 설정", "Conversion options", "국가 코드를 선택하고 백업 위치를 확인하세요.", "Choose the country code and review the backup location."),
-        row![small(app.t("사용자 데이터", "User data")).width(FIELD_KEY), label(app.t("초기화 필수", "Erasure required")).color(DANGER).width(Fill)].spacing(12),
+        row![small(app.t("사용자 데이터", "User data")).width(FIELD_KEY), label(app.t("초기화 필수", "Erasure required")).color(danger()).width(Fill)].spacing(12),
         warning_note(app.t("리전 변환 시 사용자 데이터는 반드시 초기화됩니다. 앱·사진·계정이 삭제되므로 중요한 파일은 먼저 별도로 백업하세요.", "Region conversion always erases user data. Apps, photos and accounts will be deleted. Back up important files separately first.")),
         field(app.t("롤백인덱스", "Rollback indices"), app.t("초기화가 기본값입니다. 미초기화는 기존 값을 유지하며, 펌웨어 롤백인덱스가 더 낮으면 TWRP 단계에서 초기화 또는 작업 취소를 묻습니다.", "Reset is the default. Keep preserves the values; if the firmware indices are lower, TWRP asks whether to reset them or cancel.")),
         row![
-            button(label(app.t("초기화 · 32개 인덱스 → 0", "Reset · 32 indices → 0")).color(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {Color::WHITE}else{INK})).padding(14).on_press_maybe((!app.busy()).then_some(Message::Rollback(lapiswitch_core::deviceinfo::RollbackMode::Reset))).style(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {button::primary}else{soft_style}),
-            button(label(app.t("미초기화 · 기존 값 유지", "Keep · Preserve values")).color(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Keep {Color::WHITE}else{INK})).padding(14).on_press_maybe((!app.busy()).then_some(Message::Rollback(lapiswitch_core::deviceinfo::RollbackMode::Keep))).style(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Keep {button::primary}else{soft_style}),
+            button(label(app.t("초기화 · 32개 인덱스 → 0", "Reset · 32 indices → 0")).color(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {fluent::p().on_accent}else{ink()})).padding(14).on_press_maybe((!app.busy()).then_some(Message::Rollback(lapiswitch_core::deviceinfo::RollbackMode::Reset))).style(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Reset {super::fluent::accent_style}else{soft_style}),
+            button(label(app.t("미초기화 · 기존 값 유지", "Keep · Preserve values")).color(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Keep {fluent::p().on_accent}else{ink()})).padding(14).on_press_maybe((!app.busy()).then_some(Message::Rollback(lapiswitch_core::deviceinfo::RollbackMode::Keep))).style(if app.rollback_mode==lapiswitch_core::deviceinfo::RollbackMode::Keep {super::fluent::accent_style}else{soft_style}),
         ].spacing(12),
         country_view::selected(app),
         small(app.t("국가명·코드로 검색한 뒤 적용하세요. ‘변경 안 함’도 선택할 수 있습니다.", "Search by country or code and apply. You can also choose Do not change.")),
@@ -761,10 +777,12 @@ pub(super) fn logs(app: &App) -> Element<'_, Message> {
         .map(|l| label(l).size(12).width(Fill).into())
         .collect::<Vec<Element<'_, Message>>>();
     if let Some(line) = &app.transfer_line {
-        lines.push(label(line).size(12).width(Fill).color(ACCENT).into());
+        lines.push(label(line).size(12).width(Fill).color(accent()).into());
     }
     container(
         scrollable(column(lines).spacing(6).width(Fill))
+            .direction(fluent::thin_scrollbar())
+            .style(fluent::scroll_style)
             .id("operation-logs")
             .width(Fill)
             .anchor_bottom()
@@ -773,10 +791,11 @@ pub(super) fn logs(app: &App) -> Element<'_, Message> {
     .padding(14)
     .width(Fill)
     .style(|_| container::Style {
-        background: Some(Color::from_rgb8(247, 249, 252).into()),
+        background: Some(fluent::p().bg.into()),
         border: Border {
-            radius: 10.0.into(),
-            ..Default::default()
+            color: line(),
+            width: 1.0,
+            radius: fluent::CARD_RADIUS.into(),
         },
         ..Default::default()
     })
@@ -793,7 +812,7 @@ fn overall_progress(app: &App, show_steps: bool) -> Element<'_, Message> {
                 .width(Fill),
             label(format!("{:.0}%", progress.percent()))
                 .size(22)
-                .color(ACCENT),
+                .color(accent()),
         ]
         .align_y(Alignment::Center),
         progress_bar(0.0..=100.0, progress.percent()).girth(10),
@@ -826,9 +845,9 @@ fn overall_progress(app: &App, show_steps: bool) -> Element<'_, Message> {
                                 if done { " ✓" } else { "" }
                             )),
                             label(step.title(language)).size(12).color(if current {
-                                ACCENT
+                                accent()
                             } else {
-                                MUTED
+                                muted()
                             }),
                         ]
                         .spacing(4),
@@ -838,12 +857,12 @@ fn overall_progress(app: &App, show_steps: bool) -> Element<'_, Message> {
                     .height(70)
                     .style(move |_| container::Style {
                         background: Some(if current {
-                            PALE.into()
+                            pale().into()
                         } else {
-                            Color::from_rgb8(248, 250, 253).into()
+                            card_color().into()
                         }),
                         border: Border {
-                            color: if current { ACCENT } else { LINE },
+                            color: if current { accent() } else { line() },
                             width: 1.0,
                             radius: 8.0.into(),
                         },
@@ -969,7 +988,11 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let mut content = column![label(heading).size(29), overall_progress(app, false)].spacing(20);
     match &app.result {
         Some(Ok(warnings)) => {
-            content = content.push(note(if app.run_kind == RunKind::Restore { app.t("원래 리전과 원본 구성을 확인·복구한 뒤 시스템 부팅을 요청했습니다. 경고와 기기의 실제 부팅 상태를 확인해 주세요.", "Original region and configuration were verified/restored, then system boot was requested. Check warnings and actual device boot.") } else { app.t("펌웨어 쓰기와 마무리 단계를 마쳤습니다. 기기의 실제 부팅과 국가 코드를 확인해 주세요.", "Firmware writes and final steps are complete. Check actual device boot and country code.") }, false));
+            content = content.push(infobar(Severity::Success, match app.run_kind {
+                RunKind::Restore => app.t("원래 리전과 원본 구성을 확인·복구한 뒤 시스템 부팅을 요청했습니다. 경고와 기기의 실제 부팅 상태를 확인해 주세요.", "Original region and configuration were verified/restored, then system boot was requested. Check warnings and actual device boot."),
+                RunKind::Edit => app.t("DeviceInfo 변경과 원본 구성 복원을 마쳤습니다. 리전을 바꾼 경우 펌웨어도 설치했습니다. 기기의 실제 부팅을 확인해 주세요.", "DeviceInfo changes and the original configuration restore are complete. Firmware was installed if the region changed. Check actual device boot."),
+                _ => app.t("펌웨어 쓰기와 마무리 단계를 마쳤습니다. 기기의 실제 부팅과 국가 코드를 확인해 주세요.", "Firmware writes and final steps are complete. Check actual device boot and country code."),
+            }));
             for warning in warnings {
                 content = content.push(note(warning, true));
             }

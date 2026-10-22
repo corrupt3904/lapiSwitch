@@ -1,7 +1,7 @@
 use super::view::*;
 use super::*;
 use crate::device::Mode;
-use iced::widget::{column, container, image, row, svg};
+use iced::widget::{button, column, container, image, row, svg};
 use iced::{Alignment, Fill};
 
 pub(super) fn status(app: &App) -> String {
@@ -34,17 +34,126 @@ pub(super) fn status(app: &App) -> String {
     .into()
 }
 pub(super) fn badge(app: &App) -> Element<'_, Message> {
+    let p = super::fluent::p();
+    let color = if app.device.reachable() {
+        p.success
+    } else {
+        p.text_secondary
+    };
     container(
-        label(format!("●  {}", status(app)))
-            .size(13)
-            .color(if app.device.reachable() {
-                ACCENT
-            } else {
-                MUTED
-            }),
+        row![
+            label("●").size(10).color(color),
+            label(status(app)).size(12)
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center),
     )
-    .padding([8, 14])
+    .padding([3, 10])
     .style(pill_style)
+    .into()
+}
+/// devices/<MODEL>/image.png of the connected supported device, or a
+/// generic tablet.
+fn portrait(app: &App, width: f32, height: f32) -> Element<'_, Message> {
+    if let Some(bytes) = app.device.supported().and_then(|device| device.image()) {
+        image(image::Handle::from_bytes(bytes))
+            .width(width)
+            .height(height)
+            .into()
+    } else {
+        svg(svg::Handle::from_memory(
+            include_bytes!("../../assets/generic_tablet.svg").as_slice(),
+        ))
+        .width(width)
+        .height(height)
+        .into()
+    }
+}
+fn device_name(app: &App) -> &str {
+    let d = &app.device.snapshot;
+    if !d.name.is_empty() {
+        &d.name
+    } else if !d.model.is_empty() {
+        &d.model
+    } else {
+        app.t("연결된 기기 없음", "No device")
+    }
+}
+/// The connected device at the top of the navigation, like the account
+/// card of Windows Settings.
+pub(super) fn device_card(app: &App) -> Element<'_, Message> {
+    let d = &app.device.snapshot;
+    row![
+        portrait(app, 56.0, 42.0),
+        column![
+            label(device_name(app)).size(14),
+            small(if d.model.is_empty() {
+                status(app)
+            } else {
+                format!("{} · {}", d.model, status(app))
+            })
+            .size(12)
+        ]
+        .spacing(2)
+        .width(Fill)
+    ]
+    .spacing(12)
+    .align_y(Alignment::Center)
+    .padding([0, 6])
+    .into()
+}
+/// A clickable settings card: icon, title and description, chevron.
+fn task_card<'a>(
+    glyph: char,
+    title: &'static str,
+    description: &'static str,
+    message: Message,
+    enabled: bool,
+    warning: bool,
+) -> Element<'a, Message> {
+    let p = super::fluent::p();
+    button(
+        row![
+            super::fluent::icon(glyph)
+                .size(20)
+                .color(if warning { p.danger } else { p.accent }),
+            column![label(title).size(14), small(description).size(12)]
+                .spacing(2)
+                .width(Fill),
+            super::fluent::icon(super::fluent::glyph::CHEVRON)
+                .size(12)
+                .color(p.text_secondary)
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center),
+    )
+    .width(Fill)
+    .padding([16, 18])
+    .on_press_maybe(enabled.then_some(message))
+    .style(|_, status| {
+        let p = super::fluent::p();
+        iced::widget::button::Style {
+            background: Some(
+                match status {
+                    iced::widget::button::Status::Hovered
+                    | iced::widget::button::Status::Pressed => p.card_hover,
+                    _ => p.card,
+                }
+                .into(),
+            ),
+            text_color: if status == iced::widget::button::Status::Disabled {
+                p.text_disabled
+            } else {
+                p.text
+            },
+            border: iced::Border {
+                color: p.card_border,
+                width: 1.0,
+                radius: super::fluent::CARD_RADIUS.into(),
+            },
+            ..Default::default()
+        }
+    })
     .into()
 }
 pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
@@ -124,110 +233,114 @@ fn value(value: &str) -> &str {
 }
 pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let d = &app.device.snapshot;
-    let name = if d.name.is_empty() {
-        app.t("연결된 기기", "Connected device")
-    } else {
-        &d.name
-    };
-    // devices/<MODEL>/image.png of the connected supported device.
-    let portrait: Element<'_, Message> =
-        if let Some(bytes) = app.device.supported().and_then(|device| device.image()) {
-            image(image::Handle::from_bytes(bytes))
-                .width(92)
-                .height(70)
-                .into()
-        } else {
-            svg(svg::Handle::from_memory(
-                include_bytes!("../../assets/generic_tablet.svg").as_slice(),
-            ))
-            .width(92)
-            .height(70)
-            .into()
-        };
-    let mut content = column![
-        title(
-            app,
-            "Dashboard",
-            "Dashboard",
-            "연결된 기기 정보와 현재 상태를 확인합니다.",
-            "Device information and live connection status."
-        ),
+    let idle = !app.busy();
+    let supported = !app.device.unsupported_model();
+    let hero = container(
         row![
-            portrait,
+            portrait(app, 112.0, 84.0),
             column![
-                label(name).size(25),
+                label(device_name(app)).size(20),
                 small(format!(
-                    "{}  {}",
+                    "{}{}",
                     value(&d.model),
                     if d.android.is_empty() {
                         String::new()
                     } else {
-                        format!("· Android {}", d.android)
+                        format!(" · Android {}", d.android)
                     }
-                ))
+                )),
+                badge(app)
             ]
-            .spacing(5)
-            .width(Fill),
-            badge(app)
+            .spacing(6)
+            .width(Fill)
         ]
-        .spacing(12)
+        .spacing(20)
         .align_y(Alignment::Center),
-        field(
-            app.t("RAM · 저장 공간", "RAM · Storage"),
-            format!("{} / {}", value(&d.ram), value(&d.storage))
+    )
+    .padding(20)
+    .width(Fill)
+    .style(super::fluent::card_style);
+    let mut content = column![
+        title(
+            app,
+            "기기",
+            "Device",
+            "연결된 기기 정보와 현재 상태를 확인합니다.",
+            "Device information and live connection status."
         ),
-        field(app.t("활성 슬롯", "Active slot"), value(&d.slot)),
-        field(
+        hero,
+    ]
+    .spacing(4);
+    if !app.device.startable() {
+        content = content.push(connection_note(app));
+    } else if d.mode == Mode::Edl && d.model.is_empty() {
+        content = content.push(note(
+            app.t(
+                "EDL에서는 작업 준비 단계에서 모델과 슬롯을 확인합니다.",
+                "In EDL, model and slot are verified when the operation starts.",
+            ),
+            false,
+        ));
+    }
+    content = content
+        .push(section(app.t("작업", "Tasks")))
+        .push(task_card(
+            super::fluent::glyph::EDIT,
+            app.t("DeviceInfo 수정", "Edit DeviceInfo"),
+            app.t(
+                "TWRP에서 DeviceInfo 값을 직접 수정합니다. 리전을 바꾸지 않으면 데이터를 유지합니다.",
+                "Edit DeviceInfo values in TWRP. User data is kept unless the region changes.",
+            ),
+            Message::Edit,
+            idle && supported,
+            false,
+        ))
+        .push(task_card(
+            super::fluent::glyph::GLOBE,
+            app.t("리전 변환", "Region conversion"),
+            app.t(
+                "PRC ↔ ROW 공식 펌웨어를 설치합니다. 사용자 데이터가 초기화됩니다.",
+                "Install official PRC or ROW firmware. User data is erased.",
+            ),
+            Message::Convert,
+            idle && supported,
+            false,
+        ))
+        .push(task_card(
+            super::fluent::glyph::HISTORY,
+            app.t("원본 복구", "Restore original"),
+            app.t(
+                "백업한 GPT·Recovery·vendor_boot와 DeviceInfo를 되돌립니다.",
+                "Restore the backed-up GPT, Recovery, vendor_boot and DeviceInfo.",
+            ),
+            Message::Recovery,
+            idle,
+            true,
+        ))
+        .push(section(app.t("기기 정보", "Device details")))
+        .push(field(
+            app.t("RAM · 저장 공간", "RAM · Storage"),
+            format!("{} / {}", value(&d.ram), value(&d.storage)),
+        ))
+        .push(field(app.t("활성 슬롯", "Active slot"), value(&d.slot)))
+        .push(field(
             app.t("롤백 방지", "Rollback protection"),
             if app.device.supported().is_some() {
                 app.t("사용 · 다운그레이드 차단", "Enabled · Downgrades blocked")
             } else {
                 "—"
-            }
-        ),
-        field(app.t("펌웨어", "Firmware"), value(&d.firmware)),
-        field(app.t("시리얼 번호", "Serial number"), value(&d.serial)),
-    ]
-    .spacing(18);
+            },
+        ))
+        .push(field(app.t("펌웨어", "Firmware"), value(&d.firmware)))
+        .push(field(app.t("시리얼 번호", "Serial number"), value(&d.serial)));
     if d.cached {
         content = content.push(small(app.t(
             "일부 기기 정보는 마지막으로 읽은 값입니다. 현재 연결 모드는 계속 갱신됩니다.",
             "Some details are from the last successful read. Connection mode continues to update.",
         )));
     }
-    if !app.device.startable() {
-        content = content.push(connection_note(app));
-    } else if d.mode == Mode::Edl && d.model.is_empty() {
-        content = content.push(small(app.t(
-            "EDL에서는 변환 준비 단계에서 모델과 슬롯을 확인합니다.",
-            "In EDL, model and slot are verified during conversion preparation.",
-        )));
-    }
-    content = content.push(
-        row![
-            iced::widget::space().width(Fill),
-            action(
-                app.t("원본 복구", "Recovery"),
-                Message::Recovery,
-                !app.busy()
-            )
-            .style(recovery_style),
-            action(
-                app.t("리전 변환", "Region conversion"),
-                Message::Convert,
-                !app.busy() && !app.device.unsupported_model()
-            )
-            .style(soft_style),
-            action(
-                app.t("DeviceInfo 수정", "Edit DeviceInfo"),
-                Message::Edit,
-                !app.busy() && !app.device.unsupported_model()
-            )
-        ]
-        .spacing(12),
-    );
     if !app.logs.is_empty() {
-        content = content.push(logs(app));
+        content = content.push(section(app.t("로그", "Log"))).push(logs(app));
     }
     (
         content.into(),

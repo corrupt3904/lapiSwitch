@@ -1,7 +1,7 @@
 use super::view::*;
 use super::*;
 use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
-use iced::{Alignment, Border, Color, Fill};
+use iced::{Alignment, Border, Fill};
 
 pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
     let catalog = crate::licenses::catalog();
@@ -27,8 +27,8 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
             .style(move |theme, status| {
                 let mut style = soft_style(theme, status);
                 if selected {
-                    style.background = Some(PALE.into());
-                    style.border.color = ACCENT;
+                    style.background = Some(pale().into());
+                    style.border.color = accent();
                 }
                 style
             }),
@@ -58,11 +58,13 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
                     .size(13)
                     .width(Fill)
                     .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
-                    .color(INK),
+                    .color(ink()),
             );
     }
     let reader = container(
         scrollable(container(documents).width(Fill).padding([0, 12]))
+            .direction(super::fluent::thin_scrollbar())
+            .style(super::fluent::scroll_style)
             .id(format!("license-document-{}", app.license_selection))
             .width(Fill)
             .height(Fill),
@@ -71,9 +73,9 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
     .width(Fill)
     .height(Fill)
     .style(|_| container::Style {
-        background: Some(Color::WHITE.into()),
+        background: Some(card_color().into()),
         border: Border {
-            color: LINE,
+            color: line(),
             width: 1.0,
             radius: 8.0.into(),
         },
@@ -94,7 +96,10 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
                     )
                     .on_input(Message::LicenseSearch)
                     .padding(10),
-                    scrollable(choices).height(Fill),
+                    scrollable(choices)
+                        .direction(super::fluent::thin_scrollbar())
+                        .style(super::fluent::scroll_style)
+                        .height(Fill),
                 ]
                 .spacing(12)
                 .width(230),

@@ -1,13 +1,6 @@
 use std::{io::Cursor, sync::OnceLock};
 
 pub const NAME: &str = "lapiSwitch";
-/// Supported models, from `devices/`, and the region pair.
-pub fn subtitle() -> String {
-    let models: Vec<_> = lapiswitch_core::device::Device::all()
-        .map(|device| device.model())
-        .collect();
-    format!("{} · PRC ↔ ROW", models.join(" · "))
-}
 const PNG: &[u8] = include_bytes!("../assets/branding/lapiswitch.png");
 
 struct Pixels {

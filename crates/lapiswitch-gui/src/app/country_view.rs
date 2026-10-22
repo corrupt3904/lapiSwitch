@@ -1,14 +1,14 @@
 use super::view::*;
 use super::*;
 use iced::widget::{self, button, column, row, scrollable, space, svg, text_input};
-use iced::{Alignment, Color, Fill};
+use iced::{Alignment, Fill};
 
 fn choice<'a>(app: &'a App, code: &str, name: &str, korean: &str) -> Element<'a, Message> {
     let selected = app.country_draft.as_deref() == Some(code);
     let mut content = row![
         label(if selected { "●" } else { "○" })
             .size(17)
-            .color(ACCENT)
+            .color(accent())
     ]
     .spacing(13)
     .align_y(Alignment::Center);
@@ -24,7 +24,7 @@ fn choice<'a>(app: &'a App, code: &str, name: &str, korean: &str) -> Element<'a,
         .width(Fill)
         .style(move |theme, state| {
             let mut style = button::secondary(theme, state);
-            style.background = Some(if selected { PALE } else { Color::WHITE }.into());
+            style.background = Some(if selected { pale() } else { card_color() }.into());
             style
         })
         .into()
@@ -66,7 +66,10 @@ pub(super) fn modal(app: &App) -> widget::Container<'_, Message> {
             )
             .on_input(Message::CountrySearch)
             .padding(12),
-            scrollable(choices).height(300),
+            scrollable(choices)
+                .direction(super::fluent::thin_scrollbar())
+                .style(super::fluent::scroll_style)
+                .height(300),
             small(format!(
                 "{}: {}",
                 app.t("선택한 코드", "Selected code"),
@@ -108,7 +111,7 @@ pub(super) fn selected(app: &App) -> Element<'_, Message> {
         .push(
             action(app.t("선택", "Choose"), Message::CountryOpen, !app.busy()).style(
                 if app.country.is_none() {
-                    button::primary
+                    super::fluent::accent_style
                 } else {
                     soft_style
                 },

@@ -3,9 +3,7 @@
 use super::view::*;
 use super::*;
 use iced::widget::{button, checkbox, column, container, pick_list, row, space};
-use iced::{Alignment, Border, Color, Fill};
-
-const SECTION: Color = Color::from_rgb8(250, 251, 253);
+use iced::{Alignment, Border, Fill};
 
 fn section<'a>(
     heading: &'a str,
@@ -14,8 +12,8 @@ fn section<'a>(
     body: Vec<Element<'a, Message>>,
 ) -> Element<'a, Message> {
     let mut head = row![
-        column![label(heading).size(18), small(description)]
-            .spacing(5)
+        column![label(heading).size(15), small(description)]
+            .spacing(3)
             .width(Fill)
     ]
     .spacing(16)
@@ -28,17 +26,9 @@ fn section<'a>(
         content = content.push(item);
     }
     container(content)
-        .padding(20)
+        .padding([16, 18])
         .width(Fill)
-        .style(|_| container::Style {
-            background: Some(SECTION.into()),
-            border: Border {
-                color: LINE,
-                width: 1.0,
-                radius: 12.0.into(),
-            },
-            ..Default::default()
-        })
+        .style(super::fluent::card_style)
         .into()
 }
 
@@ -58,7 +48,7 @@ fn driver_modes(app: &App) -> Element<'_, Message> {
         choices = choices.push(
             button(
                 column![
-                    label(format!("{}  {name}", if selected { "●" } else { "○" })).size(17),
+                    label(format!("{}  {name}", if selected { "●" } else { "○" })).size(15),
                     small(description),
                 ]
                 .spacing(6),
@@ -71,14 +61,45 @@ fn driver_modes(app: &App) -> Element<'_, Message> {
             )
             .style(move |theme, status| {
                 let mut style = button::secondary(theme, status);
-                style.background = Some(if selected { PALE } else { Color::WHITE }.into());
-                style.text_color = INK;
+                style.background = Some(if selected { pale() } else { card_color() }.into());
+                style.text_color = ink();
                 style.border = Border {
-                    color: if selected { ACCENT } else { LINE },
+                    color: if selected { accent() } else { line() },
                     width: if selected { 2.0 } else { 1.0 },
-                    radius: 10.0.into(),
+                    radius: super::fluent::CARD_RADIUS.into(),
                 };
                 style
+            }),
+        );
+    }
+    choices.into()
+}
+
+/// Segmented choice of the app theme.
+fn themes(app: &App) -> Element<'_, Message> {
+    use crate::settings::ThemeChoice;
+    let mut choices = row![].spacing(4);
+    for (choice, name) in [
+        (
+            ThemeChoice::System,
+            app.t("Windows 설정", "Windows setting"),
+        ),
+        (ThemeChoice::Light, app.t("라이트", "Light")),
+        (ThemeChoice::Dark, app.t("다크", "Dark")),
+    ] {
+        let selected = app.preferences.theme == choice;
+        choices = choices.push(
+            button(label(name).size(14).color(if selected {
+                super::fluent::p().on_accent
+            } else {
+                ink()
+            }))
+            .padding([7, 16])
+            .on_press(Message::Theme(choice))
+            .style(if selected {
+                super::fluent::accent_style
+            } else {
+                super::fluent::standard_style
             }),
         );
     }
@@ -119,22 +140,31 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
             .width(170)
             .style(|theme, status| {
                 let mut style = pick_list::default(theme, status);
-                style.background = Color::WHITE.into();
-                style.text_color = INK;
-                style.handle_color = MUTED;
+                style.background = card_color().into();
+                style.text_color = ink();
+                style.handle_color = muted();
                 style.border = Border {
                     color: if matches!(status, pick_list::Status::Active) {
-                        LINE
+                        line()
                     } else {
-                        ACCENT
+                        accent()
                     },
                     width: 1.0,
-                    radius: 8.0.into(),
+                    radius: super::fluent::CONTROL_RADIUS.into(),
                 };
                 style
             })
             .into(),
         ),
+        vec![],
+    );
+    let theme = section(
+        app.t("테마", "Theme"),
+        app.t(
+            "라이트·다크 화면 또는 Windows 설정을 따릅니다.",
+            "Light, dark, or follow the Windows setting.",
+        ),
+        Some(themes(app)),
         vec![],
     );
     let privacy = section(
@@ -167,11 +197,11 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
                     .padding([10, 14])
                     .width(Fill)
                     .style(|_| container::Style {
-                        background: Some(Color::WHITE.into()),
+                        background: Some(card_color().into()),
                         border: Border {
-                            color: LINE,
+                            color: line(),
                             width: 1.0,
-                            radius: 8.0.into(),
+                            radius: super::fluent::CONTROL_RADIUS.into(),
                         },
                         ..Default::default()
                     }),
@@ -221,7 +251,7 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
         .width(Fill)
         .height(1)
         .style(|_| container::Style {
-            background: Some(LINE.into()),
+            background: Some(line().into()),
             ..Default::default()
         });
     let content = column![
@@ -233,6 +263,7 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
             "Language, log and backup location, and USB connection mode."
         ),
         language,
+        theme,
         privacy,
         storage,
         drivers,
@@ -260,5 +291,13 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
         ),
     ]
     .spacing(16);
-    (content.into(), footer(app, None))
+    (
+        content.into(),
+        small(format!(
+            "{} v{}",
+            crate::brand::NAME,
+            env!("CARGO_PKG_VERSION")
+        ))
+        .into(),
+    )
 }

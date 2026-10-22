@@ -7,7 +7,7 @@ devices/
   TB520FU/
     device.toml      기기 정보와 처리 방식
     deviceinfo.toml  DeviceInfo 필드 맵
-    image.png        Dashboard 기기 이미지 (선택)
+    image.png        기기 화면·왼쪽 메뉴의 기기 이미지 (선택)
   TB522FU/
     ...
 ```
