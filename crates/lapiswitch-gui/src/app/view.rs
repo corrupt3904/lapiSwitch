@@ -841,7 +841,7 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         column![
             label(steps[0]).size(28),
             label(app.t(
-                "펌웨어 폴더를 선택하면 모델·필수 파일을 검사하고, vendor_boot의 DTB에서 리전을 확인합니다.",
+                "펌웨어 폴더를 선택하면 모델·필수 파일을 검사하고, vendor_boot의 DTB에서 Region을 확인합니다.",
                 "Choose the firmware folder: the model and required files are checked and the region is read from the vendor_boot DTB.",
             ))
             .size(14)
@@ -877,13 +877,13 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             .push(infobar(
                 Severity::Success,
                 app.t(
-                    "펌웨어 검사를 통과했습니다. 플래싱하면 기기 리전이 이 펌웨어의 리전으로 바뀝니다.",
+                    "펌웨어 검사를 통과했습니다. 플래싱하면 기기 Region이 이 펌웨어의 Region으로 바뀝니다.",
                     "Firmware check passed. Flashing changes the device region to this firmware's region.",
                 ),
             ))
             .push(group(vec![
                 group_row(
-                    app.t("리전 (vendor_boot DTB)", "Region (vendor_boot DTB)"),
+                    app.t("Region (vendor_boot DTB)", "Region (vendor_boot DTB)"),
                     label(report.region.token()).size(18).color(accent()).into(),
                     None,
                 ),
@@ -984,7 +984,7 @@ fn summary<'a>(
 ) -> Element<'a, Message> {
     column![
         field(
-            app.t("목표 리전", "Target region"),
+            app.t("목표 Region", "Target region"),
             region.map_or("—", Region::token)
         ),
         field(app.t("사용자 데이터", "User data"), app.t("삭제", "Erase")),
@@ -1019,13 +1019,17 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         )),
         group(vec![
             group_row(
-                app.t("목표 리전", "Target region"),
-                label(format!(
-                    "{}  ·  {}",
-                    app.region.map_or("—", Region::token),
-                    app.t("펌웨어 vendor_boot 기준", "from the firmware's vendor_boot")
-                ))
-                .size(14)
+                app.t("목표 Region", "Target region"),
+                row![
+                    label(app.region.map_or("—", Region::token))
+                        .size(18)
+                        .color(accent()),
+                    label(app.t("펌웨어 vendor_boot 기준", "from the firmware's vendor_boot"))
+                        .size(13)
+                        .color(muted())
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center)
                 .into(),
                 Some(
                     button(icon(glyph::ALERT).size(16).color(danger()))
