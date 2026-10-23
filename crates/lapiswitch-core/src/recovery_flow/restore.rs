@@ -529,9 +529,11 @@ pub fn run(
     super::restore_originals(device, backup, log)?;
     save(&dir, &mut j, RestorePhase::Complete)?;
     backup.mark(TransactionStage::Restored)?;
-    let mut warnings = vec![
-        "원본 구성 복구·검증 완료. DeviceInfo는 변환 전 값이며 misc 덤프는 보존했습니다.".into(),
-    ];
+    live!(
+        log,
+        "원본 구성 복구·검증 완료. DeviceInfo는 변환 전 값이며 misc 덤프는 보존했습니다."
+    );
+    let mut warnings = vec![];
     if let Err(e) = device.reset(crate::stage1::ResetMode::System, log) {
         warnings.push(format!("시스템 부팅 요청 실패: {e}"));
     }

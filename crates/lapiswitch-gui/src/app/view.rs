@@ -373,7 +373,7 @@ fn group_row<'a>(
 ) -> Element<'a, Message> {
     let mut content = row![
         label(name).size(14).width(FIELD_KEY),
-        container(value).width(Fill).clip(true)
+        container(value).width(Fill).padding([2, 0]).clip(true)
     ]
     .spacing(16)
     .align_y(Alignment::Center);
@@ -1377,7 +1377,7 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         match app.run_kind {
             RunKind::Restore => app.t("원본 복구를 마쳤습니다", "Original backup restored"),
             RunKind::Edit => app.t("DeviceInfo 수정을 마쳤습니다", "DeviceInfo edit completed"),
-            RunKind::Dump => app.t("DeviceInfo 덤프를 마쳤습니다", "DeviceInfo dump completed"),
+            RunKind::Dump => app.t("DeviceInfo 덤프 완료", "DeviceInfo dump complete"),
             _ => app.t("펌웨어 플래싱을 마쳤습니다", "Firmware flashing completed"),
         }
     } else {
@@ -1403,16 +1403,6 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 RunKind::Dump => app.t("DeviceInfo를 저장하고 원본 구성으로 복구한 뒤 시스템 부팅을 요청했습니다. 기기의 실제 부팅을 확인해 주세요.", "DeviceInfo was saved and the original configuration restored, then system boot was requested. Check actual device boot."),
                 _ => app.t("펌웨어 쓰기와 마무리 단계를 마쳤습니다. 기기의 실제 부팅과 국가 코드를 확인해 주세요.", "Firmware writes and final steps are complete. Check actual device boot and country code."),
             }));
-            if let Some(folder) = &app.dump_folder {
-                content = content.push(group(vec![group_row(
-                    app.t("덤프 폴더", "Dump folder"),
-                    label(folder.display().to_string())
-                        .size(13)
-                        .color(muted())
-                        .into(),
-                    None,
-                )]));
-            }
             for warning in warnings {
                 content = content.push(note(warning, true));
             }
@@ -1425,14 +1415,39 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         }
         None => {}
     }
+    let open_row = |name: &'static str, path: &std::path::PathBuf| {
+        group_row(
+            name,
+            label(short_path(path, value_width(app, 110.0)))
+                .size(14)
+                .color(muted())
+                .wrapping(iced::widget::text::Wrapping::None)
+                .into(),
+            Some(
+                action(
+                    app.t("폴더 열기", "Open folder"),
+                    Message::OpenFolder(path.clone()),
+                    true,
+                )
+                .style(soft_style)
+                .into(),
+            ),
+        )
+    };
+    let mut places = vec![];
+    if app.result.as_ref().is_some_and(Result::is_ok)
+        && let Some(folder) = &app.dump_folder
+    {
+        places.push(open_row(app.t("덤프 폴더", "Dump folder"), folder));
+    }
     if let Some(path) = &app.backup_path {
-        content = content.push(field(app.t("백업", "Backup"), path.display().to_string()));
+        places.push(open_row(app.t("백업", "Backup"), path));
     }
     if let Some(path) = &app.log_path {
-        content = content.push(field(
-            app.t("자동 저장 로그", "Saved transcript"),
-            path.display().to_string(),
-        ));
+        places.push(open_row(app.t("자동 저장 로그", "Saved transcript"), path));
+    }
+    if !places.is_empty() {
+        content = content.push(group(places));
     }
     content = content.push(logs(app));
     (

@@ -86,6 +86,8 @@ enum Message {
     RollbackApply,
     /// The window's new width, used to shorten long paths.
     Resized(f32),
+    /// Show a result folder, or a file in its folder, in the file manager.
+    OpenFolder(PathBuf),
     CountryOpen,
     LicenseOpen,
     LicenseClose,
@@ -702,6 +704,13 @@ impl App {
         }
         match message {
             Message::Resized(width) => self.window_width = width,
+            Message::OpenFolder(path) => {
+                if !self.demo
+                    && let Err(error) = open_in_file_manager(&path)
+                {
+                    self.error = Some(format!("{}: {error}", path.display()));
+                }
+            }
             Message::FocusMove(reverse) => {
                 return if reverse {
                     iced::widget::operation::focus_previous()
@@ -1629,7 +1638,17 @@ impl App {
             }
             "dump-result" => {
                 self.reset_progress(RunKind::Dump);
-                self.dump_folder = Some("Demo/dumps/Deviceinfo_dump_TB520FU_1792000000".into());
+                self.dump_folder = Some(
+                    r"C:\TB520FU_Flashing Tool\TEST\DeviceInfo dumps\Deviceinfo_dump_TB520FU_1792000000"
+                        .into(),
+                );
+                self.backup_path = Some(
+                    r"C:\Users\LAPTOP\AppData\Local\lapiSwitch\backup\DeviceInfo_Dump\TB520FU_2026-10-23_120000"
+                        .into(),
+                );
+                self.log_path = Some(
+                    r"C:\Users\LAPTOP\AppData\Local\lapiSwitch\logs\lapiSwitch_2026-10-23_120000.log".into(),
+                );
                 self.event(Event::Finished(Ok(vec![])));
             }
             "deviceinfo-editor"
@@ -1817,6 +1836,40 @@ fn demo_deviceinfo(layout: lapiswitch_core::deviceinfo::map::Layout) -> Vec<u8> 
     b
 }
 /// Every supported model with its codename, e.g. `TB520FU (lapis)`.
+/// Opens a folder in the file manager; a file is shown selected in its
+/// folder.
+fn open_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
+    use std::process::Command;
+    let file = path.is_file();
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut command = Command::new("explorer");
+        if file {
+            command.raw_arg(format!("/select,\"{}\"", path.display()));
+        } else {
+            command.arg(path);
+        }
+        command.spawn().map(drop)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = Command::new("open");
+        if file {
+            command.arg("-R");
+        }
+        command.arg(path).spawn().map(drop)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let folder = if file {
+            path.parent().unwrap_or(path)
+        } else {
+            path
+        };
+        Command::new("xdg-open").arg(folder).spawn().map(drop)
+    }
+}
 pub(crate) fn supported_models() -> String {
     lapiswitch_core::device::Device::all()
         .map(|device| format!("{} ({})", device.model(), device.codename()))
