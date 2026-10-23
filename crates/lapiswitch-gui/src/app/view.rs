@@ -148,14 +148,12 @@ pub(super) fn action<'a>(
 /// Page header: Fluent title and a one-line description.
 pub(super) fn title<'a>(
     app: &App,
-    ko: &'static str,
-    en: &'static str,
-    sub_ko: &'static str,
-    sub_en: &'static str,
+    heading: &'static str,
+    description: &'static str,
 ) -> Element<'a, Message> {
     column![
-        label(app.t(ko, en)).size(28),
-        label(app.t(sub_ko, sub_en)).size(14).color(muted())
+        label(app.tr(heading)).size(28),
+        label(app.tr(description)).size(14).color(muted())
     ]
     .spacing(4)
     .into()
@@ -284,7 +282,7 @@ fn navigation(app: &App) -> Element<'_, Message> {
         item(
             1,
             glyph::FLASH,
-            app.t("펌웨어 플래싱", "Firmware flashing"),
+            app.tr("view_firmware_flashing"),
             Message::Convert,
             idle && writable,
             false
@@ -292,7 +290,7 @@ fn navigation(app: &App) -> Element<'_, Message> {
         item(
             2,
             glyph::EDIT,
-            app.t("DeviceInfo 수정", "Edit DeviceInfo"),
+            app.tr("view_edit_deviceinfo"),
             Message::Edit,
             idle && writable,
             false
@@ -300,7 +298,7 @@ fn navigation(app: &App) -> Element<'_, Message> {
         item(
             5,
             glyph::SAVE,
-            app.t("DeviceInfo 덤프", "Dump DeviceInfo"),
+            app.tr("view_dump_deviceinfo"),
             Message::Dump,
             idle && supported,
             false
@@ -310,7 +308,7 @@ fn navigation(app: &App) -> Element<'_, Message> {
         item(
             3,
             glyph::HISTORY,
-            app.t("원본 복구", "Restore original"),
+            app.tr("view_restore_original"),
             Message::Recovery,
             idle,
             true
@@ -318,7 +316,7 @@ fn navigation(app: &App) -> Element<'_, Message> {
         item(
             4,
             glyph::SETTINGS,
-            app.t("설정", "Settings"),
+            app.tr("view_settings"),
             Message::Settings,
             idle,
             false
@@ -335,9 +333,9 @@ fn navigation(app: &App) -> Element<'_, Message> {
 /// The firmware flashing steps; each page's title is its step name.
 fn flash_steps(app: &App) -> [&'static str; 3] {
     [
-        app.t("펌웨어 검사", "Firmware check"),
-        app.t("최종 확인", "Final check"),
-        app.t("진행 / 결과", "Progress / result"),
+        app.tr("view_firmware_check"),
+        app.tr("view_final_check"),
+        app.tr("view_progress_result"),
     ]
 }
 /// Fluent settings group: rows in one card, separated by hairlines.
@@ -412,10 +410,8 @@ fn link_row<'a>(
 /// The chosen rollback handling, shown on the final check.
 fn rollback_value(app: &App) -> String {
     match app.rollback_mode {
-        lapiswitch_core::deviceinfo::RollbackMode::Reset => {
-            app.t("초기화 (기본값)", "Reset (default)").into()
-        }
-        lapiswitch_core::deviceinfo::RollbackMode::Keep => app.t("유지", "Keep").into(),
+        lapiswitch_core::deviceinfo::RollbackMode::Reset => app.tr("view_reset_default").into(),
+        lapiswitch_core::deviceinfo::RollbackMode::Keep => app.tr("view_keep").into(),
     }
 }
 /// Reset or keep the rollback indices, chosen after the country code or
@@ -426,19 +422,13 @@ fn rollback_modal(app: &App) -> iced::widget::Container<'_, Message> {
     for (mode, name, detail) in [
         (
             RollbackMode::Reset,
-            app.t("초기화 (기본값)", "Reset (default)"),
-            app.t(
-                "32개 모두 0으로 기록합니다. 더 낮은 펌웨어도 설치할 수 있습니다.",
-                "All 32 are written as 0, so lower firmware can be installed.",
-            ),
+            app.tr("view_reset_default"),
+            app.tr("view_all_32_are_written_as_0"),
         ),
         (
             RollbackMode::Keep,
-            app.t("유지", "Keep"),
-            app.t(
-                "기존 값을 유지합니다. 펌웨어가 더 낮으면 TWRP에서 초기화 또는 취소를 묻습니다.",
-                "Values are kept; if the firmware is lower, TWRP asks to reset or cancel.",
-            ),
+            app.tr("view_keep"),
+            app.tr("view_values_are_kept_if_the_firmware"),
         ),
     ] {
         let selected = app.rollback_draft == mode;
@@ -465,12 +455,12 @@ fn rollback_modal(app: &App) -> iced::widget::Container<'_, Message> {
     }
     panel(
         column![
-            label(app.t("롤백인덱스 선택", "Choose rollback handling")).size(25),
+            label(app.tr("view_choose_rollback_handling")).size(25),
             choices,
             row![
                 space().width(Fill),
-                action(app.t("취소", "Cancel"), Message::RollbackCancel, true).style(soft_style),
-                action(app.t("선택", "Select"), Message::RollbackApply, true)
+                action(app.tr("archive_cancel"), Message::RollbackCancel, true).style(soft_style),
+                action(app.tr("country_select"), Message::RollbackApply, true)
             ]
             .spacing(12),
         ]
@@ -484,23 +474,15 @@ fn region_notice(app: &App) -> iced::widget::Container<'_, Message> {
         column![
             row![
                 icon(glyph::ALERT).size(22).color(danger()),
-                label(app.t("Region 변경 안내", "About the region change")).size(25)
+                label(app.tr("view_about_the_region_change")).size(25)
             ]
             .spacing(12)
             .align_y(Alignment::Center),
-            label(app.t(
-                "본 툴은 기기 자체의 Region을 변경하는 방식으로 작동합니다.\n따라서 이후 LTBOX에서 펌웨어 플래싱할때 '기기 지역 선택' 옵션에서 변경된 Region으로 선택해야 합니다.",
-                "This tool works by changing the device's own region.\nWhen you later flash firmware with LTBox, choose the changed region in its 'Device region' option.",
-            ))
-            .size(15),
-            label(app.t(
-                "만약 내수용 기기에 본 툴을 사용하여 글로벌 펌웨어를 설치한 경우, 이후 Pixel 등 커스텀 펌웨어를 설치할 때는 반드시 ROW 버전을 선택해야 합니다.\n또한, 내수 펌웨어로 복귀할 경우에도 반드시 본 툴을 통해 내수 펌웨어를 플래싱해야 정상적인 OTA 업데이트가 지원됩니다.",
-                "If you installed global firmware on a China-market device with this tool, always choose the ROW version when you later install custom firmware such as Pixel.\nTo return to China firmware, flash it with this tool as well; otherwise OTA updates will not work normally.",
-            ))
-            .size(15),
+            label(app.tr("view_this_tool_works_by_changing_the")).size(15),
+            label(app.tr("view_if_you_installed_global_firmware_on")).size(15),
             row![
                 space().width(Fill),
-                action(app.t("확인", "Confirm"), Message::RegionNoticeClose, true)
+                action(app.tr("archive_confirm"), Message::RegionNoticeClose, true)
             ],
         ]
         .spacing(16),
@@ -541,13 +523,13 @@ fn folder_value(app: &App, width: f32) -> String {
 /// A chosen path shortened to `width`, or "Not selected".
 fn path_value(app: &App, path: Option<&std::path::Path>, width: f32) -> String {
     path.map(|p| short_path(p, width))
-        .unwrap_or_else(|| app.t("선택되지 않음", "Not selected").into())
+        .unwrap_or_else(|| app.tr("view_not_selected").into())
 }
 /// The chosen country code for the flashing options and final check.
 fn country_value(app: &App) -> String {
     match app.country.as_deref() {
-        None => app.t("선택하세요", "Choose").into(),
-        Some("—") => app.t("변경 안 함", "Do not change").into(),
+        None => app.tr("view_choose").into(),
+        Some("—") => app.tr("country_do_not_change").into(),
         Some(code) => match crate::countries::find(code) {
             Some(country) => format!("{} · {}", country.code, country.name),
             None => code.into(),
@@ -595,12 +577,9 @@ fn stepper(app: &App) -> Element<'_, Message> {
         _ => 2,
     };
     let mut crumbs = row![].spacing(8).align_y(Alignment::Center);
-    let flow = label(app.t(
-        "펌웨어 플래싱 (Region 변경)",
-        "Firmware flashing (Region change)",
-    ))
-    .size(13)
-    .color(muted());
+    let flow = label(app.tr("view_firmware_flashing_region_change"))
+        .size(13)
+        .color(muted());
     for (i, step) in steps.iter().enumerate() {
         if i > 0 {
             crumbs = crumbs.push(icon(glyph::CHEVRON).size(10).color(muted()));
@@ -643,10 +622,9 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         body = body.push(stepper_space());
     }
     if app.demo {
-        body = body.push(notification_note(app.t(
-            "미리보기 · 기기에 연결하거나 파일을 변경하지 않습니다.",
-            "Preview · No device connections or file changes.",
-        )));
+        body = body.push(notification_note(
+            app.tr("view_preview_no_device_connections_or_file"),
+        ));
     }
     if let Some(banner) = dashboard_view::driver_banner(app) {
         body = body.push(banner);
@@ -658,7 +636,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         body = body.push(notification(
             row![
                 column![
-                    label(app.t("이어갈 작업이 있습니다", "An interrupted run was found")),
+                    label(app.tr("view_an_interrupted_run_was_found")),
                     small(format!(
                         "{} · {:?}",
                         request_label(app, &pending.state),
@@ -667,11 +645,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
                 ]
                 .spacing(3)
                 .width(Fill),
-                action(
-                    app.t("작업 확인", "Review run"),
-                    Message::Resume,
-                    !app.busy()
-                ),
+                action(app.tr("view_review_run"), Message::Resume, !app.busy()),
             ]
             .spacing(12)
             .align_y(Alignment::Center),
@@ -680,10 +654,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
     if let Some(error) = &app.startup_error {
         body = body.push(notification_note(format!(
             "{}\n{error}",
-            app.t(
-                "저장된 작업 확인이 필요합니다. 새 작업은 시작할 수 없습니다.",
-                "Saved state needs attention before a new operation."
-            )
+            app.tr("view_saved_state_needs_attention_before_a")
         )));
     }
     if let Some(error) = &app.error {
@@ -736,46 +707,89 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
     })
     .into();
     let modal = if app.close_warning {
-        Some(panel(column![
-            label(app.t("진행 중인 작업을 종료할까요?", "Close the running operation?")).size(24),
-            label(if app.activity == Some(Activity::Install) { app.t("드라이버 설치 프로그램이 실행 중입니다. 설치가 끝날 때까지 기다려 주세요.", "The driver installer is running. Please wait for it to finish.") } else { app.t("쓰기 도중 종료하면 기기가 부팅되지 않을 수 있습니다. 저장된 단계와 백업으로 이어하기 또는 복구가 필요할 수 있습니다.", "Closing during writes can leave the device unable to boot. Resume or restore may be required using the saved state and backup.") }),
-            row![space().width(Fill), action(app.t("계속 진행", "Keep running"), Message::Stay, true), action(app.t("앱 종료", "Close app"), Message::Exit, true).style(super::fluent::danger_style)].spacing(12),
-        ].spacing(20)).max_width(560))
+        Some(
+            panel(
+                column![
+                    label(app.tr("view_close_the_running_operation")).size(24),
+                    label(if app.activity == Some(Activity::Install) {
+                        app.tr("view_the_driver_installer_is_running_please")
+                    } else {
+                        app.tr("view_closing_during_writes_can_leave_the")
+                    }),
+                    row![
+                        space().width(Fill),
+                        action(app.tr("view_keep_running"), Message::Stay, true),
+                        action(app.tr("view_close_app"), Message::Exit, true)
+                            .style(super::fluent::danger_style)
+                    ]
+                    .spacing(12),
+                ]
+                .spacing(20),
+            )
+            .max_width(560),
+        )
     } else if app.firmware_confirmation.is_some() {
-        Some(panel(column![
-            label(app.t("순정롬 확인 불가", "Stock firmware could not be verified")).size(25).color(danger()),
-            label(app.t(
-                "기기의 펌웨어가 순정롬 버전 검사를 통과하지 못했습니다. 커스텀롬, GSI 또는 테스트 빌드일 가능성이 높습니다. 계속 작업을 진행하시겠습니까?",
-                "The device firmware could not pass the stock firmware version check. It may be a custom ROM, GSI or test build. Do you want to continue?"
-            )).color(danger()),
-            row![
-                space().width(Fill),
-                action(app.t("취소", "Cancel"), Message::ConfirmUnrecognizedFirmware(false), true).style(soft_style),
-                action(app.t("계속 진행", "Continue"), Message::ConfirmUnrecognizedFirmware(true), true),
-            ].spacing(12),
-        ].spacing(20)).style(fluent::warning_dialog_style).max_width(620))
+        Some(
+            panel(
+                column![
+                    label(app.tr("view_stock_firmware_could_not_be_verified"))
+                        .size(25)
+                        .color(danger()),
+                    label(app.tr("view_the_device_firmware_could_not_pass")).color(danger()),
+                    row![
+                        space().width(Fill),
+                        action(
+                            app.tr("archive_cancel"),
+                            Message::ConfirmUnrecognizedFirmware(false),
+                            true
+                        )
+                        .style(soft_style),
+                        action(
+                            app.tr("view_continue"),
+                            Message::ConfirmUnrecognizedFirmware(true),
+                            true
+                        ),
+                    ]
+                    .spacing(12),
+                ]
+                .spacing(20),
+            )
+            .style(fluent::warning_dialog_style)
+            .max_width(620),
+        )
     } else if let Some((details, _)) = &app.rollback_confirmation {
-        Some(panel(column![
-            label(app.t("롤백인덱스 경고", "Rollback index warning")).size(25).color(danger()),
-            label(app.t(
-                "설치할 펌웨어의 롤백인덱스가 기기 DeviceInfo에 저장된 값보다 낮습니다. 이대로 설치하면 롤백 방지로 부팅되지 않습니다.",
-                "The firmware's rollback indices are lower than those stored in the device's DeviceInfo. Installed as is, rollback protection would stop it from booting."
-            )).color(danger()),
-            small(details.clone()),
-            label(app.t(
-                "0으로 초기화 후 계속: DeviceInfo의 32개 롤백인덱스를 0으로 기록하고 작업을 계속합니다.",
-                "Reset to 0 and continue: writes all 32 DeviceInfo rollback indices as 0 and continues."
-            )),
-            label(app.t(
-                "작업 취소: DeviceInfo를 바꾸지 않고 EDL로 전환해 원본 GPT·Recovery·vendor_boot를 자동으로 복구합니다.",
-                "Cancel: leaves DeviceInfo unchanged, switches to EDL and automatically restores the original GPT, Recovery and vendor_boot."
-            )),
-            row![
-                space().width(Fill),
-                action(app.t("작업 취소 · 원본 복구", "Cancel · Restore originals"), Message::ConfirmRollbackReset(false), true).style(soft_style),
-                action(app.t("0으로 초기화 후 계속", "Reset to 0 and continue"), Message::ConfirmRollbackReset(true), true).style(super::fluent::danger_style),
-            ].spacing(12),
-        ].spacing(20)).style(fluent::warning_dialog_style).max_width(660))
+        Some(
+            panel(
+                column![
+                    label(app.tr("view_rollback_index_warning"))
+                        .size(25)
+                        .color(danger()),
+                    label(app.tr("view_the_firmware_s_rollback_indices_are")).color(danger()),
+                    small(details.clone()),
+                    label(app.tr("view_reset_to_0_and_continue_writes")),
+                    label(app.tr("view_cancel_leaves_deviceinfo_unchanged_switches_to")),
+                    row![
+                        space().width(Fill),
+                        action(
+                            app.tr("editor_cancel_restore_originals"),
+                            Message::ConfirmRollbackReset(false),
+                            true
+                        )
+                        .style(soft_style),
+                        action(
+                            app.tr("view_reset_to_0_and_continue"),
+                            Message::ConfirmRollbackReset(true),
+                            true
+                        )
+                        .style(super::fluent::danger_style),
+                    ]
+                    .spacing(12),
+                ]
+                .spacing(20),
+            )
+            .style(fluent::warning_dialog_style)
+            .max_width(660),
+        )
     } else if let Some(editor) = &app.editor {
         // The country picker opens over the editor for a region change.
         Some(if app.country_open {
@@ -787,25 +801,19 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Some(
             panel(
                 column![
-                    label(app.t("EDL에서 작업 시작", "Start from EDL")).size(25),
-                    label(app.t(
-                        "기기가 정상 부팅이 가능한 상태일 때만 작업이 가능합니다.",
-                        "The device must be able to boot normally before starting this operation."
-                    )),
-                    label(app.t(
-                        "만약 정상 부팅이 가능하다면 확인, 불가능하다면 취소를 눌러주세요.",
-                        "Select Confirm if normal boot is possible; otherwise select Cancel."
-                    )),
+                    label(app.tr("view_start_from_edl")).size(25),
+                    label(app.tr("view_the_device_must_be_able_to")),
+                    label(app.tr("view_select_confirm_if_normal_boot_is")),
                     row![
                         space().width(Fill),
                         action(
-                            app.t("취소", "Cancel"),
+                            app.tr("archive_cancel"),
                             Message::ConfirmEdlStart(false),
                             true
                         )
                         .style(soft_style),
                         action(
-                            app.t("확인", "Confirm"),
+                            app.tr("archive_confirm"),
                             Message::ConfirmEdlStart(true),
                             true
                         )
@@ -817,13 +825,27 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             .max_width(620),
         )
     } else if app.reboot_confirmation.is_some() {
-        Some(panel(column![
-            small("TWRP · DeviceInfo"),
-            label(app.t("재부팅 전 확인", "Before rebooting")).size(25),
-            label(transition_text(app)),
-            label(app.t("작업이 완료될 때까지 PC와 태블릿의 USB 연결을 유지해 주세요. 케이블을 분리하거나 프로그램을 종료하지 마세요.", "Keep the tablet connected to the PC by USB until the operation is complete. Do not unplug the cable or close this app.")).color(danger()),
-            row![space().width(Fill), action(app.t("확인", "Confirm"), Message::ConfirmRecoveryReboot, true)],
-        ].spacing(20)).style(fluent::warning_dialog_style).max_width(620))
+        Some(
+            panel(
+                column![
+                    small("TWRP · DeviceInfo"),
+                    label(app.tr("view_before_rebooting")).size(25),
+                    label(transition_text(app)),
+                    label(app.tr("view_keep_the_tablet_connected_to_the")).color(danger()),
+                    row![
+                        space().width(Fill),
+                        action(
+                            app.tr("archive_confirm"),
+                            Message::ConfirmRecoveryReboot,
+                            true
+                        )
+                    ],
+                ]
+                .spacing(20),
+            )
+            .style(fluent::warning_dialog_style)
+            .max_width(620),
+        )
     } else if let Some(ticket) = app.stop_confirmation {
         Some(wait_ui::modal(app, ticket))
     } else if app.archive_confirmation.is_some() {
@@ -857,12 +879,12 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
 pub(super) fn footer<'a>(app: &App, next: Option<(Message, bool)>) -> Element<'a, Message> {
     let mut buttons = row![
         space().width(Fill),
-        action(app.t("이전", "Back"), Message::Back, !app.busy()).style(soft_style),
+        action(app.tr("editor_back"), Message::Back, !app.busy()).style(soft_style),
     ]
     .spacing(12);
     if let Some((message, enabled)) = next {
         buttons = buttons.push(action(
-            app.t("다음", "Continue"),
+            app.tr("view_continue_2"),
             message,
             enabled && !app.busy(),
         ));
@@ -874,16 +896,13 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let mut content = column![
         column![
             label(steps[0]).size(28),
-            label(app.t(
-                "펌웨어 폴더를 선택하면 모델·필수 파일을 검사하고, vendor_boot의 DTB에서 Region을 확인합니다.",
-                "Choose the firmware folder: the model and required files are checked and the region is read from the vendor_boot DTB.",
-            ))
-            .size(14)
-            .color(muted())
+            label(app.tr("view_choose_the_firmware_folder_the_model"))
+                .size(14)
+                .color(muted())
         ]
         .spacing(4),
         group(vec![group_row(
-            app.t("펌웨어 폴더", "Firmware folder"),
+            app.tr("view_firmware_folder"),
             label(folder_value(app, value_width(app, 120.0)))
                 .size(14)
                 .color(muted())
@@ -891,7 +910,7 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 .into(),
             Some(
                 action(
-                    app.t("폴더 선택", "Choose folder"),
+                    app.tr("settings_choose_folder"),
                     Message::Pick(Picker::Firmware),
                     !app.busy()
                 )
@@ -901,43 +920,40 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     ]
     .spacing(12);
     if app.busy() {
-        content = content.push(note(
-            app.t("펌웨어를 검사하고 있습니다…", "Checking firmware…"),
-            false,
-        ));
+        content = content.push(note(app.tr("view_checking_firmware"), false));
     }
     if let Some(report) = &app.report {
         content = content
             .push(infobar(
                 Severity::Success,
-                app.t(
-                    "펌웨어 검사를 통과했습니다. 플래싱하면 기기 Region이 이 펌웨어의 Region으로 바뀝니다.",
-                    "Firmware check passed. Flashing changes the device region to this firmware's region.",
-                ),
+                app.tr("view_firmware_check_passed_flashing_changes_the"),
             ))
             .push(group(vec![
                 group_row(
-                    app.t("Region (vendor_boot DTB)", "Region (vendor_boot DTB)"),
+                    app.tr("view_region_vendor_boot_dtb"),
                     label(report.region.token()).size(18).color(accent()).into(),
                     None,
                 ),
                 group_row(
-                    app.t("모델", "Model"),
+                    app.tr("view_model"),
                     label(report.device.model()).size(14).into(),
                     None,
                 ),
                 group_row(
                     "Build fingerprint",
-                    label(report.fingerprint.clone()).size(13).color(muted()).into(),
+                    label(report.fingerprint.clone())
+                        .size(13)
+                        .color(muted())
+                        .into(),
                     None,
                 ),
                 group_row(
-                    app.t("서명 키", "Signing key"),
+                    app.tr("view_signing_key"),
                     label(format!("{:?}", report.key_class)).size(14).into(),
                     None,
                 ),
                 group_row(
-                    app.t("롤백인덱스", "Rollback indices"),
+                    app.tr("view_rollback_indices"),
                     label(format!(
                         "boot {} · vbmeta_system {}",
                         report.indices.boot, report.indices.vbmeta_system
@@ -951,10 +967,7 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             content = content.push(note(
                 format!(
                     "{}\n{}",
-                    app.t(
-                        "다음 누락 이미지는 건너뜁니다.",
-                        "These missing images will be skipped:"
-                    ),
+                    app.tr("view_these_missing_images_will_be_skipped"),
                     report
                         .missing_images
                         .iter()
@@ -966,10 +979,7 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             ));
         }
     }
-    content = content.push(small(app.t(
-        "암호화된 .x 파일은 선택한 폴더 안에 XML로 복호화됩니다.",
-        "Encrypted .x files are decrypted to XML in the selected folder.",
-    )));
+    content = content.push(small(app.tr("view_encrypted_x_files_are_decrypted_to")));
     (
         content.into(),
         footer(app, Some((Message::Next, app.report.is_some()))),
@@ -981,39 +991,34 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
 fn transition_text(app: &App) -> &'static str {
     use lapiswitch_core::recovery_flow::Transition;
     if app.run_kind == RunKind::Dump {
-        return app.t(
-            "태블릿을 TWRP Recovery로 재부팅합니다. TWRP에서 DeviceInfo를 읽어 저장한 뒤 원본 구성으로 복구합니다. 기기에는 쓰지 않습니다.",
-            "Reboot to TWRP. DeviceInfo is read and saved there, then the original configuration is restored. Nothing is written to DeviceInfo.",
-        );
+        return app.tr("view_reboot_to_twrp_deviceinfo_is_read");
     }
     let edit = app.run_kind == RunKind::Edit;
     match (app.recovery_transition, edit) {
-        (Some(Transition::Twrp), false) => app.t("태블릿을 TWRP Recovery로 재부팅합니다. TWRP에서 DeviceInfo를 백업한 뒤 선택한 리전과 롤백 옵션을 적용하고 검증합니다.", "Reboot to TWRP to back up, update and verify DeviceInfo."),
-        (Some(Transition::Twrp), true) => app.t("태블릿을 TWRP Recovery로 재부팅합니다. TWRP에서 DeviceInfo를 읽어 백업한 뒤 수정할 값을 선택합니다.", "Reboot to TWRP. DeviceInfo is read and backed up there, then you choose the values to change."),
-        (Some(Transition::Edl), false) => app.t("DeviceInfo 쓰기와 검증을 마쳤습니다. EDL로 전환하여 원본 GPT·Recovery를 복원한 뒤 공식 펌웨어를 설치합니다. 사용자 데이터는 초기화됩니다.", "DeviceInfo verified. Enter EDL, restore original GPT/Recovery, then install firmware and erase user data."),
-        (Some(Transition::Edl), true) => app.t("DeviceInfo 쓰기와 검증을 마쳤습니다. EDL로 전환하여 원본 GPT·Recovery를 복원합니다. 리전을 바꾼 경우에만 공식 펌웨어를 설치하고 사용자 데이터를 초기화합니다.", "DeviceInfo verified. Enter EDL and restore original GPT/Recovery. Firmware is installed, erasing user data, only if the region changed."),
-        (None, false) => app.t("TWRP 처리 후 원본 구성을 복구하고 공식 펌웨어를 설치합니다.", "Restore the original configuration after TWRP, then install official firmware."),
-        (None, true) => app.t("TWRP 처리 후 원본 구성을 복구합니다. 리전을 바꾼 경우에만 공식 펌웨어를 설치합니다.", "Restore the original configuration after TWRP. Firmware is installed only if the region changed."),
+        (Some(Transition::Twrp), false) => app.tr("view_reboot_to_twrp_to_back_up"),
+        (Some(Transition::Twrp), true) => app.tr("view_reboot_to_twrp_deviceinfo_is_read_2"),
+        (Some(Transition::Edl), false) => {
+            app.tr("view_deviceinfo_verified_enter_edl_restore_original")
+        }
+        (Some(Transition::Edl), true) => app.tr("view_deviceinfo_verified_enter_edl_and_restore"),
+        (None, false) => app.tr("view_restore_the_original_configuration_after_twrp"),
+        (None, true) => app.tr("view_restore_the_original_configuration_after_twrp_2"),
     }
 }
 /// One line naming what a saved run changes.
 pub(super) fn request_label(app: &App, state: &lapiswitch_core::state::RunState) -> String {
     match state.request {
         Request::Convert { target, .. } => {
-            format!(
-                "{} · {}",
-                app.t("펌웨어 플래싱", "Firmware flashing"),
-                target.token()
-            )
+            format!("{} · {}", app.tr("view_firmware_flashing"), target.token())
         }
-        Request::Dump => app.t("DeviceInfo 덤프", "DeviceInfo dump").into(),
+        Request::Dump => app.tr("view_deviceinfo_dump").into(),
         Request::Edit => match &state.firmware {
             Some(binding) => format!(
                 "{} · {}",
-                app.t("DeviceInfo 수정", "DeviceInfo edit"),
+                app.tr("view_deviceinfo_edit"),
                 binding.region.token()
             ),
-            None => app.t("DeviceInfo 수정", "DeviceInfo edit").into(),
+            None => app.tr("view_deviceinfo_edit").into(),
         },
     }
 }
@@ -1025,17 +1030,17 @@ fn summary<'a>(
 ) -> Element<'a, Message> {
     column![
         field(
-            app.t("목표 Region", "Target region"),
+            app.tr("view_target_region"),
             region.map_or("—", Region::token)
         ),
-        field(app.t("사용자 데이터", "User data"), app.t("삭제", "Erase")),
+        field(app.tr("view_user_data"), app.tr("view_erase")),
         field(
-            app.t("국가 코드", "Country code"),
+            app.tr("editor_country_code"),
             country
                 .filter(|c| *c != "—")
-                .unwrap_or(app.t("변경 안 함", "Unchanged"))
+                .unwrap_or(app.tr("view_unchanged"))
         ),
-        field(app.t("펌웨어 폴더", "Firmware folder"), firmware)
+        field(app.tr("view_firmware_folder"), firmware)
     ]
     .spacing(17)
     .into()
@@ -1046,26 +1051,20 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let content = column![
         column![
             label(steps[1]).size(28),
-            label(app.t(
-                "기기 한 대를 연결하고 USB 연결을 유지하세요. 항목을 눌러 바꿀 수 있습니다.",
-                "Connect one device and keep USB connected. Select an item to change it.",
-            ))
-            .size(14)
-            .color(muted())
+            label(app.tr("view_connect_one_device_and_keep_usb"))
+                .size(14)
+                .color(muted())
         ]
         .spacing(4),
-        warning_note(app.t(
-            "펌웨어 플래싱 시 사용자 데이터는 반드시 초기화됩니다.\n앱·사진·계정·파일 등이 삭제되므로 중요한 데이터는 먼저 별도로 백업하세요.",
-            "Firmware flashing always erases user data.\nApps, photos, accounts, files and more are deleted, so back up important data separately first.",
-        )),
+        warning_note(app.tr("view_firmware_flashing_always_erases_user_data")),
         group(vec![
             group_row(
-                app.t("목표 Region", "Target region"),
+                app.tr("view_target_region"),
                 row![
                     label(app.region.map_or("—", Region::token))
                         .size(18)
                         .color(accent()),
-                    label(app.t("펌웨어 vendor_boot 기준", "from the firmware's vendor_boot"))
+                    label(app.tr("view_from_the_firmware_s_vendor_boot"))
                         .size(13)
                         .color(muted())
                 ]
@@ -1081,30 +1080,30 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 ),
             ),
             group_row(
-                app.t("사용자 데이터", "User data"),
-                label(app.t("초기화", "Erased")).size(18).color(danger()).into(),
+                app.tr("view_user_data"),
+                label(app.tr("view_erased")).size(18).color(danger()).into(),
                 None,
             ),
             link_row(
-                app.t("국가 코드", "Country code"),
+                app.tr("editor_country_code"),
                 country_value(app),
                 Message::CountryOpen,
                 idle,
             ),
             link_row(
-                app.t("펌웨어 폴더", "Firmware folder"),
+                app.tr("view_firmware_folder"),
                 folder_value(app, value_width(app, 30.0)),
                 Message::Pick(Picker::Firmware),
                 idle,
             ),
             link_row(
-                app.t("롤백인덱스", "Rollback indices"),
+                app.tr("view_rollback_indices"),
                 rollback_value(app),
                 Message::RollbackOpen,
                 idle,
             ),
             group_row(
-                app.t("백업 위치", "Backup location"),
+                app.tr("view_backup_location"),
                 label(short_path(
                     &app.output.join("backup").join("firmware_flashing"),
                     value_width(app, 150.0),
@@ -1113,14 +1112,11 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 .color(muted())
                 .wrapping(iced::widget::text::Wrapping::None)
                 .into(),
-                Some(small(app.t("설정에서 변경", "Change in Settings")).into()),
+                Some(small(app.tr("view_change_in_settings")).into()),
             ),
         ]),
         checkbox(app.agreed)
-            .label(app.t(
-                "사용자 데이터가 반드시 초기화되는 것과 위 안내를 확인했습니다.",
-                "I understand that user data will be erased and have read the instructions."
-            ))
+            .label(app.tr("view_i_understand_that_user_data_will"))
             .on_toggle(Message::Agree),
     ]
     .spacing(12);
@@ -1129,16 +1125,16 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         start_footer(
             app,
             [
-                action(app.t("이전", "Back"), Message::Back, true)
+                action(app.tr("editor_back"), Message::Back, true)
                     .style(soft_style)
                     .into(),
                 action(
                     if app.activity == Some(Activity::Archive) {
-                        app.t("기록 보관 중…", "Archiving…")
+                        app.tr("view_archiving")
                     } else if app.deferred.is_some() {
-                        app.t("연결 확인 중…", "Checking connection…")
+                        app.tr("dashboard_checking_connection")
                     } else {
-                        app.t("플래싱 시작", "Start flashing")
+                        app.tr("view_start_flashing")
                     },
                     Message::Start,
                     app.can_start(),
@@ -1185,9 +1181,7 @@ fn overall_progress(app: &App, show_steps: bool) -> Element<'_, Message> {
     let language = app.preferences.language;
     let mut content = column![
         row![
-            label(app.t("전체 진행률", "Overall progress"))
-                .size(15)
-                .width(Fill),
+            label(app.tr("view_overall_progress")).size(15).width(Fill),
             label(format!("{:.0}%", progress.percent()))
                 .size(22)
                 .color(accent()),
@@ -1204,10 +1198,9 @@ fn overall_progress(app: &App, show_steps: bool) -> Element<'_, Message> {
     .spacing(8);
     // Only a run that installs firmware weights its transfer.
     if steps.contains(&crate::progress::Step::Firmware) {
-        content = content.push(small(app.t(
-            "소요 시간 비중을 고려하며, 펌웨어 설치는 실제 전체 전송량을 반영합니다.",
-            "Weighted by expected work; firmware installation follows actual total transfer.",
-        )));
+        content = content.push(small(
+            app.tr("view_weighted_by_expected_work_firmware_installation"),
+        ));
     }
     if show_steps {
         // Five cards per row keep all ten new steps visible at minimum width.
@@ -1265,43 +1258,32 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let heading = if app.run_kind == RunKind::Restore {
         title(
             app,
-            "원본 복구를 진행하고 있습니다",
-            "Restoration in progress",
-            "연결을 유지해 주세요. 단계가 끝나면 자동으로 넘어갑니다.",
-            "Keep USB connected. Each step advances automatically.",
+            "view_restoration_in_progress",
+            "view_keep_usb_connected_each_step_advances",
         )
     } else if app.run_kind == RunKind::Edit {
         title(
             app,
-            "DeviceInfo 수정을 진행하고 있습니다",
-            "Editing DeviceInfo",
-            "연결을 유지해 주세요. 단계가 끝나면 자동으로 넘어갑니다.",
-            "Keep USB connected. Each step advances automatically.",
+            "view_editing_deviceinfo",
+            "view_keep_usb_connected_each_step_advances",
         )
     } else if app.run_kind == RunKind::Dump {
         title(
             app,
-            "DeviceInfo 덤프를 진행하고 있습니다",
-            "Dumping DeviceInfo",
-            "연결을 유지해 주세요. 덤프를 저장한 뒤 원본 구성으로 자동 복구합니다.",
-            "Keep USB connected. After the dump is saved, the original configuration is restored automatically.",
+            "view_dumping_deviceinfo",
+            "view_keep_usb_connected_after_the_dump",
         )
     } else {
         title(
             app,
-            "진행 / 결과",
-            "Progress / result",
-            "펌웨어 플래싱을 진행하고 있습니다. 연결을 유지해 주세요. 단계가 끝나면 자동으로 넘어갑니다.",
-            "Firmware flashing in progress. Keep USB connected; each step advances automatically.",
+            "view_progress_result",
+            "view_firmware_flashing_in_progress_keep_usb",
         )
     };
     let mut content = column![heading].spacing(18);
     if app.run_kind == RunKind::Restore {
         content = content.push(note(
-            app.t(
-                "TWRP에서 시작하면 DeviceInfo를 읽어 원본이면 그대로 두고, 이 작업이 쓴 값이면 작업 전 DeviceInfo 전체로 되돌립니다. 둘 다 아니면 쓰지 않고 중단합니다. 이어서 EDL에서 vendor_boot·Recovery·GPT를 복원합니다.",
-                "Started in TWRP, DeviceInfo is read first: the original is kept and this run's value is turned back into the complete original; anything else stops without a write. EDL then restores vendor_boot, Recovery and GPT.",
-            ),
+            app.tr("view_started_in_twrp_deviceinfo_is_read"),
             false,
         ));
     }
@@ -1311,9 +1293,9 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     }
     if !app.comparison.is_empty() {
         let mut table = column![row![
-            small(app.t("이미지", "Image")).width(Fill),
-            small(app.t("기기 롤백인덱스", "Device rollback index")).width(Fill),
-            small(app.t("펌웨어 롤백인덱스", "Firmware rollback index")).width(Fill)
+            small(app.tr("view_image")).width(Fill),
+            small(app.tr("view_device_rollback_index")).width(Fill),
+            small(app.tr("view_firmware_rollback_index")).width(Fill)
         ]]
         .spacing(8);
         for comparison in &app.comparison {
@@ -1341,7 +1323,7 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "{} · {}%  /  {} {}",
             progress.partition,
             progress.percent,
-            app.t("펌웨어 전송", "Firmware transfer"),
+            app.tr("view_firmware_transfer"),
             if progress.operation_total_bytes > 0 {
                 format!(
                     "{:.0}%",
@@ -1351,7 +1333,7 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                         .clamp(0.0, 100.0)
                 )
             } else {
-                app.t("계산 중", "Calculating").into()
+                app.tr("view_calculating").into()
             }
         )));
     }
@@ -1359,11 +1341,7 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     (
         content.into(),
         row![
-            small(app.t(
-                "실시간 로그는 자동 저장됩니다. 쓰기 중에는 앱을 종료하지 마세요.",
-                "Live logs are saved automatically. Keep the app open during writes.",
-            ))
-            .width(Fill),
+            small(app.tr("view_live_logs_are_saved_automatically_keep")).width(Fill),
             wait_ui::button(app).unwrap_or_else(|| space().into()),
         ]
         .spacing(12)
@@ -1375,13 +1353,13 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let success = matches!(app.result, Some(Ok(_)));
     let heading = if success {
         match app.run_kind {
-            RunKind::Restore => app.t("원본 복구를 마쳤습니다", "Original backup restored"),
-            RunKind::Edit => app.t("DeviceInfo 수정을 마쳤습니다", "DeviceInfo edit completed"),
-            RunKind::Dump => app.t("DeviceInfo 덤프 완료", "DeviceInfo dump complete"),
-            _ => app.t("펌웨어 플래싱을 마쳤습니다", "Firmware flashing completed"),
+            RunKind::Restore => app.tr("view_original_backup_restored"),
+            RunKind::Edit => app.tr("view_deviceinfo_edit_completed"),
+            RunKind::Dump => app.tr("view_deviceinfo_dump_complete"),
+            _ => app.tr("view_firmware_flashing_completed"),
         }
     } else {
-        app.t("작업이 중단되었습니다", "Operation stopped")
+        app.tr("view_operation_stopped")
     };
     let header: Element<'_, Message> = if matches!(app.run_kind, RunKind::Convert | RunKind::Resume)
     {
@@ -1397,21 +1375,27 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let mut content = column![header, overall_progress(app, false)].spacing(20);
     match &app.result {
         Some(Ok(warnings)) => {
-            content = content.push(infobar(Severity::Success, match app.run_kind {
-                RunKind::Restore => app.t("원래 리전과 원본 구성을 확인·복구한 뒤 시스템 부팅을 요청했습니다. 경고와 기기의 실제 부팅 상태를 확인해 주세요.", "Original region and configuration were verified/restored, then system boot was requested. Check warnings and actual device boot."),
-                RunKind::Edit => app.t("DeviceInfo 변경과 원본 구성 복원을 마쳤습니다. 리전을 바꾼 경우 펌웨어도 설치했습니다. 기기의 실제 부팅을 확인해 주세요.", "DeviceInfo changes and the original configuration restore are complete. Firmware was installed if the region changed. Check actual device boot."),
-                RunKind::Dump => app.t("DeviceInfo를 저장하고 원본 구성으로 복구한 뒤 시스템 부팅을 요청했습니다. 기기의 실제 부팅을 확인해 주세요.", "DeviceInfo was saved and the original configuration restored, then system boot was requested. Check actual device boot."),
-                _ => app.t("펌웨어 쓰기와 마무리 단계를 마쳤습니다. 기기의 실제 부팅과 국가 코드를 확인해 주세요.", "Firmware writes and final steps are complete. Check actual device boot and country code."),
-            }));
+            content = content.push(infobar(
+                Severity::Success,
+                match app.run_kind {
+                    RunKind::Restore => {
+                        app.tr("view_original_region_and_configuration_were_verified")
+                    }
+                    RunKind::Edit => {
+                        app.tr("view_deviceinfo_changes_and_the_original_configuration")
+                    }
+                    RunKind::Dump => app.tr("view_deviceinfo_was_saved_and_the_original"),
+                    _ => app.tr("view_firmware_writes_and_final_steps_are"),
+                },
+            ));
             for warning in warnings {
                 content = content.push(note(warning, true));
             }
         }
         Some(Err(error)) => {
-            content = content.push(error_note(error)).push(small(app.t(
-                "아래 백업과 저장된 작업을 확인하세요. 원본 복구가 필요할 수 있습니다.",
-                "Review the backup and saved run below. Original restoration may be required.",
-            )));
+            content = content
+                .push(error_note(error))
+                .push(small(app.tr("view_review_the_backup_and_saved_run")));
         }
         None => {}
     }
@@ -1425,7 +1409,7 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 .into(),
             Some(
                 action(
-                    app.t("폴더 열기", "Open folder"),
+                    app.tr("view_open_folder"),
                     Message::OpenFolder(path.clone()),
                     true,
                 )
@@ -1438,24 +1422,24 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     if app.result.as_ref().is_some_and(Result::is_ok)
         && let Some(folder) = &app.dump_folder
     {
-        places.push(open_row(app.t("덤프 폴더", "Dump folder"), folder));
+        places.push(open_row(app.tr("view_dump_folder"), folder));
     }
     if let Some(path) = &app.backup_path {
-        places.push(open_row(app.t("백업", "Backup"), path));
+        places.push(open_row(app.tr("view_backup"), path));
     }
     if let Some(path) = &app.log_path {
-        places.push(open_row(app.t("자동 저장 로그", "Saved transcript"), path));
+        places.push(open_row(app.tr("view_saved_transcript"), path));
     }
     if !places.is_empty() {
         content = content.push(group(places));
     }
     content = content.push(logs(app));
     let export = action(
-        app.t("로그 다른 곳에 저장", "Export log"),
+        app.tr("view_export_log"),
         Message::Pick(Picker::Export),
         app.log_path.is_some() || app.demo,
     );
-    let home = action(app.t("처음으로", "Home"), Message::Home, true);
+    let home = action(app.tr("view_home"), Message::Home, true);
     // A finished run needs no restore; Home becomes the main action.
     let footer = if success {
         row![space().width(Fill), export.style(soft_style), home]
@@ -1463,7 +1447,7 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         row![
             space().width(Fill),
             home.style(soft_style),
-            action(app.t("원본 복구", "Recovery"), Message::Recovery, true).style(recovery_style),
+            action(app.tr("view_recovery"), Message::Recovery, true).style(recovery_style),
             export
         ]
     };
@@ -1493,9 +1477,9 @@ fn path_row<'a>(
 fn loader_row(app: &App) -> Element<'_, Message> {
     path_row(
         app,
-        app.t("EDL 로더", "EDL loader"),
+        app.tr("view_edl_loader"),
         app.loader.as_deref(),
-        app.t("파일 선택", "Choose file"),
+        app.tr("view_choose_file"),
         Picker::Loader,
     )
 }
@@ -1504,37 +1488,23 @@ fn dump(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let content = column![
         title(
             app,
-            "DeviceInfo 덤프",
-            "Dump DeviceInfo",
-            "TWRP에서 DeviceInfo를 읽어 파일로 저장합니다. 기기에는 쓰지 않습니다.",
-            "Read DeviceInfo in TWRP and save it to a file. Nothing is written to the device."
+            "view_dump_deviceinfo",
+            "view_read_deviceinfo_in_twrp_and_save"
         ),
         group(vec![
             loader_row(app),
             path_row(
                 app,
-                app.t("저장 위치", "Save location"),
+                app.tr("view_save_location"),
                 app.preferences.dump_root.as_deref(),
-                app.t("폴더 선택", "Choose folder"),
+                app.tr("settings_choose_folder"),
                 Picker::DumpRoot,
             ),
         ]),
-        small(app.t(
-            "저장 위치에 Deviceinfo_dump_<모델>_<유닉스 시간> 폴더를 만들고 deviceinfo.bin(4096바이트)과 info.json을 저장합니다.",
-            "A Deviceinfo_dump_<model>_<unix time> folder with deviceinfo.bin (4096 bytes) and info.json is created in the save location.",
-        )),
-        note(
-            app.t(
-                "원본 백업 → TWRP 부팅 → DeviceInfo 읽기·저장 → 원본 구성 복원 → 재부팅 순서로 자동 진행됩니다. 작업이 끝날 때까지 USB 연결을 유지하세요.",
-                "Back up originals → boot TWRP → read and save DeviceInfo → restore the original configuration → reboot, all automatically. Keep USB connected until it finishes.",
-            ),
-            false,
-        ),
+        small(app.tr("view_a_deviceinfo_dump_model_unix_time")),
+        note(app.tr("view_back_up_originals_boot_twrp_read"), false,),
         checkbox(app.agreed)
-            .label(app.t(
-                "위 안내를 확인했으며 DeviceInfo 덤프를 진행하겠습니다.",
-                "I have read the instructions and want to dump DeviceInfo.",
-            ))
+            .label(app.tr("view_i_have_read_the_instructions_and"))
             .on_toggle(Message::Agree),
     ]
     .spacing(16);
@@ -1543,15 +1513,10 @@ fn dump(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         start_footer(
             app,
             [
-                action(app.t("이전", "Back"), Message::Back, !app.busy())
+                action(app.tr("editor_back"), Message::Back, !app.busy())
                     .style(soft_style)
                     .into(),
-                action(
-                    app.t("덤프 시작", "Start dump"),
-                    Message::Start,
-                    app.can_start(),
-                )
-                .into(),
+                action(app.tr("view_start_dump"), Message::Start, app.can_start()).into(),
             ],
         ),
     )
@@ -1560,36 +1525,30 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let content = column![
         title(
             app,
-            "DeviceInfo 수정",
-            "Edit DeviceInfo",
-            "기기의 DeviceInfo를 TWRP에서 읽은 뒤 원하는 값을 직접 수정합니다.",
-            "Read the device's DeviceInfo in TWRP, then edit the values directly."
+            "view_edit_deviceinfo",
+            "view_read_the_device_s_deviceinfo_in"
         ),
         group(vec![loader_row(app)]),
     ]
     .spacing(16)
-    .push(warning_note(app.t(
-            "보안·구조 필드를 잘못 바꾸면 부팅이 되지 않을 수 있습니다. 쓰기 전 변경 목록을 반드시 확인하세요. 편집 창에서 취소하면 DeviceInfo를 바꾸지 않고 원본 구성을 자동으로 복구합니다.",
-            "Wrong security/structure values can stop the tablet from booting. Always review the change list before writing. Cancelling in the editor leaves DeviceInfo unchanged and restores the original configuration automatically.",
-        )))
-        .push(
-            checkbox(app.agreed)
-                .label(app.t(
-                    "위 안내를 확인했으며 DeviceInfo 수정을 진행하겠습니다.",
-                    "I have read the instructions and want to edit DeviceInfo.",
-                ))
-                .on_toggle(Message::Agree),
-        );
+    .push(warning_note(
+        app.tr("view_wrong_security_structure_values_can_stop"),
+    ))
+    .push(
+        checkbox(app.agreed)
+            .label(app.tr("view_i_have_read_the_instructions_and_2"))
+            .on_toggle(Message::Agree),
+    );
     (
         content.into(),
         start_footer(
             app,
             [
-                action(app.t("이전", "Back"), Message::Back, !app.busy())
+                action(app.tr("editor_back"), Message::Back, !app.busy())
                     .style(soft_style)
                     .into(),
                 action(
-                    app.t("DeviceInfo 수정 시작", "Start DeviceInfo edit"),
+                    app.tr("view_start_deviceinfo_edit"),
                     Message::Start,
                     app.can_start(),
                 )
@@ -1602,17 +1561,15 @@ fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let mut content = column![
         title(
             app,
-            "원본 복구",
-            "Restore original",
-            "백업한 기기 한 대를 TWRP(ADB Recovery) 또는 EDL로 연결하세요.",
-            "Connect the backed-up device in TWRP (ADB Recovery) or EDL."
+            "view_restore_original",
+            "view_connect_the_backed_up_device_in"
         ),
         group(vec![
             path_row(
                 app,
-                app.t("백업 폴더", "Backup folder"),
+                app.tr("view_backup_folder"),
                 app.recovery_folder.as_deref(),
-                app.t("폴더 선택", "Choose folder"),
+                app.tr("settings_choose_folder"),
                 Picker::Backup,
             ),
             loader_row(app),
@@ -1623,31 +1580,31 @@ fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         content = content.push(note(
             format!(
                 "{}\n{summary}",
-                app.t(
-                    "백업 파일과 해시 확인 완료",
-                    "Backup files and hashes verified"
-                )
+                app.tr("view_backup_files_and_hashes_verified")
             ),
             false,
         ));
     }
     if app.busy() {
-        content = content.push(small(
-            app.t("백업을 검사하고 있습니다…", "Verifying backup…"),
-        ));
+        content = content.push(small(app.tr("view_verifying_backup")));
     }
-    content = content.push(warning_note(app.t("이 작업은 설치된 전체 펌웨어를 이전 버전으로 되돌리는 기능이 아닙니다. TWRP 또는 EDL로 연결해 시작합니다. TWRP에서 시작하면 실제 DeviceInfo를 읽어, 이 작업이 쓴 값일 때만 작업 전 DeviceInfo 전체로 되돌린 뒤 원본 vendor_boot·Recovery·GPT를 복구합니다. 원본도 이 작업의 값도 아니면 쓰지 않고 중단합니다.", "This does not roll back the entire installed firmware. Start with the tablet in TWRP or EDL. From TWRP, the live DeviceInfo is read and written back to the complete original only when it holds this run's value, then original vendor_boot, Recovery and GPT are restored. Any other value stops without a write.")))
-        .push(checkbox(app.agreed).label(app.t("이 백업을 만든 기기이며 원본 복구를 진행하겠습니다.", "This is the device that created the backup; restore its original region and configuration.")).on_toggle(Message::Agree));
+    content = content
+        .push(warning_note(app.tr("view_this_does_not_roll_back_the")))
+        .push(
+            checkbox(app.agreed)
+                .label(app.tr("view_this_is_the_device_that_created"))
+                .on_toggle(Message::Agree),
+        );
     (
         content.into(),
         issue_footer(
             app.restore_issue(),
             [
-                action(app.t("이전", "Back"), Message::Back, !app.busy())
+                action(app.tr("editor_back"), Message::Back, !app.busy())
                     .style(soft_style)
                     .into(),
                 action(
-                    app.t("원본 복구 시작", "Restore original"),
+                    app.tr("view_restore_original_2"),
                     Message::RestoreStart,
                     app.can_restore(),
                 )
@@ -1659,68 +1616,25 @@ fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
 pub(super) fn driver_status(app: &App) -> String {
     use ltbox_device::driver::DriverStatus::*;
     if app.driver_checking {
-        return app.t("드라이버 확인 중…", "Checking drivers…").into();
+        return app.tr("view_checking_drivers").into();
     }
     match &app.driver_status {
-        Some(Present) => app
-            .t(
-                "필요한 드라이버가 설치되어 있습니다.",
-                "Required drivers are present.",
-            )
-            .into(),
-        Some(NotWindows) => app
-            .t(
-                "이 운영체제에는 추가 드라이버가 필요하지 않습니다.",
-                "No additional driver is required on this platform.",
-            )
-            .into(),
-        Some(Missing(files)) => format!(
-            "{}: {}",
-            app.t("드라이버 설치 필요", "Missing drivers"),
-            files.join(", ")
-        ),
-        Some(UdevRulesMissing) => app
-            .t(
-                "USB 접근을 위한 udev 규칙이 필요합니다.",
-                "Install udev rules for USB access.",
-            )
-            .into(),
-        Some(UdevRulesStale) => app
-            .t(
-                "설치된 udev 규칙을 갱신해 주세요.",
-                "Update the installed udev rules.",
-            )
-            .into(),
-        Some(UdevRulesNoPermission) => app
-            .t(
-                "udev 규칙의 읽기 권한을 확인해 주세요.",
-                "Check read permissions for udev rules.",
-            )
-            .into(),
-        Some(KernelDriverMissing) => app
-            .t(
-                "Qualcomm Kernel 드라이버가 필요합니다.",
-                "Install the Qualcomm kernel driver.",
-            )
-            .into(),
-        Some(KernelDriverUnsupported) => app
-            .t(
-                "이 환경에서는 Userspace 모드를 사용해 주세요.",
-                "Use Userspace mode on this platform.",
-            )
-            .into(),
-        None => app
-            .t("드라이버를 확인해 주세요.", "Check driver status.")
-            .into(),
+        Some(Present) => app.tr("view_required_drivers_are_present").into(),
+        Some(NotWindows) => app.tr("view_no_additional_driver_is_required_on").into(),
+        Some(Missing(files)) => format!("{}: {}", app.tr("view_missing_drivers"), files.join(", ")),
+        Some(UdevRulesMissing) => app.tr("view_install_udev_rules_for_usb_access").into(),
+        Some(UdevRulesStale) => app.tr("view_update_the_installed_udev_rules").into(),
+        Some(UdevRulesNoPermission) => app.tr("view_check_read_permissions_for_udev_rules").into(),
+        Some(KernelDriverMissing) => app.tr("view_install_the_qualcomm_kernel_driver").into(),
+        Some(KernelDriverUnsupported) => app.tr("view_use_userspace_mode_on_this_platform").into(),
+        None => app.tr("view_check_driver_status").into(),
     }
 }
 fn resume(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let mut content = column![title(
         app,
-        "저장된 작업 확인",
-        "Review saved run",
-        "저장된 설정과 현재 단계를 확인하세요.",
-        "Review the saved settings and current stage."
+        "view_review_saved_run",
+        "view_review_the_saved_settings_and_current"
     )]
     .spacing(22);
     if app.device.unsupported_model() {
@@ -1728,7 +1642,7 @@ fn resume(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     }
     if let Some(pending) = &app.pending {
         let state = &pending.state;
-        content = content.push(field(app.t("작업", "Operation"), request_label(app, state)));
+        content = content.push(field(app.tr("view_operation"), request_label(app, state)));
         content = match &state.firmware {
             Some(binding) => content.push(summary(
                 app,
@@ -1737,43 +1651,37 @@ fn resume(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 binding.firmware_dir.display().to_string(),
             )),
             None => content.push(field(
-                app.t("펌웨어", "Firmware"),
-                app.t(
-                    "설치 안 함 · 사용자 데이터 유지",
-                    "Not installed · user data kept",
-                ),
+                app.tr("dashboard_firmware"),
+                app.tr("view_not_installed_user_data_kept"),
             )),
         };
         content = content.push(field(
-            app.t("백업", "Backup"),
+            app.tr("view_backup"),
             state.backup_dir.display().to_string(),
         ));
         content = content.push(field(
-            app.t("현재 단계", "Saved stage"),
+            app.tr("view_saved_stage"),
             format!("{:?}", state.recovery.phase),
         ));
         if let Request::Convert { rollback_mode, .. } = state.request {
             content = content.push(field(
-                app.t("롤백인덱스", "Rollback indices"),
+                app.tr("view_rollback_indices"),
                 if rollback_mode == lapiswitch_core::deviceinfo::RollbackMode::Reset {
-                    app.t("초기화 · 32개 → 0", "Reset · 32 → 0")
+                    app.tr("view_reset_32_0")
                 } else {
-                    app.t("미초기화", "Keep")
+                    app.tr("view_keep_2")
                 },
             ));
         }
         let guidance = match pending.action {
-            ResumeAction::Recovery => app.t("현재 기록으로는 이어갈 수 없습니다. 백업과 작업 기록을 확인한 뒤 원본 복구를 사용하세요.", "This checkpoint cannot be resumed. Review the backup and saved record, then use original restoration."),
-            ResumeAction::Flash => app.t("펌웨어를 다시 설치하며 사용자 데이터를 반드시 초기화합니다.", "Firmware will be installed again and user data will be erased."),
-            ResumeAction::Finalize => app.t("쓰기 완료 뒤 최종 재부팅 인계 기록을 확인합니다. 실제 부팅은 기기에서 확인하세요.", "Check the final reboot handoff after completed writes. Check actual boot on the device."),
-            _ => app.t("저장된 TWRP·DeviceInfo 단계부터 결과를 재확인합니다. 검증 후 원본 GPT·Recovery 복원과 펌웨어 설치를 진행합니다.", "Recheck the saved TWRP/DeviceInfo stage, then restore original GPT/Recovery and install firmware."),
+            ResumeAction::Recovery => app.tr("view_this_checkpoint_cannot_be_resumed_review"),
+            ResumeAction::Flash => app.tr("view_firmware_will_be_installed_again_and"),
+            ResumeAction::Finalize => app.tr("view_check_the_final_reboot_handoff_after"),
+            _ => app.tr("view_recheck_the_saved_twrp_deviceinfo_stage"),
         };
         content = content.push(note(guidance, true)).push(
             checkbox(app.agreed)
-                .label(app.t(
-                    "저장된 설정과 이어갈 작업을 확인했습니다.",
-                    "I have reviewed the saved settings and resume behavior.",
-                ))
+                .label(app.tr("view_i_have_reviewed_the_saved_settings"))
                 .on_toggle(Message::Agree),
         );
     }
@@ -1781,15 +1689,10 @@ fn resume(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         content.into(),
         row![
             space().width(Fill),
-            action(app.t("이전", "Back"), Message::Back, !app.busy()).style(soft_style),
+            action(app.tr("editor_back"), Message::Back, !app.busy()).style(soft_style),
+            action(app.tr("view_recovery"), Message::Recovery, !app.busy()).style(recovery_style),
             action(
-                app.t("원본 복구", "Recovery"),
-                Message::Recovery,
-                !app.busy()
-            )
-            .style(recovery_style),
-            action(
-                app.t("이어하기", "Resume"),
+                app.tr("view_resume"),
                 Message::ResumeStart,
                 app.can_resume()
             )

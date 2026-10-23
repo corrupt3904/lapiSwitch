@@ -35,16 +35,13 @@ pub(super) fn modal(app: &App) -> widget::Container<'_, Message> {
         choices = choices.push(choice(
             app,
             "—",
-            app.t("변경 안 함", "Do not change"),
-            app.t("기존 국가 코드 유지", "Keep the current country code"),
+            app.tr("country_do_not_change"),
+            app.tr("country_keep_the_current_country_code"),
         ));
     }
     let found: Vec<_> = crate::countries::search(&app.country_search).collect();
     if found.is_empty() {
-        choices = choices.push(note(
-            app.t("검색 결과가 없습니다.", "No matching countries."),
-            false,
-        ));
+        choices = choices.push(note(app.tr("country_no_matching_countries"), false));
     }
     for country in found {
         choices = choices.push(choice(
@@ -56,12 +53,9 @@ pub(super) fn modal(app: &App) -> widget::Container<'_, Message> {
     }
     panel(
         column![
-            label(app.t("국가 코드 선택", "Choose country code")).size(25),
+            label(app.tr("country_choose_country_code")).size(25),
             text_input(
-                app.t(
-                    "국가명 또는 코드 검색 (예: 한국, Korea, KR)",
-                    "Search country or code (e.g. Korea, KR)"
-                ),
+                app.tr("country_search_country_or_code_e_g"),
                 &app.country_search
             )
             .on_input(Message::CountrySearch)
@@ -72,14 +66,14 @@ pub(super) fn modal(app: &App) -> widget::Container<'_, Message> {
                 .height(300),
             small(format!(
                 "{}: {}",
-                app.t("선택한 코드", "Selected code"),
+                app.tr("country_selected_code"),
                 app.country_draft.as_deref().unwrap_or("—")
             )),
             row![
                 space().width(Fill),
-                action(app.t("취소", "Cancel"), Message::CountryCancel, true).style(soft_style),
+                action(app.tr("archive_cancel"), Message::CountryCancel, true).style(soft_style),
                 action(
-                    app.t("선택", "Select"),
+                    app.tr("country_select"),
                     Message::CountryApply,
                     app.country_draft.is_some()
                 )

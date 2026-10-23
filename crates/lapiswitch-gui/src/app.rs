@@ -345,8 +345,9 @@ impl App {
             crate::settings::ThemeChoice::Dark => true,
         }
     }
-    fn t(&self, ko: &'static str, en: &'static str) -> &'static str {
-        self.preferences.language.text(ko, en)
+    /// The text of a `lang/<code>.json` key in the chosen language.
+    fn tr(&self, key: &'static str) -> &'static str {
+        self.preferences.language.tr(key)
     }
     fn busy(&self) -> bool {
         self.activity.is_some() || self.adb_killing || self.fix.closing
@@ -402,10 +403,7 @@ impl App {
         }
     }
     fn fastboot_start_text(&self) -> &'static str {
-        self.t(
-            "Fastboot에서는 시작할 수 없습니다. 기기를 Android로 부팅하고 USB 디버깅을 허용해 ADB로 연결해 주세요.",
-            "Conversion cannot start from Fastboot. Boot the tablet to Android, allow USB debugging and connect over ADB.",
-        )
+        self.tr("app_conversion_cannot_start_from_fastboot_boot")
     }
     /// The checked firmware names another model than the connected device.
     /// EDL reports no model, so the run identifies the device itself then.
@@ -427,116 +425,53 @@ impl App {
     fn start_issue(&self) -> Option<(Option<fluent::Severity>, &'static str)> {
         use fluent::Severity::{Error, Warning};
         let issue = if self.busy() {
-            (
-                None,
-                self.t(
-                    "진행 중인 작업이 끝날 때까지 기다려 주세요.",
-                    "Wait for the current operation to finish.",
-                ),
-            )
+            (None, self.tr("app_wait_for_the_current_operation_to"))
         } else if self.deferred.is_some() {
-            (
-                None,
-                self.t(
-                    "시작 전 기기 연결을 다시 확인하고 있습니다.",
-                    "Rechecking the device before starting.",
-                ),
-            )
+            (None, self.tr("app_rechecking_the_device_before_starting"))
         } else if self.startup_error.is_some() {
-            (
-                Some(Error),
-                self.t(
-                    "이전 작업 기록을 확인할 수 없습니다. 위 오류를 확인해 주세요.",
-                    "The saved run cannot be checked. Review the error above.",
-                ),
-            )
+            (Some(Error), self.tr("app_the_saved_run_cannot_be_checked"))
         } else if !self.device.reachable() {
             (
                 Some(Warning),
-                self.t(
-                    "기기 연결이 확인되지 않았습니다. 연결 상태를 확인해 주세요.",
-                    "The device connection could not be confirmed. Check the connection.",
-                ),
+                self.tr("app_the_device_connection_could_not_be"),
             )
         } else if self.device.unsupported_model() {
             (
                 Some(Error),
-                self.t(
-                    "지원하지 않는 기기입니다. 지원 기기를 연결해 주세요.",
-                    "Unsupported device. Connect a supported device.",
-                ),
+                self.tr("app_unsupported_device_connect_a_supported_device"),
             )
         } else if self.device.dump_only() && self.page != Page::Dump {
             (
                 Some(Error),
-                self.t(
-                    "이 기기는 DeviceInfo 덤프만 지원합니다. 펌웨어 플래싱과 DeviceInfo 수정은 할 수 없습니다.",
-                    "This device supports DeviceInfo dumps only. Firmware flashing and DeviceInfo editing are unavailable.",
-                ),
+                self.tr("app_this_device_supports_deviceinfo_dumps_only"),
             )
         } else if self.device.fastboot() {
             (Some(Warning), self.fastboot_start_text())
         } else if !self.device.startable() {
             (
                 Some(Warning),
-                self.t(
-                    "기기 모델을 확인할 수 없습니다. 기기 연결 상태를 확인해 주세요.",
-                    "The device model is unknown. Check the device connection.",
-                ),
+                self.tr("app_the_device_model_is_unknown_check"),
             )
         } else if !self.drivers_ready() {
             (
                 Some(Warning),
-                self.t(
-                    "필요한 드라이버를 확인하거나 설치해 주세요.",
-                    "Check or install the required drivers.",
-                ),
+                self.tr("app_check_or_install_the_required_drivers"),
             )
         } else if self.page == Page::Dump {
             if self.loader.is_none() {
-                (
-                    None,
-                    self.t(
-                        "EDL 로더 파일을 선택해 주세요.",
-                        "Select the EDL loader file.",
-                    ),
-                )
+                (None, self.tr("app_select_the_edl_loader_file"))
             } else if self.preferences.dump_root.is_none() {
-                (
-                    None,
-                    self.t(
-                        "덤프 저장 위치를 선택해 주세요.",
-                        "Choose where to save the dump.",
-                    ),
-                )
+                (None, self.tr("app_choose_where_to_save_the_dump"))
             } else if !self.agreed {
-                (
-                    None,
-                    self.t(
-                        "DeviceInfo 덤프 안내를 확인하고 동의 항목을 체크해 주세요.",
-                        "Read the DeviceInfo dump notice and select the consent checkbox.",
-                    ),
-                )
+                (None, self.tr("app_read_the_deviceinfo_dump_notice_and"))
             } else {
                 return None;
             }
         } else if self.page == Page::Edit {
             if self.loader.is_none() {
-                (
-                    None,
-                    self.t(
-                        "EDL 로더 파일을 선택해 주세요.",
-                        "Select the EDL loader file.",
-                    ),
-                )
+                (None, self.tr("app_select_the_edl_loader_file"))
             } else if !self.agreed {
-                (
-                    None,
-                    self.t(
-                        "DeviceInfo 수정 안내를 확인하고 동의 항목을 체크해 주세요.",
-                        "Read the DeviceInfo edit notice and select the consent checkbox.",
-                    ),
-                )
+                (None, self.tr("app_read_the_deviceinfo_edit_notice_and"))
             } else {
                 return None;
             }
@@ -546,37 +481,13 @@ impl App {
                 .as_ref()
                 .is_some_and(|f| Some(f.region) == self.region)
         {
-            (
-                None,
-                self.t(
-                    "펌웨어 폴더를 선택해 검사를 완료해 주세요.",
-                    "Choose a firmware folder and complete its check.",
-                ),
-            )
+            (None, self.tr("app_choose_a_firmware_folder_and_complete"))
         } else if self.firmware_model_differs() {
-            (
-                Some(Error),
-                self.t(
-                    "기기와 펌웨어의 모델이 다릅니다. 기기에 맞는 펌웨어 폴더를 선택해 주세요.",
-                    "The firmware is for a different model than the connected device. Choose firmware for this model.",
-                ),
-            )
+            (Some(Error), self.tr("app_the_firmware_is_for_a_different"))
         } else if self.options().is_none() {
-            (
-                None,
-                self.t(
-                    "국가 코드 또는 변경 안 함을 선택해 주세요.",
-                    "Choose a country code or Do not change.",
-                ),
-            )
+            (None, self.tr("app_choose_a_country_code_or_do"))
         } else if !self.agreed {
-            (
-                None,
-                self.t(
-                    "사용자 데이터 초기화 안내를 확인하고 동의 항목을 체크해 주세요.",
-                    "Read the data-erasure notice and select the consent checkbox.",
-                ),
-            )
+            (None, self.tr("app_read_the_data_erasure_notice_and"))
         } else {
             return None;
         };
@@ -591,28 +502,16 @@ impl App {
     fn restore_issue(&self) -> Option<(Option<fluent::Severity>, &'static str)> {
         use fluent::Severity::{Error, Warning};
         let issue = if self.busy() {
-            (
-                None,
-                self.t(
-                    "진행 중인 작업이 끝날 때까지 기다려 주세요.",
-                    "Wait for the current operation to finish.",
-                ),
-            )
+            (None, self.tr("app_wait_for_the_current_operation_to"))
         } else if !self.device.reachable() {
             (
                 Some(Warning),
-                self.t(
-                    "기기 연결이 확인되지 않았습니다. 연결 상태를 확인해 주세요.",
-                    "The device connection could not be confirmed. Check the connection.",
-                ),
+                self.tr("app_the_device_connection_could_not_be"),
             )
         } else if self.device.unsupported_model() {
             (
                 Some(Error),
-                self.t(
-                    "지원하지 않는 기기입니다. 지원 기기를 연결해 주세요.",
-                    "Unsupported device. Connect a supported device.",
-                ),
+                self.tr("app_unsupported_device_connect_a_supported_device"),
             )
         } else if !matches!(
             self.device.snapshot.mode,
@@ -620,43 +519,19 @@ impl App {
         ) {
             (
                 Some(Warning),
-                self.t(
-                    "원본 복구는 TWRP(ADB Recovery) 또는 EDL 연결에서만 시작할 수 있습니다.",
-                    "Original restore starts only from TWRP (ADB Recovery) or EDL.",
-                ),
+                self.tr("app_original_restore_starts_only_from_twrp"),
             )
         } else if !self.drivers_ready() {
             (
                 Some(Warning),
-                self.t(
-                    "필요한 드라이버를 확인하거나 설치해 주세요.",
-                    "Check or install the required drivers.",
-                ),
+                self.tr("app_check_or_install_the_required_drivers"),
             )
         } else if self.recovery_summary.is_none() {
-            (
-                None,
-                self.t(
-                    "백업 폴더를 선택해 검사를 완료해 주세요.",
-                    "Choose a backup folder and complete its check.",
-                ),
-            )
+            (None, self.tr("app_choose_a_backup_folder_and_complete"))
         } else if self.loader.is_none() {
-            (
-                None,
-                self.t(
-                    "EDL 로더 파일을 선택해 주세요.",
-                    "Select the EDL loader file.",
-                ),
-            )
+            (None, self.tr("app_select_the_edl_loader_file"))
         } else if !self.agreed {
-            (
-                None,
-                self.t(
-                    "원본 복구 안내를 확인하고 동의 항목을 체크해 주세요.",
-                    "Read the restore notice and select the consent checkbox.",
-                ),
-            )
+            (None, self.tr("app_read_the_restore_notice_and_select"))
         } else {
             return None;
         };
@@ -869,9 +744,7 @@ impl App {
             Message::Exported(result) => {
                 self.activity = None;
                 match result {
-                    Ok(()) => {
-                        self.notice = Some(self.t("로그를 저장했습니다.", "Log saved.").into())
-                    }
+                    Ok(()) => self.notice = Some(self.tr("app_log_saved").into()),
                     Err(e) => self.error = Some(e),
                 }
             }
@@ -910,11 +783,8 @@ impl App {
                     let delivered = confirmation.send(());
                     if !self.demo && delivered.is_err() {
                         self.error = Some(
-                            self.t(
-                                "확인을 전달하지 못했습니다. 저장된 작업 상태를 확인하세요.",
-                                "Could not deliver confirmation. Check the saved run.",
-                            )
-                            .into(),
+                            self.tr("app_could_not_deliver_confirmation_check_the")
+                                .into(),
                         );
                     }
                 }
@@ -926,17 +796,14 @@ impl App {
                 match result {
                     Ok(()) => {
                         self.notice = Some(
-                            self.t(
-                                "ADB 서버 종료 요청을 보냈습니다. 연결을 다시 확인합니다.",
-                                "ADB server stop requested. Rechecking the connection.",
-                            )
-                            .into(),
+                            self.tr("app_adb_server_stop_requested_rechecking_the")
+                                .into(),
                         )
                     }
                     Err(error) => {
                         self.error = Some(format!(
                             "{}: {error}",
-                            self.t("ADB 서버 종료 실패", "Could not stop ADB server")
+                            self.tr("app_could_not_stop_adb_server")
                         ))
                     }
                 }
@@ -1369,10 +1236,23 @@ impl App {
                 match result {
                     Ok(true) => {
                         self.driver_restart = true;
-                        self.notice = Some(self.t("설치 프로그램이 완료되었습니다. 드라이버를 다시 확인합니다. USB를 재연결하고 필요하면 PC를 재시작하세요.", "Installer completed. Rechecking drivers. Reconnect USB and restart the PC if needed.").into());
+                        self.notice = Some(
+                            self.tr("app_installer_completed_rechecking_drivers_reconnect_usb")
+                                .into(),
+                        );
                     }
-                    Ok(false) => self.notice = Some(self.t("드라이버 설치가 취소되었습니다. 설치 버튼을 눌러 다시 시도할 수 있습니다.", "Driver installation was cancelled. Use Install to try again.").into()),
-                    Err(error) => self.error = Some(format!("{}: {error}", self.t("드라이버 설치 실패", "Driver installation failed"))),
+                    Ok(false) => {
+                        self.notice = Some(
+                            self.tr("app_driver_installation_was_cancelled_use_install")
+                                .into(),
+                        )
+                    }
+                    Err(error) => {
+                        self.error = Some(format!(
+                            "{}: {error}",
+                            self.tr("app_driver_installation_failed")
+                        ))
+                    }
                 }
             }
             Event::Log(line) => self.add_log(line),
@@ -1492,15 +1372,7 @@ impl App {
             Picker::Output => {
                 let _ = self.picked(Picker::Output, Some("Demo/lapiSwitch".into()));
             }
-            Picker::Export => {
-                self.notice = Some(
-                    self.t(
-                        "미리보기에서는 파일을 저장하지 않습니다.",
-                        "Preview does not save files.",
-                    )
-                    .into(),
-                )
-            }
+            Picker::Export => self.notice = Some(self.tr("app_preview_does_not_save_files").into()),
         }
     }
     fn seed_preview(&mut self, screen: &str) {

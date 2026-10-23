@@ -46,9 +46,9 @@ pub(super) fn button(app: &App) -> Option<Element<'_, Message>> {
     Some(
         action(
             if app.wait_control.stopped() {
-                app.t("중지 요청 중…", "Stopping…")
+                app.tr("wait_stopping")
             } else {
-                app.t("작업 중지", "Stop operation")
+                app.tr("wait_stop_operation")
             },
             Message::StopWait(ticket),
             app.can_stop_wait(ticket),
@@ -63,25 +63,19 @@ pub(super) fn modal(app: &App, ticket: WaitTicket) -> iced::widget::Container<'_
     use iced::Fill;
     use iced::widget::{column, row, space};
     let message = if ticket.phase == lapiswitch_core::recovery_flow::Phase::RecoveryWaiting {
-        app.t(
-            "작업을 중지하시겠습니까? 추후 ADB(TWRP) 연결이 되었을 때 계속 진행하거나, EDL로 수동 진입하여 원본 복구를 진행할 수 있습니다",
-            "Stop the operation? You can resume when ADB (TWRP) connects later, or enter EDL manually and restore the original backup.",
-        )
+        app.tr("wait_stop_the_operation_you_can_resume")
     } else {
-        app.t(
-            "작업을 중지하시겠습니까? 추후 EDL 연결이 되었을 때 계속 진행하거나, 원본 복구를 진행할 수 있습니다",
-            "Stop the operation? You can resume when EDL connects later, or restore the original backup.",
-        )
+        app.tr("wait_stop_the_operation_you_can_resume_2")
     };
     panel(
         column![
-            label(app.t("작업 중지", "Stop operation")).size(24),
+            label(app.tr("wait_stop_operation")).size(24),
             label(message),
             row![
                 space().width(Fill),
-                action(app.t("취소", "Cancel"), Message::CancelStopWait, true).style(soft_style),
+                action(app.tr("archive_cancel"), Message::CancelStopWait, true).style(soft_style),
                 action(
-                    app.t("확인", "Confirm"),
+                    app.tr("archive_confirm"),
                     Message::ConfirmStopWait(ticket),
                     app.can_stop_wait(ticket)
                 )

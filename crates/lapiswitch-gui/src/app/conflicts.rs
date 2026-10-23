@@ -103,18 +103,12 @@ impl App {
         self.fix.error = match result {
             Ok(()) => None,
             Err(CloseError::Cancelled) => Some(
-                self.t(
-                    "Software Fix 종료가 취소되었습니다. 다시 시도할 수 있습니다.",
-                    "Closing Software Fix was cancelled. You can try again.",
-                )
-                .into(),
+                self.tr("conflicts_closing_software_fix_was_cancelled_you")
+                    .into(),
             ),
             Err(CloseError::Failed(error)) => Some(format!(
                 "{}: {error}",
-                self.t(
-                    "Software Fix를 종료하지 못했습니다. 직접 종료하거나 다시 시도하세요.",
-                    "Could not close Software Fix. Close it manually or try again."
-                )
+                self.tr("conflicts_could_not_close_software_fix_close")
             )),
         };
         // LTBox keeps the banner until a successful absent-process poll.
@@ -135,19 +129,16 @@ pub(super) fn banner(app: &App) -> Option<Element<'_, Message>> {
         content = content.push(
             row![
                 column![
-                    label(app.t("Software Fix를 종료하세요.", "Close Software Fix.")),
-                    small(app.t(
-                        "기기에 연결하지 못하거나 연결이 끊길 수 있습니다.",
-                        "It may prevent device access or disconnect the device."
-                    ))
+                    label(app.tr("conflicts_close_software_fix")),
+                    small(app.tr("conflicts_it_may_prevent_device_access_or"))
                 ]
                 .spacing(4)
                 .width(Fill),
                 action(
                     if app.fix.closing {
-                        app.t("종료 중…", "Closing…")
+                        app.tr("conflicts_closing")
                     } else {
-                        app.t("강제 종료", "Force close")
+                        app.tr("conflicts_force_close")
                     },
                     Message::CloseFix,
                     app.can_close_software_fix()
@@ -164,17 +155,13 @@ pub(super) fn banner(app: &App) -> Option<Element<'_, Message>> {
         visible = true;
         content = content.push(
             row![
-                label(app.t(
-                    "다른 ADB 서버가 기기 연결을 점유하고 있습니다.",
-                    "Another ADB server is blocking device access."
-                ))
-                .width(Fill),
+                label(app.tr("conflicts_another_adb_server_is_blocking_device")).width(Fill),
                 space().width(4),
                 action(
                     if app.adb_killing {
-                        app.t("종료 중…", "Stopping…")
+                        app.tr("conflicts_stopping")
                     } else {
-                        app.t("ADB 서버 종료", "Stop ADB server")
+                        app.tr("conflicts_stop_adb_server")
                     },
                     Message::KillAdb,
                     !app.busy() && app.deferred.is_none()
@@ -191,16 +178,13 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
     use iced::widget::{column, row};
     panel(
         column![
-            label(app.t("Software Fix 종료", "Close Software Fix")).size(24),
-            label(app.t(
-                "Software Fix를 강제 종료합니다. Windows에서 관리자 권한을 요청합니다.",
-                "Force close Software Fix. Windows will request administrator permission."
-            )),
+            label(app.tr("conflicts_close_software_fix_2")).size(24),
+            label(app.tr("conflicts_force_close_software_fix_windows_will")),
             row![
                 iced::widget::space().width(iced::Fill),
-                action(app.t("취소", "Cancel"), Message::CancelCloseFix, true).style(soft_style),
+                action(app.tr("archive_cancel"), Message::CancelCloseFix, true).style(soft_style),
                 action(
-                    app.t("종료", "Close"),
+                    app.tr("conflicts_close"),
                     Message::ConfirmCloseFix,
                     app.can_close_software_fix()
                 )

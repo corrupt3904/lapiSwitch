@@ -167,27 +167,15 @@ impl Editor {
     /// Why the plan cannot be applied yet.
     pub(crate) fn blocker(&self, app: &App) -> Option<&'static str> {
         if !self.invalid().is_empty() {
-            Some(app.t(
-                "입력 형식이 맞지 않는 필드가 있습니다.",
-                "Some fields have invalid input.",
-            ))
+            Some(app.tr("editor_some_fields_have_invalid_input"))
         } else if self.changes().is_empty() {
-            Some(app.t("변경된 필드가 없습니다.", "No field has been changed."))
+            Some(app.tr("editor_no_field_has_been_changed"))
         } else if self.target_region().is_none() {
-            Some(app.t(
-                "리전 필드는 PRC 또는 ROW여야 합니다.",
-                "The region field must be PRC or ROW.",
-            ))
+            Some(app.tr("editor_the_region_field_must_be_prc"))
         } else if self.region_changed() && !self.firmware_ready() {
-            Some(app.t(
-                "리전을 바꾸려면 해당 리전의 펌웨어 폴더를 선택해 검사를 마쳐야 합니다.",
-                "Changing the region requires a checked firmware folder for that region.",
-            ))
+            Some(app.tr("editor_changing_the_region_requires_a_checked"))
         } else if self.protected_changed() && !self.protected_ack {
-            Some(app.t(
-                "보안·구조 필드 변경 위험 확인에 체크해 주세요.",
-                "Confirm the risk of changing security/structure fields.",
-            ))
+            Some(app.tr("editor_confirm_the_risk_of_changing_security"))
         } else {
             None
         }
@@ -348,8 +336,8 @@ impl App {
 
 fn tab_label(app: &App, tab: Tab) -> &'static str {
     match tab {
-        Tab::Basic => app.t("기본", "Basic"),
-        Tab::Custom => app.t("사용자지정", "Custom"),
+        Tab::Basic => app.tr("editor_basic"),
+        Tab::Custom => app.tr("editor_custom"),
     }
 }
 
@@ -385,7 +373,7 @@ fn choice_row<'a>(
     let value = editor.input(field).trim().to_ascii_uppercase();
     let unchanged = editor.unchanged(key);
     let mut choices = row![choice(
-        format!("{} ({})", app.t("현재값", "Current"), short(&original)),
+        format!("{} ({})", app.tr("editor_current"), short(&original)),
         unchanged,
         EditorMessage::Reset(key.into()),
     )]
@@ -405,7 +393,7 @@ fn choice_row<'a>(
     if !unchanged && !options.contains(&value.as_str()) {
         choices = choices.push(small(format!(
             "{}: {}",
-            app.t("사용자지정 값", "Custom value"),
+            app.tr("editor_custom_value"),
             short(editor.input(field))
         )));
     }
@@ -461,9 +449,9 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
         .all(|index| *index == 0);
     let mut choices = row![choice(
         if all_zero {
-            format!("{} (0)", app.t("현재값", "Current"))
+            format!("{} (0)", app.tr("editor_current"))
         } else {
-            app.t("현재값", "Current").into()
+            app.tr("editor_current").into()
         },
         selected == RollbackChoice::Current,
         EditorMessage::Rollback(RollbackChoice::Current),
@@ -477,13 +465,13 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
         ));
     }
     choices = choices.push(choice(
-        app.t("사용자지정", "Custom").into(),
+        app.tr("editor_custom").into(),
         selected == RollbackChoice::Custom,
         EditorMessage::Rollback(RollbackChoice::Custom),
     ));
     let mut content = column![
         row![
-            label(app.t("롤백인덱스 32개", "32 rollback indices")).size(15),
+            label(app.tr("editor_32_rollback_indices")).size(15),
             small(format!(
                 "rollback_index[0..31] · 0x{:04X} · 8B × 32",
                 editor.layout.rollback_start()
@@ -506,19 +494,16 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
 
 fn kind_hint(app: &App, field: &Field) -> String {
     match field.kind {
-        Kind::Flag => app.t("0 또는 1", "0 or 1").into(),
+        Kind::Flag => app.tr("editor_0_or_1").into(),
         Kind::Uint => app
-            .t(
-                "{bytes}바이트 정수 (10진수 또는 0x16진수)",
-                "{bytes}-byte integer (decimal or 0x hex)",
-            )
+            .tr("editor_bytes_byte_integer_decimal_or_0x")
             .replace("{bytes}", &field.size.to_string()),
         Kind::Region => "PRC / ROW".into(),
         Kind::Text { nul } => app
-            .t("ASCII 최대 {chars}자", "ASCII, up to {chars} characters")
+            .tr("editor_ascii_up_to_chars_characters")
             .replace("{chars}", &(field.size - usize::from(nul)).to_string()),
         Kind::Bytes => app
-            .t("16진수 {bytes}바이트", "{bytes} bytes of hex")
+            .tr("editor_bytes_bytes_of_hex")
             .replace("{bytes}", &field.size.to_string()),
     }
 }
@@ -549,7 +534,7 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
     .align_y(Alignment::Center);
     if changed {
         head = head.push(space().width(Fill)).push(
-            button(small(app.t("원래 값", "Original")))
+            button(small(app.tr("editor_original")))
                 .padding([4, 10])
                 .style(soft_style)
                 .on_press(Message::Editor(EditorMessage::Reset(field.key.clone()))),
@@ -569,7 +554,7 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
     } else if changed {
         content = content.push(small(format!(
             "{}: {}",
-            app.t("원래 값", "Original"),
+            app.tr("editor_original"),
             short(&editor.original(field))
         )));
     }
@@ -594,29 +579,24 @@ fn region_box<'a>(app: &'a App, editor: &'a Editor) -> Option<Element<'a, Messag
         .map_or("?", Region::token);
     let to = editor.target_region().map_or("?", Region::token);
     let status: String = match (&editor.firmware, editor.checking) {
-        (_, true) => app.t("펌웨어 검사 중…", "Checking firmware…").into(),
+        (_, true) => app.tr("editor_checking_firmware").into(),
         (Some(Ok(report)), _) => {
-            format!("{} · {}", app.t("검사 완료", "Checked"), report.fingerprint)
+            format!("{} · {}", app.tr("editor_checked"), report.fingerprint)
         }
         (Some(Err(error)), _) => error.clone(),
-        (None, _) => app
-            .t("펌웨어 폴더를 선택하세요.", "Choose a firmware folder.")
-            .into(),
+        (None, _) => app.tr("editor_choose_a_firmware_folder").into(),
     };
     Some(
         column![
             note(
-                app.t(
-                    "리전 변경 {from} → {to}: 해당 리전의 공식 펌웨어를 설치해야 정상 부팅됩니다. 펌웨어 설치 시 사용자 데이터가 초기화됩니다.",
-                    "Region {from} → {to}: the official firmware of that region must be installed to boot. Installing firmware erases user data."
-                )
-                .replace("{from}", from)
-                .replace("{to}", to),
+                app.tr("editor_region_from_to_the_official_firmware")
+                    .replace("{from}", from)
+                    .replace("{to}", to),
                 true
             ),
             row![
                 action(
-                    app.t("펌웨어 폴더 선택", "Choose firmware folder"),
+                    app.tr("editor_choose_firmware_folder"),
                     Message::Pick(Picker::EditorFirmware),
                     !editor.checking
                 )
@@ -626,9 +606,9 @@ fn region_box<'a>(app: &'a App, editor: &'a Editor) -> Option<Element<'a, Messag
             .spacing(12)
             .align_y(Alignment::Center),
             row![
-                small(app.t("국가 코드", "Country code")),
+                small(app.tr("editor_country_code")),
                 label(country_label(app, editor)).width(Fill),
-                action(app.t("선택", "Choose"), Message::CountryOpen, true).style(soft_style),
+                action(app.tr("editor_choose"), Message::CountryOpen, true).style(soft_style),
             ]
             .spacing(12)
             .align_y(Alignment::Center),
@@ -642,7 +622,7 @@ fn region_box<'a>(app: &'a App, editor: &'a Editor) -> Option<Element<'a, Messag
 fn country_label(app: &App, editor: &Editor) -> String {
     match editor.country.as_deref().and_then(crate::countries::find) {
         Some(country) => format!("{} · {}", country.code, country.name),
-        None => app.t("변경 안 함 (기본)", "Do not change (default)").into(),
+        None => app.tr("editor_do_not_change_default").into(),
     }
 }
 
@@ -671,9 +651,9 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
     let flash = editor.region_changed();
     panel(
         column![
-            label(app.t("변경 내용 확인", "Review changes")).size(25),
+            label(app.tr("editor_review_changes")).size(25),
             small(
-                app.t("바뀌는 필드 {count}개", "{count} fields change")
+                app.tr("editor_count_fields_change")
                     .replace("{count}", &changes.len().to_string())
             ),
             scrollable(list)
@@ -682,7 +662,7 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
                 .height(if flash { 340 } else { 380 }),
             if flash {
                 row![
-                    small(app.t("국가 코드", "Country code")),
+                    small(app.tr("editor_country_code")),
                     label(country_label(app, editor)),
                 ]
                 .spacing(12)
@@ -691,24 +671,30 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
             },
             note(
                 if flash {
-                    app.t(
-                        "적용하면 DeviceInfo를 쓰고 검증한 뒤 원본 GPT·Recovery를 복원하고 공식 펌웨어를 설치합니다. 사용자 데이터가 초기화됩니다.",
-                        "Applying writes and verifies DeviceInfo, restores the original GPT/Recovery and installs official firmware. User data is erased.",
-                    )
+                    app.tr("editor_applying_writes_and_verifies_deviceinfo_restores")
                 } else {
-                    app.t(
-                        "적용하면 DeviceInfo를 쓰고 검증한 뒤 원본 GPT·Recovery를 복원하고 재부팅합니다. 펌웨어 설치와 데이터 초기화는 하지 않습니다.",
-                        "Applying writes and verifies DeviceInfo, restores the original GPT/Recovery and reboots. No firmware is installed and no data is erased.",
-                    )
+                    app.tr("editor_applying_writes_and_verifies_deviceinfo_restores_2")
                 },
                 flash
             ),
             row![
                 space().width(Fill),
-                action(app.t("이전", "Back"), Message::Editor(EditorMessage::Review(false)), true)
-                    .style(soft_style),
-                action(app.t("적용", "Apply"), Message::Editor(EditorMessage::Apply), true)
-                    .style(if editor.protected_changed() || flash { super::fluent::danger_style } else { super::fluent::accent_style }),
+                action(
+                    app.tr("editor_back"),
+                    Message::Editor(EditorMessage::Review(false)),
+                    true
+                )
+                .style(soft_style),
+                action(
+                    app.tr("editor_apply"),
+                    Message::Editor(EditorMessage::Apply),
+                    true
+                )
+                .style(if editor.protected_changed() || flash {
+                    super::fluent::danger_style
+                } else {
+                    super::fluent::accent_style
+                }),
             ]
             .spacing(12),
         ]
@@ -744,19 +730,13 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
             .push(rollback_row(app, editor));
         if LOCK_KEYS.iter().any(|key| !editor.unchanged(key)) {
             list = list.push(note(
-                app.t(
-                    "잠금 상태 값은 부트로더 동작과 보안 상태에 영향을 줍니다. 기기에 맞는 값인지 확인하세요.",
-                    "Lock state values affect bootloader behaviour and the security state. Make sure they suit the device.",
-                ),
+                app.tr("editor_lock_state_values_affect_bootloader_behaviour"),
                 true,
             ));
         }
     } else {
         list = list.push(note(
-            app.t(
-                "모든 필드를 직접 입력합니다. 잠금 상태, verity, 공개키, AVB 값, 기기 고유 캐시와 구조 표식을 잘못 바꾸면 부팅되지 않거나 보안 상태가 바뀔 수 있습니다.",
-                "Every field is typed directly. Wrong lock state, verity, public key, AVB values, device-unique caches or structure markers can prevent booting or change the security state.",
-            ),
+            app.tr("editor_every_field_is_typed_directly_wrong"),
             true,
         ));
         // The key, the English description and the shown translation all match.
@@ -776,22 +756,19 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
     }
     let mut body = column![
         label(
-            app.t("DeviceInfo 수정 · {model}", "Edit DeviceInfo · {model}")
+            app.tr("editor_edit_deviceinfo_model")
                 .replace("{model}", editor.layout.model())
         )
         .size(25),
         small(
-            app.t(
-                "TWRP에서 읽은 현재 값입니다. 바꿀 필드만 수정하세요. 논리 크기 0x{size} 밖의 공유 버퍼는 바뀌지 않습니다.",
-                "Current values read in TWRP. Change only the fields you need. The shared buffer after the 0x{size} logical size is never changed.",
-            )
-            .replace("{size}", &format!("{:X}", editor.layout.logical_size()))
+            app.tr("editor_current_values_read_in_twrp_change")
+                .replace("{size}", &format!("{:X}", editor.layout.logical_size()))
         ),
         if editor.tab == Tab::Custom {
             row![
                 tabs,
                 space().width(Fill),
-                text_input(app.t("필드 검색", "Search fields"), &editor.query)
+                text_input(app.tr("editor_search_fields"), &editor.query)
                     .on_input(|text| Message::Editor(EditorMessage::Query(text)))
                     .padding(8)
                     .width(220),
@@ -813,10 +790,7 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
     if editor.protected_changed() {
         body = body.push(
             checkbox(editor.protected_ack)
-                .label(app.t(
-                    "보안·구조 필드를 바꾸면 부팅 불가·보안 상태 변경이 생길 수 있음을 이해했습니다.",
-                    "I understand that changing security/structure fields can prevent booting or change the security state.",
-                ))
+                .label(app.tr("editor_i_understand_that_changing_security_structure"))
                 .on_toggle(|ack| Message::Editor(EditorMessage::Ack(ack))),
         );
     }
@@ -825,19 +799,19 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
         row![
             small(blocker.unwrap_or("")).width(Fill),
             action(
-                app.t("모두 원래 값", "Reset all"),
+                app.tr("editor_reset_all"),
                 Message::Editor(EditorMessage::ResetAll),
                 true
             )
             .style(soft_style),
             action(
-                app.t("작업 취소 · 원본 복구", "Cancel · Restore originals"),
+                app.tr("editor_cancel_restore_originals"),
                 Message::Editor(EditorMessage::Cancel),
                 true
             )
             .style(soft_style),
             action(
-                app.t("변경 내용 확인", "Review changes"),
+                app.tr("editor_review_changes"),
                 Message::Editor(EditorMessage::Review(true)),
                 blocker.is_none()
             ),

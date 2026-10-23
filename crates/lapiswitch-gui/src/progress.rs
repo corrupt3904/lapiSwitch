@@ -26,17 +26,17 @@ pub enum Step {
 impl Step {
     pub fn title(self, language: crate::settings::Language) -> &'static str {
         match self {
-            Self::Check => language.text("파일 검사", "Check files"),
-            Self::Device => language.text("기기·슬롯 확인", "Device / slot"),
-            Self::Backup => language.text("원본 백업", "Back up originals"),
-            Self::StageRecovery => language.text("GPT·TWRP 준비", "Prepare GPT / TWRP"),
-            Self::Twrp => language.text("TWRP 연결", "Connect TWRP"),
-            Self::DeviceInfo => language.text("DeviceInfo 변경·검증", "DeviceInfo / verify"),
-            Self::Dump => language.text("DeviceInfo 읽기·저장", "Read / save DeviceInfo"),
-            Self::Edl => language.text("EDL 연결", "Connect EDL"),
-            Self::Originals => language.text("원본 복원·검증", "Restore / verify"),
-            Self::Firmware => language.text("펌웨어 설치", "Install firmware"),
-            Self::Finish => language.text("마무리·재부팅", "Finish / reboot"),
+            Self::Check => language.tr("step_check_files"),
+            Self::Device => language.tr("step_device_slot"),
+            Self::Backup => language.tr("step_back_up_originals"),
+            Self::StageRecovery => language.tr("step_prepare_gpt_twrp"),
+            Self::Twrp => language.tr("step_connect_twrp"),
+            Self::DeviceInfo => language.tr("step_deviceinfo_verify"),
+            Self::Dump => language.tr("step_read_save_deviceinfo"),
+            Self::Edl => language.tr("step_connect_edl"),
+            Self::Originals => language.tr("step_restore_verify"),
+            Self::Firmware => language.tr("step_install_firmware"),
+            Self::Finish => language.tr("step_finish_reboot"),
         }
     }
 }

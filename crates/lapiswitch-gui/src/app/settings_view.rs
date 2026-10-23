@@ -35,11 +35,7 @@ fn section<'a>(
 fn driver_modes(app: &App) -> Element<'_, Message> {
     let mut choices = row![].spacing(12);
     for (kernel, name, description) in [
-        (
-            true,
-            "Kernel",
-            app.t("Qualcomm 직렬 드라이버", "Qualcomm serial driver"),
-        ),
+        (true, "Kernel", app.tr("settings_qualcomm_serial_driver")),
         (false, "Userspace", "WinUSB / libusb"),
     ] {
         let supported = !kernel || ltbox_device::driver::kernel_mode_supported();
@@ -80,12 +76,9 @@ fn themes(app: &App) -> Element<'_, Message> {
     use crate::settings::ThemeChoice;
     let mut choices = row![].spacing(4);
     for (choice, name) in [
-        (
-            ThemeChoice::System,
-            app.t("Windows 설정", "Windows setting"),
-        ),
-        (ThemeChoice::Light, app.t("라이트", "Light")),
-        (ThemeChoice::Dark, app.t("다크", "Dark")),
+        (ThemeChoice::System, app.tr("settings_windows_setting")),
+        (ThemeChoice::Light, app.tr("settings_light")),
+        (ThemeChoice::Dark, app.tr("settings_dark")),
     ] {
         let selected = app.preferences.theme == choice;
         choices = choices.push(
@@ -108,27 +101,21 @@ fn themes(app: &App) -> Element<'_, Message> {
 
 pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let guide = if cfg!(windows) {
-        app.t("Windows 장치 관리자에서 ADB / Android Bootloader 드라이버를 확인하세요. Userspace 모드는 9008 장치에 WinUSB가 필요하며, Kernel 모드는 Qualcomm 직렬 드라이버를 사용합니다. 드라이버 변경 후 상태를 다시 확인하세요.", "Check ADB / Android Bootloader drivers in Device Manager. Userspace mode requires WinUSB for the 9008 device; Kernel mode uses the Qualcomm serial driver. Recheck after setup.")
+        app.tr("settings_check_adb_android_bootloader_drivers_in")
     } else if cfg!(target_os = "linux") {
-        app.t("Linux에서는 misc/udev/51-ltbox-qcom.rules를 /etc/udev/rules.d에 설치하고 규칙을 다시 불러온 뒤 USB를 재연결하세요.", "On Linux, install misc/udev/51-ltbox-qcom.rules in /etc/udev/rules.d, reload udev rules and reconnect USB.")
+        app.tr("settings_on_linux_install_misc_udev_51")
     } else {
-        app.t(
-            "macOS에서는 Userspace USB 모드를 사용합니다.",
-            "macOS uses Userspace USB mode.",
-        )
+        app.tr("settings_macos_uses_userspace_usb_mode")
     };
     let default_mode = if ltbox_device::driver::kernel_mode_supported() {
-        app.t(
-            "LTBox 기본값: Kernel / Qualcomm (저장된 선택은 유지)",
-            "LTBox default: Kernel / Qualcomm (saved choice is preserved)",
-        )
+        app.tr("settings_ltbox_default_kernel_qualcomm_saved_choice")
     } else {
-        app.t("기본값: Userspace / WinUSB", "Default: Userspace / WinUSB")
+        app.tr("settings_default_userspace_winusb")
     };
     // Always labelled in English so anyone can find it in any language.
     let language = section(
         "Language",
-        app.t("앱 화면에 표시할 언어", "Display language of the app"),
+        app.tr("settings_display_language_of_the_app"),
         Some(
             pick_list(
                 Language::ALL,
@@ -159,37 +146,25 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
         vec![],
     );
     let theme = section(
-        app.t("테마", "Theme"),
-        app.t(
-            "라이트·다크 화면 또는 Windows 설정을 따릅니다.",
-            "Light, dark, or follow the Windows setting.",
-        ),
+        app.tr("settings_theme"),
+        app.tr("settings_light_dark_or_follow_the_windows"),
         Some(themes(app)),
         vec![],
     );
     let privacy = section(
-        app.t("개인정보 보호", "Privacy"),
-        app.t(
-            "시리얼 필드와 ADB 목록을 가립니다. 복구에 필요한 백업·기기 확인 기록 원본은 변경하지 않으며, 기존 로그에는 소급 적용되지 않습니다.",
-            "Masks serial fields and ADB lists. Recovery backups and the original device identity record stay intact. Existing transcripts are unchanged.",
-        ),
+        app.tr("settings_privacy"),
+        app.tr("settings_masks_serial_fields_and_adb_lists"),
         None,
         vec![
             checkbox(app.preferences.mask_serial)
-                .label(app.t(
-                    "앱 로그에서 시리얼 번호 숨기기",
-                    "Mask serial numbers in app logs",
-                ))
+                .label(app.tr("settings_mask_serial_numbers_in_app_logs"))
                 .on_toggle(Message::Mask)
                 .into(),
         ],
     );
     let storage = section(
-        app.t("로그 및 백업 위치", "Logs and backup location"),
-        app.t(
-            "선택한 위치 아래 logs에 로그를, backup의 작업별 폴더(firmware_flashing·DeviceInfo_Write·DeviceInfo_Dump)에 새 백업을 저장합니다. 기존 파일은 이동하지 않습니다.",
-            "Logs go to logs and new backups to per-task folders under backup (firmware_flashing, DeviceInfo_Write, DeviceInfo_Dump) in this location. Existing files are not moved.",
-        ),
+        app.tr("settings_logs_and_backup_location"),
+        app.tr("settings_logs_go_to_logs_and_new"),
         None,
         vec![
             row![
@@ -206,7 +181,7 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
                         ..Default::default()
                     }),
                 action(
-                    app.t("폴더 선택", "Choose folder"),
+                    app.tr("settings_choose_folder"),
                     Message::Pick(Picker::Output),
                     !app.busy(),
                 )
@@ -218,11 +193,8 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
         ],
     );
     let drivers = section(
-        app.t("USB 드라이버", "USB driver"),
-        app.t(
-            "기기와 연결할 때 사용할 드라이버 방식을 선택합니다.",
-            "Choose the driver mode used to connect to the device.",
-        ),
+        app.tr("settings_usb_driver"),
+        app.tr("settings_choose_the_driver_mode_used_to"),
         None,
         vec![
             driver_modes(app),
@@ -230,13 +202,13 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
             row![
                 note(driver_status(app), !app.drivers_ready()),
                 action(
-                    app.t("드라이버 다시 확인", "Recheck drivers"),
+                    app.tr("dashboard_recheck_drivers"),
                     Message::CheckDrivers,
                     !app.driver_checking,
                 )
                 .style(soft_style),
                 action(
-                    app.t("다운로드 및 설치", "Download & install"),
+                    app.tr("dashboard_download_install"),
                     Message::InstallDrivers,
                     app.drivers_installable() && !app.busy(),
                 ),
@@ -257,10 +229,8 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
     let content = column![
         title(
             app,
-            "앱 설정",
-            "App settings",
-            "언어·로그 및 백업 위치·USB 연결 방식을 설정합니다.",
-            "Language, log and backup location, and USB connection mode."
+            "settings_app_settings",
+            "settings_language_log_and_backup_location_and"
         ),
         language,
         theme,
@@ -268,24 +238,14 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
         storage,
         drivers,
         divider,
-        small(app.t(
-            "핵심 작업 오류와 일부 상세 로그는 한국어로 표시될 수 있습니다.",
-            "Core operation errors and some detailed logs may appear in Korean."
-        )),
+        small(app.tr("settings_core_operation_errors_and_some_detailed")),
         section(
-            app.t("오픈소스 라이선스", "Open-source licenses"),
-            app.t(
-                "사용한 구성요소의 라이선스와 저작권 고지를 확인합니다.",
-                "Read license and copyright notices for included components.",
-            ),
+            app.tr("licenses_open_source_licenses"),
+            app.tr("settings_read_license_and_copyright_notices_for"),
             Some(
-                action(
-                    app.t("라이선스 보기", "View licenses"),
-                    Message::LicenseOpen,
-                    true
-                )
-                .style(soft_style)
-                .into()
+                action(app.tr("settings_view_licenses"), Message::LicenseOpen, true)
+                    .style(soft_style)
+                    .into()
             ),
             vec![],
         ),

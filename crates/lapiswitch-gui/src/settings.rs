@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-/// Korean and English are written beside each other in the code. Chinese,
-/// Japanese and Russian look up the English text in `lang/ui/<code>.json`
-/// and fall back to English for anything missing.
+/// Every language's text lives in `lang/<code>.json`, keyed by identifiers
+/// such as `view_final_check`. A key missing in a language falls back to
+/// English, then to the key itself.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Language {
     #[default]
@@ -36,14 +36,6 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    const LITERAL: &str = r#""((?:[^"\\]|\\.)*)""#;
-
-    fn unescape(s: &str) -> String {
-        s.replace("\\\"", "\"")
-            .replace("\\n", "\n")
-            .replace("\\\\", "\\")
-    }
-
     fn rust_sources(dir: &Path, out: &mut Vec<String>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
@@ -55,35 +47,6 @@ mod tests {
         }
     }
 
-    /// English text of every literal pair passed to `t`, `text` and the
-    /// view helper `title(app, ko, en, sub_ko, sub_en)` in the GUI sources.
-    fn english_sources() -> BTreeSet<String> {
-        let pair = regex::Regex::new(&format!(
-            r"(?s)\.(?:t|text)\(\s*{LITERAL}\s*,\s*{LITERAL}\s*,?\s*\)"
-        ))
-        .unwrap();
-        let title = regex::Regex::new(&format!(
-            r"(?s)title\(\s*app\s*,\s*{LITERAL}\s*,\s*{LITERAL}\s*,\s*{LITERAL}\s*,\s*{LITERAL}"
-        ))
-        .unwrap();
-        let mut files = vec![];
-        rust_sources(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
-            &mut files,
-        );
-        let mut english = BTreeSet::new();
-        for file in &files {
-            for c in pair.captures_iter(file) {
-                english.insert(unescape(&c[2]));
-            }
-            for c in title.captures_iter(file) {
-                english.insert(unescape(&c[2]));
-                english.insert(unescape(&c[4]));
-            }
-        }
-        english
-    }
-
     fn placeholders(s: &str) -> Vec<String> {
         let rx = regex::Regex::new(r"\{[A-Za-z_]*\}").unwrap();
         let mut found: Vec<String> = rx.find_iter(s).map(|m| m.as_str().to_owned()).collect();
@@ -91,29 +54,67 @@ mod tests {
         found
     }
 
+    fn catalog(language: Language) -> HashMap<String, String> {
+        serde_json::from_str(language.json()).unwrap()
+    }
+
+    /// Every key the GUI asks for exists in English, every language has
+    /// exactly the English keys with the same placeholders, and no key is
+    /// left that neither the GUI nor the vendored LTBox crates use.
     #[test]
-    fn every_english_ui_text_is_translated_in_each_added_language() {
-        let english = english_sources();
-        assert!(english.len() > 200, "source scan found too little text");
-        for language in [Language::Chinese, Language::Japanese, Language::Russian] {
-            let catalog = language.ui_catalog().unwrap();
-            let keys: BTreeSet<String> = catalog.keys().map(|k| (*k).to_owned()).collect();
-            let missing: Vec<_> = english.difference(&keys).collect();
-            let stale: Vec<_> = keys.difference(&english).collect();
-            assert!(missing.is_empty(), "{language:?} missing: {missing:#?}");
-            assert!(stale.is_empty(), "{language:?} unused: {stale:#?}");
-            for (en, translated) in catalog {
-                assert!(!translated.trim().is_empty(), "{language:?}: {en}");
-                assert_eq!(
-                    placeholders(en),
-                    placeholders(translated),
-                    "{language:?}: {en}"
-                );
-                assert_eq!(language.text("한국어", en), *translated);
-            }
-            let absent = "Not in any catalog";
-            assert_eq!(language.text("한국어", absent), absent);
+    fn every_language_has_every_key_the_sources_use() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut gui = vec![];
+        rust_sources(&manifest.join("src"), &mut gui);
+        let mut vendor = vec![];
+        for dir in [
+            "../../vendor/ltbox-core/src",
+            "../../vendor/ltbox-device/src",
+        ] {
+            rust_sources(&manifest.join(dir), &mut vendor);
         }
+        let call = regex::Regex::new(
+            r#"(?s)(?:\btr|title)\(\s*(?:app\s*,\s*)?"([a-z0-9_]+)"(?:\s*,\s*"([a-z0-9_]+)")?"#,
+        )
+        .unwrap();
+        let mut used = BTreeSet::new();
+        for file in &gui {
+            for c in call.captures_iter(file) {
+                used.insert(c[1].to_owned());
+                if let Some(second) = c.get(2) {
+                    used.insert(second.as_str().to_owned());
+                }
+            }
+        }
+        assert!(used.len() > 200, "source scan found too few keys");
+        let english = catalog(Language::English);
+        let keys: BTreeSet<String> = english.keys().cloned().collect();
+        let missing: Vec<_> = used.difference(&keys).collect();
+        assert!(missing.is_empty(), "missing in en.json: {missing:#?}");
+        let unused: Vec<_> = keys
+            .iter()
+            .filter(|key| !used.contains(*key))
+            .filter(|key| {
+                let quoted = format!("\"{key}\"");
+                !vendor.iter().any(|file| file.contains(&quoted))
+            })
+            .collect();
+        assert!(unused.is_empty(), "unused keys: {unused:#?}");
+        for language in Language::ALL {
+            let other = catalog(language);
+            let other_keys: BTreeSet<String> = other.keys().cloned().collect();
+            assert_eq!(other_keys, keys, "{language:?}");
+            for (key, value) in &english {
+                assert!(!other[key].trim().is_empty(), "{language:?}: {key}");
+                assert_eq!(
+                    placeholders(value),
+                    placeholders(&other[key]),
+                    "{language:?}: {key}"
+                );
+            }
+        }
+        assert_eq!(Language::Korean.tr("view_final_check"), "최종 확인");
+        assert_eq!(Language::Russian.tr("Missing-key"), "Missing-key");
     }
 
     #[test]
@@ -150,27 +151,6 @@ mod tests {
             Language::Korean.field_description("Not mapped"),
             "Not mapped"
         );
-    }
-
-    #[test]
-    fn log_translations_cover_the_same_keys_and_placeholders() {
-        let english: HashMap<String, String> =
-            serde_json::from_str(include_str!("../lang/en.json")).unwrap();
-        for json in [
-            include_str!("../lang/ko.json"),
-            include_str!("../lang/zh.json"),
-            include_str!("../lang/ja.json"),
-            include_str!("../lang/ru.json"),
-        ] {
-            let other: HashMap<String, String> = serde_json::from_str(json).unwrap();
-            assert_eq!(
-                other.keys().collect::<BTreeSet<_>>(),
-                english.keys().collect::<BTreeSet<_>>()
-            );
-            for (key, value) in &english {
-                assert_eq!(placeholders(value), placeholders(&other[key]), "{key}");
-            }
-        }
     }
 
     #[test]
@@ -231,17 +211,27 @@ impl Language {
         Self::Japanese,
         Self::Russian,
     ];
-    fn ui_catalog(self) -> Option<&'static Catalog> {
-        static ZH: OnceLock<Catalog> = OnceLock::new();
-        static JA: OnceLock<Catalog> = OnceLock::new();
-        static RU: OnceLock<Catalog> = OnceLock::new();
-        let (cell, json) = match self {
-            Self::Korean | Self::English => return None,
-            Self::Chinese => (&ZH, include_str!("../lang/ui/zh.json")),
-            Self::Japanese => (&JA, include_str!("../lang/ui/ja.json")),
-            Self::Russian => (&RU, include_str!("../lang/ui/ru.json")),
-        };
-        Some(cell.get_or_init(|| leak_catalog(json)))
+    fn json(self) -> &'static str {
+        match self {
+            Self::Korean => include_str!("../lang/ko.json"),
+            Self::English => include_str!("../lang/en.json"),
+            Self::Chinese => include_str!("../lang/zh.json"),
+            Self::Japanese => include_str!("../lang/ja.json"),
+            Self::Russian => include_str!("../lang/ru.json"),
+        }
+    }
+    fn catalog(self) -> &'static Catalog {
+        static CATALOGS: [OnceLock<Catalog>; 5] = [const { OnceLock::new() }; 5];
+        let index = Self::ALL.iter().position(|l| *l == self).expect("listed");
+        CATALOGS[index].get_or_init(|| leak_catalog(self.json()))
+    }
+    /// The text of `key`: this language, else English, else the key.
+    pub fn tr(self, key: &'static str) -> &'static str {
+        self.catalog()
+            .get(key)
+            .or_else(|| Self::English.catalog().get(key))
+            .copied()
+            .unwrap_or(key)
     }
     /// Translations of the DeviceInfo field descriptions, which the device
     /// files write in English.
@@ -265,28 +255,14 @@ impl Language {
             .and_then(|catalog| catalog.get(english).copied())
             .unwrap_or(english)
     }
-    pub fn text(self, ko: &'static str, en: &'static str) -> &'static str {
-        match self {
-            Self::Korean => ko,
-            Self::English => en,
-            _ => self
-                .ui_catalog()
-                .and_then(|catalog| catalog.get(en).copied())
-                .unwrap_or(en),
-        }
-    }
+    /// Backend crates log through `ltbox_core::i18n::tr`; give them the
+    /// same catalog and fallback.
     pub fn install(self) {
-        let json = match self {
-            Self::Korean => include_str!("../lang/ko.json"),
-            Self::English => include_str!("../lang/en.json"),
-            Self::Chinese => include_str!("../lang/zh.json"),
-            Self::Japanese => include_str!("../lang/ja.json"),
-            Self::Russian => include_str!("../lang/ru.json"),
-        };
-        let catalog: HashMap<String, String> =
-            serde_json::from_str(json).expect("bundled translations");
         ltbox_core::i18n::set_translator(move |key| {
-            catalog.get(key).cloned().unwrap_or_else(|| key.to_owned())
+            self.catalog()
+                .get(key)
+                .or_else(|| Self::English.catalog().get(key))
+                .map_or_else(|| key.to_owned(), |text| (*text).to_owned())
         });
     }
 }

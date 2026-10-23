@@ -7,10 +7,10 @@ use std::sync::{Mutex, OnceLock};
 
 pub(super) fn status(app: &App) -> String {
     if app.device.snapshot.error.is_some() {
-        return app.t("연결 확인 실패", "Connection check failed").into();
+        return app.tr("dashboard_connection_check_failed").into();
     }
     if app.device.checked.is_none() {
-        return app.t("연결 확인 중…", "Checking connection…").into();
+        return app.tr("dashboard_checking_connection").into();
     }
     if !app.demo
         && app
@@ -18,19 +18,19 @@ pub(super) fn status(app: &App) -> String {
             .checked
             .is_some_and(|t| t.elapsed() >= crate::device::MAX_AGE)
     {
-        return app.t("연결 다시 확인 중…", "Rechecking connection…").into();
+        return app.tr("dashboard_rechecking_connection").into();
     }
     match app.device.snapshot.mode {
-        Mode::None => app.t("기기 연결 안 됨", "No device connected"),
+        Mode::None => app.tr("dashboard_no_device_connected"),
         Mode::Adb => "ADB",
         Mode::Recovery => "ADB · Recovery",
-        Mode::Unauthorized => app.t("ADB · 승인 필요", "ADB · Unauthorized"),
+        Mode::Unauthorized => app.tr("dashboard_adb_unauthorized"),
         Mode::Sideload => "ADB · Sideload",
-        Mode::ServerBlocking => app.t("ADB · 서버 충돌", "ADB · Server conflict"),
+        Mode::ServerBlocking => app.tr("dashboard_adb_server_conflict"),
         Mode::Fastboot => "FASTBOOT",
         Mode::Fastbootd => "FASTBOOTD",
         Mode::Edl => "EDL · 9008",
-        Mode::Usb => app.t("ADB USB · 작업 중", "ADB USB · In use"),
+        Mode::Usb => app.tr("dashboard_adb_usb_in_use"),
     }
     .into()
 }
@@ -95,7 +95,7 @@ fn device_name(app: &App) -> &str {
     } else if !d.model.is_empty() {
         &d.model
     } else {
-        app.t("연결된 기기 없음", "No device")
+        app.tr("dashboard_no_device")
     }
 }
 /// The connected device at the top of the navigation, like the account
@@ -113,7 +113,7 @@ pub(super) fn device_card(app: &App) -> Element<'_, Message> {
                     "{} · {} · {}",
                     d.model,
                     status(app),
-                    app.t("덤프만 지원", "Dump only")
+                    app.tr("dashboard_dump_only")
                 )
             } else {
                 format!("{} · {}", d.model, status(app))
@@ -133,21 +133,20 @@ pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
     let detail = if let Some(error) = &s.error {
         error.as_str()
     } else if app.device.unsupported_model() {
-        app.t(
-            "지원하지 않는 기기입니다. 지원 가능한 기기를 확인해주세요.",
-            "Unsupported device. Check the supported devices.",
-        )
+        app.tr("dashboard_unsupported_device_check_the_supported_devices")
     } else {
         match s.mode {
-        Mode::None => app.t("기기가 연결되어 있지 않습니다. 기기를 연결해야 작업을 시작할 수 있습니다.", "No device is connected. Connect a device before starting."),
-        Mode::Unauthorized => app.t("태블릿에서 USB 디버깅 허용 창을 승인해 주세요.", "Approve the USB debugging prompt on the tablet."),
-        Mode::Sideload => app.t("ADB Sideload에서는 시작할 수 없습니다. 시스템 또는 지원하는 연결 모드로 전환해 주세요.", "ADB Sideload is not ready for conversion. Use the system or another supported mode."),
-        Mode::ServerBlocking => app.t("다른 프로그램의 ADB 서버를 종료한 뒤 다시 연결해 주세요.", "Close the other program's ADB server and reconnect."),
-        Mode::Fastboot | Mode::Fastbootd => app.fastboot_start_text(),
-        _ if !app.device.reachable() => app.t("기기 연결 상태를 확인하고 있습니다. 잠시 기다려 주세요.", "Checking device readiness. Please wait."),
-        _ if !app.device.startable() => app.t("기기 모델을 확인할 수 없습니다. 기기 연결 상태를 확인해 주세요.", "The device model is unknown. Check the device connection."),
-        _ => app.t("기기 연결을 확인했습니다. 시작 직전에 한 번 더 확인합니다.", "Device detected. The connection is checked again immediately before starting."),
-    }
+            Mode::None => app.tr("dashboard_no_device_is_connected_connect_a"),
+            Mode::Unauthorized => app.tr("dashboard_approve_the_usb_debugging_prompt_on"),
+            Mode::Sideload => app.tr("dashboard_adb_sideload_is_not_ready_for"),
+            Mode::ServerBlocking => app.tr("dashboard_close_the_other_program_s_adb"),
+            Mode::Fastboot | Mode::Fastbootd => app.fastboot_start_text(),
+            _ if !app.device.reachable() => {
+                app.tr("dashboard_checking_device_readiness_please_wait")
+            }
+            _ if !app.device.startable() => app.tr("app_the_device_model_is_unknown_check"),
+            _ => app.tr("dashboard_device_detected_the_connection_is_checked"),
+        }
     };
     note(
         format!("{}\n{detail}", status(app)),
@@ -156,17 +155,16 @@ pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
 }
 pub(super) fn driver_banner(app: &App) -> Option<Element<'_, Message>> {
     if app.drivers_ready() && app.activity != Some(Activity::Install) {
-        return app.driver_restart.then(|| notification_note(app.t("드라이버 설치 후 USB를 재연결하세요. 기기가 감지되지 않으면 PC를 재시작해 주세요.", "Reconnect USB after driver installation. Restart the PC if the device is not detected.")));
+        return app.driver_restart.then(|| {
+            notification_note(app.tr("dashboard_reconnect_usb_after_driver_installation_restart"))
+        });
     }
     let installing = app.activity == Some(Activity::Install);
     // Same shape as the other banners: message on the left, action on the right.
     let mut text = column![
         label(if installing {
-            app.t(
-                "드라이버 설치 중… 권한 요청 창을 확인해 주세요.",
-                "Installing drivers… Check the permission prompt.",
-            )
-            .into()
+            app.tr("dashboard_installing_drivers_check_the_permission_prompt")
+                .into()
         } else {
             driver_status(app)
         })
@@ -180,14 +178,14 @@ pub(super) fn driver_banner(app: &App) -> Option<Element<'_, Message>> {
     let mut content = row![text].spacing(12).align_y(Alignment::Center);
     if app.drivers_installable() || installing {
         content = content.push(action(
-            app.t("다운로드 및 설치", "Download & install"),
+            app.tr("dashboard_download_install"),
             Message::InstallDrivers,
             !app.busy() && app.deferred.is_none() && app.drivers_installable(),
         ));
     } else if !app.driver_checking {
         content = content.push(
             action(
-                app.t("드라이버 다시 확인", "Recheck drivers"),
+                app.tr("dashboard_recheck_drivers"),
                 Message::CheckDrivers,
                 !app.busy(),
             )
@@ -270,37 +268,32 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
     .style(super::fluent::card_style);
     let support = match app.device.supported() {
         Some(device) if !device.writable() => {
-            format!("{} · {device}", app.t("덤프만 지원", "Dump only"))
+            format!("{} · {device}", app.tr("dashboard_dump_only"))
         }
-        Some(device) => format!("{} · {device}", app.t("지원 기기", "Supported")),
-        None if app.device.unsupported_model() => {
-            app.t("지원하지 않는 기기", "Not supported").into()
-        }
+        Some(device) => format!("{} · {device}", app.tr("dashboard_supported")),
+        None if app.device.unsupported_model() => app.tr("dashboard_not_supported").into(),
         None => "—".into(),
     };
     let details = [
         (
-            app.t("RAM · 저장 공간", "RAM · Storage"),
+            app.tr("dashboard_ram_storage"),
             format!("{} / {}", value(&d.ram), value(&d.storage)),
         ),
-        (app.t("활성 슬롯", "Active slot"), value(&d.slot).into()),
-        (app.t("펌웨어", "Firmware"), value(&d.firmware).into()),
+        (app.tr("dashboard_active_slot"), value(&d.slot).into()),
+        (app.tr("dashboard_firmware"), value(&d.firmware).into()),
         (
-            app.t("롤백 방지", "Rollback protection"),
+            app.tr("dashboard_rollback_protection"),
             if app.device.supported().is_some() {
-                app.t("사용 · 다운그레이드 차단", "Enabled · Downgrades blocked")
+                app.tr("dashboard_enabled_downgrades_blocked")
             } else {
                 "—"
             }
             .into(),
         ),
-        (
-            app.t("시리얼 번호", "Serial number"),
-            value(&d.serial).into(),
-        ),
-        (app.t("지원 상태", "Support"), support),
+        (app.tr("dashboard_serial_number"), value(&d.serial).into()),
+        (app.tr("dashboard_support"), support),
     ];
-    let support_name = app.t("지원 상태", "Support");
+    let support_name = app.tr("dashboard_support");
     // Each cell keeps one line: long values end in an ellipsis.
     let cell_width = ((app.window_width - 290.0 - 36.0).min(1000.0) - 26.0) / 2.0 - 2.0 - 28.0;
     let budget = ((cell_width / 8.2) as usize).max(8);
@@ -332,10 +325,8 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
     let mut content = column![
         title(
             app,
-            "기기",
-            "Device",
-            "연결된 기기 정보와 현재 상태를 확인합니다.",
-            "Device information and live connection status."
+            "dashboard_device",
+            "dashboard_device_information_and_live_connection_status"
         ),
         hero,
     ]
@@ -343,32 +334,21 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
     if !app.device.startable() {
         content = content.push(connection_note(app));
     } else if d.mode == Mode::Edl && d.model.is_empty() {
-        content = content.push(note(
-            app.t(
-                "EDL에서는 작업 준비 단계에서 모델과 슬롯을 확인합니다.",
-                "In EDL, model and slot are verified when the operation starts.",
-            ),
-            false,
-        ));
+        content = content.push(note(app.tr("dashboard_in_edl_model_and_slot_are"), false));
     }
     content = content
-        .push(section(app.t("기기 정보", "Device details")))
+        .push(section(app.tr("dashboard_device_details")))
         .push(grid);
     if d.cached {
-        content = content.push(small(app.t(
-            "일부 기기 정보는 마지막으로 읽은 값입니다. 현재 연결 모드는 계속 갱신됩니다.",
-            "Some details are from the last successful read. Connection mode continues to update.",
-        )));
+        content = content.push(small(app.tr("dashboard_some_details_are_from_the_last")));
     }
     if !app.logs.is_empty() {
-        content = content.push(section(app.t("로그", "Log"))).push(logs(app));
+        content = content
+            .push(section(app.tr("dashboard_log")))
+            .push(logs(app));
     }
     (
         content.into(),
-        small(app.t(
-            "연결 상태는 약 3초마다 자동 확인됩니다.",
-            "Connection status refreshes about every 3 seconds.",
-        ))
-        .into(),
+        small(app.tr("dashboard_connection_status_refreshes_about_every_3")).into(),
     )
 }

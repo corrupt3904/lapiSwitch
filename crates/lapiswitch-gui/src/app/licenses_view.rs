@@ -35,9 +35,7 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
         );
     }
     if count == 0 {
-        choices = choices.push(small(
-            app.t("검색 결과가 없습니다.", "No matching components."),
-        ));
+        choices = choices.push(small(app.tr("licenses_no_matching_components")));
     }
     let selected = &catalog.components[app.license_selection];
     let mut documents = column![
@@ -83,15 +81,12 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
     });
     panel(
         column![
-            label(app.t("오픈소스 라이선스", "Open-source licenses")).size(25),
-            small(app.t(
-                "구성요소를 선택하면 라이선스와 저작권 고지 원문을 볼 수 있습니다. 인터넷 연결은 필요하지 않습니다.",
-                "Select a component to read its original license and copyright notices. No internet connection is required."
-            )),
+            label(app.tr("licenses_open_source_licenses")).size(25),
+            small(app.tr("licenses_select_a_component_to_read_its")),
             row![
                 column![
                     text_input(
-                        app.t("구성요소·라이선스 검색", "Search components or licenses"),
+                        app.tr("licenses_search_components_or_licenses"),
                         &app.license_search
                     )
                     .on_input(Message::LicenseSearch)
@@ -109,7 +104,7 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
             .height(Fill),
             row![
                 space().width(Fill),
-                action(app.t("닫기", "Close"), Message::LicenseClose, true).style(soft_style)
+                action(app.tr("licenses_close"), Message::LicenseClose, true).style(soft_style)
             ]
             .align_y(Alignment::Center),
         ]

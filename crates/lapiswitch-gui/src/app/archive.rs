@@ -117,10 +117,7 @@ impl App {
                     // launch; neither the old run's settings nor slot is reused.
                     return self.begin_start_probe();
                 }
-                self.error = Some(self.t(
-                    "다른 작업 기록이 생겼거나 기록을 확인할 수 없습니다. 다시 시작을 눌러 확인하세요.",
-                    "Another run appeared or its record could not be checked. Review and start again.",
-                ).into());
+                self.error = Some(self.tr("archive_another_run_appeared_or_its_record").into());
             }
             Err(error) => {
                 self.refresh_pending();
@@ -135,19 +132,29 @@ pub(super) fn modal(app: &App) -> iced::widget::Container<'_, Message> {
     use super::view::*;
     use iced::Fill;
     use iced::widget::{column, row, space};
-    panel(column![
-        label(app.t("이전 작업 보관 후 새로 시작", "Archive run and start over")).size(24),
-        label(app.t(
-            "이전 작업을 중단하고 새 작업을 준비합니다. 기존 백업과 로그는 보존됩니다.",
-            "Stop the previous run and prepare a new one. Existing backups and logs will be preserved.",
-        )),
-        row![
-            space().width(Fill),
-            action(app.t("취소", "Cancel"), Message::CancelArchiveRun, !app.busy())
+    panel(
+        column![
+            label(app.tr("archive_archive_run_and_start_over")).size(24),
+            label(app.tr("archive_stop_the_previous_run_and_prepare")),
+            row![
+                space().width(Fill),
+                action(
+                    app.tr("archive_cancel"),
+                    Message::CancelArchiveRun,
+                    !app.busy()
+                )
                 .style(soft_style),
-            action(app.t("확인", "Confirm"), Message::ConfirmArchiveRun, app.can_archive_run()),
-        ].spacing(12),
-    ].spacing(20)).max_width(600)
+                action(
+                    app.tr("archive_confirm"),
+                    Message::ConfirmArchiveRun,
+                    app.can_archive_run()
+                ),
+            ]
+            .spacing(12),
+        ]
+        .spacing(20),
+    )
+    .max_width(600)
 }
 
 #[cfg(test)]
