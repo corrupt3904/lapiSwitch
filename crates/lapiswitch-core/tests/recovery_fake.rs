@@ -2533,3 +2533,93 @@ fn a_corrupt_country_readback_keeps_evidence_and_never_rewrites() {
     assert_eq!(d.inner.writes.len(), count);
     s.backup.verify().unwrap();
 }
+
+/// TWRP that is already running when the original restore starts.
+struct TwrpInfo {
+    bytes: Vec<u8>,
+    reads: usize,
+    writes: usize,
+}
+impl DeviceInfoIo for TwrpInfo {
+    fn read(&mut self, _: &Path, _: &mut Vec<String>) -> Result<Vec<u8>, String> {
+        self.reads += 1;
+        Ok(self.bytes.clone())
+    }
+    fn prepare(&mut self, b: &[u8], p: &[u8], _: &mut Vec<String>) -> Result<(), String> {
+        assert_eq!(b, self.bytes);
+        map::check_plan(tb520fu().layout().unwrap(), b, p)
+    }
+    fn apply(
+        &mut self,
+        b: &[u8],
+        p: &[u8],
+        _: &Path,
+        _: &mut Vec<String>,
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+        assert_eq!(b, self.bytes);
+        self.bytes = p.to_vec();
+        self.writes += 1;
+        Ok((p.to_vec(), p.to_vec()))
+    }
+}
+impl recovery_flow::restore::Session for TwrpInfo {
+    fn verify_identity(&mut self, _: &VerifiedBackup) -> Result<(), String> {
+        Ok(())
+    }
+    fn reboot_edl(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_restore_from_twrp_keeps_the_original_reverts_this_runs_value_and_stops_on_others() {
+    use recovery_flow::restore;
+    for case in ["before_read", "verified", "unknown", "other"] {
+        let mut s = Setup::new(Slot::B, RollbackMode::Reset);
+        let original = s.info.bytes.clone();
+        match case {
+            "verified" | "other" => s.transact().unwrap(),
+            "unknown" => {
+                // The write landed but its result was never proven.
+                s.info.fail_after_apply = true;
+                assert!(s.transact().is_err());
+            }
+            _ => {}
+        }
+        let mut live = s.info.bytes.clone();
+        if case == "other" {
+            live[0x20] ^= 1;
+        }
+        let mut twrp = TwrpInfo {
+            bytes: live,
+            reads: 0,
+            writes: 0,
+        };
+        let mut d = restore_disk(s.disk, Slot::B);
+        let result = restore::run_from_twrp(
+            &mut d,
+            &mut twrp,
+            &s.backup,
+            &s.firmware.loader,
+            &mut WaitClock::default(),
+            &mut Ui::default(),
+            &mut vec![],
+        );
+        if case == "other" {
+            assert_eq!(result.unwrap_err(), restore::TWRP_OTHER_MESSAGE);
+            assert_eq!(twrp.writes, 0);
+            assert!(d.0.inner.writes.is_empty() && d.0.inner.resets.is_empty());
+            continue;
+        }
+        result.unwrap();
+        assert_eq!(twrp.bytes, original, "{case}");
+        let written = case != "before_read";
+        assert_eq!(twrp.writes, usize::from(written), "{case}");
+        assert_eq!(twrp.reads, if written { 3 } else { 0 }, "{case}");
+        assert_eq!(d.0.inner.resets, vec![ResetMode::System]);
+        assert_eq!(
+            s.backup.transaction_stage().unwrap(),
+            TransactionStage::Restored
+        );
+    }
+}

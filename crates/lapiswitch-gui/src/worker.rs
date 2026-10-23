@@ -464,8 +464,6 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                         return Err("미완료 작업에 연결된 백업을 먼저 복구해 주세요.".into());
                     }
                 }
-                let assessment = lapiswitch_core::recovery_flow::restore::preflight(&backup)?;
-                ltbox_core::live!(log, "원본 복구 DeviceInfo 판정: {:?}", assessment);
                 if let Some(state) = store.load()?
                     && state.backup_dir.canonicalize().map_err(|e| e.to_string())?
                         == backup.path().canonicalize().map_err(|e| e.to_string())?
@@ -478,6 +476,35 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 {
                     return Err("공식 펌웨어 설치가 시작된 작업입니다. 과거 Recovery/GPT로 되돌리지 않고 펌웨어 설치를 이어가세요.".into());
                 }
+                let mut device = NativeDevice::new(backup.path())?;
+                device.ensure_single_target()?;
+                let connection = device.detect()?;
+                let _ = tx.send(Event::Backup(backup.path().to_owned()));
+                if connection == Connection::Adb {
+                    // Already in TWRP: DeviceInfo is read and judged there.
+                    let _ = tx.send(Event::Progress(Step::Twrp));
+                    let mut recovery = lapiswitch_core::recovery_flow::native::Recovery::wait(
+                        &backup, &mut ui, &mut log,
+                    )?;
+                    let mut device = NativeWorkflow::disconnected(device);
+                    let mut warnings = lapiswitch_core::recovery_flow::restore::run_from_twrp(
+                        &mut device,
+                        &mut recovery,
+                        &backup,
+                        &loader,
+                        &mut SystemClock::default(),
+                        &mut ui,
+                        &mut log,
+                    )?;
+                    let _ = tx.send(Event::Progress(Step::Finish));
+                    archive_restored(&store, &backup, &mut warnings, &mut log);
+                    return Ok(warnings);
+                }
+                if connection != Connection::Edl {
+                    return Err("복구할 기기를 TWRP(ADB Recovery) 또는 EDL로 연결해 주세요.".into());
+                }
+                let assessment = lapiswitch_core::recovery_flow::restore::preflight(&backup)?;
+                ltbox_core::live!(log, "원본 복구 DeviceInfo 판정: {:?}", assessment);
                 let twrp = if assessment.needs_twrp() {
                     Some(lapiswitch_core::recovery_asset::acquire(
                         backup.device(),
@@ -491,13 +518,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 } else {
                     None
                 };
-                let _ = tx.send(Event::Backup(backup.path().to_owned()));
                 let _ = tx.send(Event::Progress(Step::Edl));
-                let mut device = NativeDevice::new(backup.path())?;
-                device.ensure_single_target()?;
-                if device.detect()? != Connection::Edl {
-                    return Err("복구할 기기를 EDL로 연결해 주세요.".into());
-                }
                 let session = device.open_edl(&loader, &mut log)?;
                 let mut device = NativeWorkflow::from_stage(NativeStage::new(device, session));
                 let _ = tx.send(Event::Progress(Step::Originals));
@@ -512,17 +533,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                     &mut log,
                 )?;
                 let _ = tx.send(Event::Progress(Step::Finish));
-                match store.archive_restored(&backup) {
-                    Ok(Some(path)) => ltbox_core::live!(
-                        log,
-                        "복구 완료된 작업 기록을 보관했습니다: {}",
-                        path.display()
-                    ),
-                    Ok(None) => {}
-                    Err(error) => warnings.push(format!(
-                        "원본 복구는 완료했지만 이전 작업 기록 정리를 마치지 못했습니다: {error}"
-                    )),
-                }
+                archive_restored(&store, &backup, &mut warnings, &mut log);
                 Ok(warnings)
             }
         }
@@ -538,6 +549,26 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
     }
     pump.finish()?;
     result
+}
+
+/// Moves the run restored from this backup into the history.
+fn archive_restored(
+    store: &StateStore,
+    backup: &VerifiedBackup,
+    warnings: &mut Vec<String>,
+    log: &mut Vec<String>,
+) {
+    match store.archive_restored(backup) {
+        Ok(Some(path)) => ltbox_core::live!(
+            log,
+            "복구 완료된 작업 기록을 보관했습니다: {}",
+            path.display()
+        ),
+        Ok(None) => {}
+        Err(error) => warnings.push(format!(
+            "원본 복구는 완료했지만 이전 작업 기록 정리를 마치지 못했습니다: {error}"
+        )),
+    }
 }
 
 fn acquire_twrp(

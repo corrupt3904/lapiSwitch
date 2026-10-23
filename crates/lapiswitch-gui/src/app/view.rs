@@ -563,7 +563,13 @@ fn country_value(app: &App) -> String {
 /// The start footer: a problem in an InfoBar right above the buttons, or
 /// a step not done yet as a muted hint beside them.
 fn start_footer<'a>(app: &'a App, buttons: [Element<'a, Message>; 2]) -> Element<'a, Message> {
-    let issue = app.start_issue();
+    issue_footer(app.start_issue(), buttons)
+}
+/// `start_footer` for a given reason, e.g. the original restore's.
+fn issue_footer<'a>(
+    issue: Option<(Option<Severity>, &'static str)>,
+    buttons: [Element<'a, Message>; 2],
+) -> Element<'a, Message> {
     let hint: Element<'a, Message> = match issue {
         Some((None, reason)) => label(reason).size(13).color(muted()).into(),
         _ => space().into(),
@@ -1299,8 +1305,8 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     if app.run_kind == RunKind::Restore {
         content = content.push(note(
             app.t(
-                "백업과 작업 기록으로 DeviceInfo 상태를 판단합니다. 변경이 검증되면 TWRP에서 원래 리전을 복구한 뒤 vendor_boot·Recovery·GPT를 복원합니다. 결과 불명은 자동 복구를 차단하며 롤백인덱스는 유지합니다.",
-                "Classify saved DeviceInfo evidence first. Verified region changes are reversed in TWRP before restoring vendor_boot, Recovery and GPT. Unknown results block automatic restoration. Rollback indices are retained.",
+                "TWRP에서 시작하면 DeviceInfo를 읽어 원본이면 그대로 두고, 이 작업이 쓴 값이면 작업 전 DeviceInfo 전체로 되돌립니다. 둘 다 아니면 쓰지 않고 중단합니다. 이어서 EDL에서 vendor_boot·Recovery·GPT를 복원합니다.",
+                "Started in TWRP, DeviceInfo is read first: the original is kept and this run's value is turned back into the complete original; anything else stops without a write. EDL then restores vendor_boot, Recovery and GPT.",
             ),
             false,
         ));
@@ -1604,8 +1610,8 @@ fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             app,
             "원본 복구",
             "Restore original",
-            "백업한 기기 한 대를 EDL로 연결하세요.",
-            "Connect the backed-up device in EDL mode."
+            "백업한 기기 한 대를 TWRP(ADB Recovery) 또는 EDL로 연결하세요.",
+            "Connect the backed-up device in TWRP (ADB Recovery) or EDL."
         ),
         group(vec![
             path_row(
@@ -1619,9 +1625,6 @@ fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         ]),
     ]
     .spacing(16);
-    if app.device.unsupported_model() {
-        content = content.push(dashboard_view::connection_note(app));
-    }
     if let Some(summary) = &app.recovery_summary {
         content = content.push(note(
             format!(
@@ -1639,21 +1642,24 @@ fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             app.t("백업을 검사하고 있습니다…", "Verifying backup…"),
         ));
     }
-    content = content.push(warning_note(app.t("이 작업은 설치된 전체 펌웨어를 이전 버전으로 되돌리는 기능이 아닙니다. DeviceInfo 변경이 검증되면 TWRP에서 작업 전 DeviceInfo 전체를 다시 기록한 뒤 원본 vendor_boot·Recovery·GPT를 복구합니다. 쓰기 결과가 불명확하면 자동 복구를 진행하지 않습니다.", "This does not roll back the entire installed firmware. Verified DeviceInfo changes are reversed in TWRP by writing back the complete original DeviceInfo before restoring original vendor_boot, Recovery and GPT. Unknown write results block automatic restoration.")))
+    content = content.push(warning_note(app.t("이 작업은 설치된 전체 펌웨어를 이전 버전으로 되돌리는 기능이 아닙니다. TWRP 또는 EDL로 연결해 시작합니다. TWRP에서 시작하면 실제 DeviceInfo를 읽어, 이 작업이 쓴 값일 때만 작업 전 DeviceInfo 전체로 되돌린 뒤 원본 vendor_boot·Recovery·GPT를 복구합니다. 원본도 이 작업의 값도 아니면 쓰지 않고 중단합니다.", "This does not roll back the entire installed firmware. Start with the tablet in TWRP or EDL. From TWRP, the live DeviceInfo is read and written back to the complete original only when it holds this run's value, then original vendor_boot, Recovery and GPT are restored. Any other value stops without a write.")))
         .push(checkbox(app.agreed).label(app.t("이 백업을 만든 기기이며 원본 복구를 진행하겠습니다.", "This is the device that created the backup; restore its original region and configuration.")).on_toggle(Message::Agree));
     (
         content.into(),
-        row![
-            space().width(Fill),
-            action(app.t("이전", "Back"), Message::Back, !app.busy()).style(soft_style),
-            action(
-                app.t("원본 복구 시작", "Restore original"),
-                Message::RestoreStart,
-                app.can_restore()
-            )
-        ]
-        .spacing(12)
-        .into(),
+        issue_footer(
+            app.restore_issue(),
+            [
+                action(app.t("이전", "Back"), Message::Back, !app.busy())
+                    .style(soft_style)
+                    .into(),
+                action(
+                    app.t("원본 복구 시작", "Restore original"),
+                    Message::RestoreStart,
+                    app.can_restore(),
+                )
+                .into(),
+            ],
+        ),
     )
 }
 pub(super) fn driver_status(app: &App) -> String {

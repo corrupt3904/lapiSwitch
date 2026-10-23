@@ -583,11 +583,84 @@ impl App {
         Some(issue)
     }
     fn can_restore(&self) -> bool {
-        !self.busy()
-            && !self.device.unsupported_model()
-            && self.agreed
-            && self.recovery_summary.is_some()
-            && self.loader.is_some()
+        self.restore_issue().is_none()
+    }
+    /// Why the original restore cannot start, shown like `start_issue`. It
+    /// starts only from TWRP (ADB Recovery), where DeviceInfo is judged
+    /// first, or from EDL.
+    fn restore_issue(&self) -> Option<(Option<fluent::Severity>, &'static str)> {
+        use fluent::Severity::{Error, Warning};
+        let issue = if self.busy() {
+            (
+                None,
+                self.t(
+                    "진행 중인 작업이 끝날 때까지 기다려 주세요.",
+                    "Wait for the current operation to finish.",
+                ),
+            )
+        } else if !self.device.reachable() {
+            (
+                Some(Warning),
+                self.t(
+                    "기기 연결이 확인되지 않았습니다. 연결 상태를 확인해 주세요.",
+                    "The device connection could not be confirmed. Check the connection.",
+                ),
+            )
+        } else if self.device.unsupported_model() {
+            (
+                Some(Error),
+                self.t(
+                    "지원하지 않는 기기입니다. 지원 기기를 연결해 주세요.",
+                    "Unsupported device. Connect a supported device.",
+                ),
+            )
+        } else if !matches!(
+            self.device.snapshot.mode,
+            crate::device::Mode::Recovery | crate::device::Mode::Edl
+        ) {
+            (
+                Some(Warning),
+                self.t(
+                    "원본 복구는 TWRP(ADB Recovery) 또는 EDL 연결에서만 시작할 수 있습니다.",
+                    "Original restore starts only from TWRP (ADB Recovery) or EDL.",
+                ),
+            )
+        } else if !self.drivers_ready() {
+            (
+                Some(Warning),
+                self.t(
+                    "필요한 드라이버를 확인하거나 설치해 주세요.",
+                    "Check or install the required drivers.",
+                ),
+            )
+        } else if self.recovery_summary.is_none() {
+            (
+                None,
+                self.t(
+                    "백업 폴더를 선택해 검사를 완료해 주세요.",
+                    "Choose a backup folder and complete its check.",
+                ),
+            )
+        } else if self.loader.is_none() {
+            (
+                None,
+                self.t(
+                    "EDL 로더 파일을 선택해 주세요.",
+                    "Select the EDL loader file.",
+                ),
+            )
+        } else if !self.agreed {
+            (
+                None,
+                self.t(
+                    "원본 복구 안내를 확인하고 동의 항목을 체크해 주세요.",
+                    "Read the restore notice and select the consent checkbox.",
+                ),
+            )
+        } else {
+            return None;
+        };
+        Some(issue)
     }
     fn can_resume(&self) -> bool {
         !self.busy()
@@ -2430,6 +2503,40 @@ mod tests {
         let _ = app.update(Message::Home);
         let _ = app.update(Message::Edit);
         assert_eq!(app.page, Page::Edit);
+    }
+    #[test]
+    fn the_restore_starts_only_from_twrp_or_edl_with_its_choices() {
+        use crate::device::Mode;
+        let mut app = App::base(true);
+        app.seed_preview("recovery");
+        app.activity = None;
+        app.recovery_summary = Some("TB520FU · slot a".into());
+        app.agreed = true;
+        for (mode, allowed) in [
+            (Mode::Adb, false),
+            (Mode::Fastboot, false),
+            (Mode::Recovery, true),
+            (Mode::Edl, true),
+        ] {
+            app.device.snapshot.mode = mode;
+            assert_eq!(app.can_restore(), allowed, "{mode:?}");
+            if !allowed {
+                assert!(
+                    matches!(
+                        app.restore_issue(),
+                        Some((Some(fluent::Severity::Warning), reason)) if reason.contains("TWRP")
+                    ),
+                    "{mode:?} {:?}",
+                    app.restore_issue().map(|i| i.1)
+                );
+            }
+        }
+        app.agreed = false;
+        assert!(app.restore_issue().unwrap().1.contains("동의"));
+        app.loader = None;
+        assert!(app.restore_issue().unwrap().1.contains("EDL"));
+        app.recovery_summary = None;
+        assert!(app.restore_issue().unwrap().1.contains("백업 폴더"));
     }
     #[test]
     fn a_dump_run_shows_its_folder_on_the_result() {

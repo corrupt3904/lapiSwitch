@@ -441,25 +441,7 @@ pub fn run(
     log: &mut Vec<String>,
 ) -> Result<Vec<String>, String> {
     let assessment = preflight(backup)?;
-    let dir = directory(backup, true)?;
-    let mut j = match load_journal(backup)? {
-        Some(j) => j,
-        None => Journal {
-            version: 1,
-            manifest_sha256: backup::hash_file(&backup.path().join(backup::MANIFEST_NAME), None)?.1,
-            progress_sha256: progress_hash(backup)?,
-            phase: RestorePhase::Prepared,
-            before_sha256: None,
-            planned_sha256: None,
-        },
-    };
-    let phase = j.phase;
-    save(&dir, &mut j, phase)?;
-    // This journal also prevents conversion resume when the conversion itself
-    // stopped before its first durable recovery_progress checkpoint.
-    if j.progress_sha256.is_some() {
-        backup.mark(TransactionStage::RecoveryRequired)?;
-    }
+    let (dir, mut j) = open_journal(backup)?;
     if let Assessment::Verified {
         current,
         changed: true,
@@ -519,15 +501,157 @@ pub fn run(
             return Err("연결 대기를 중지했습니다. 원본 복구 검증 기록을 보존했습니다.".into());
         }
     }
+    // Recheck the PC proof and binding after every wait, before final writes.
+    preflight(backup)?;
+    restore_partitions(device, backup, &dir, &mut j, ui, log)
+}
+
+/// The restore journal, created on the first attempt and kept on reentry.
+fn open_journal(backup: &VerifiedBackup) -> Result<(PathBuf, Journal), String> {
+    let dir = directory(backup, true)?;
+    let mut j = match load_journal(backup)? {
+        Some(j) => j,
+        None => Journal {
+            version: 1,
+            manifest_sha256: backup::hash_file(&backup.path().join(backup::MANIFEST_NAME), None)?.1,
+            progress_sha256: progress_hash(backup)?,
+            phase: RestorePhase::Prepared,
+            before_sha256: None,
+            planned_sha256: None,
+        },
+    };
+    let phase = j.phase;
+    save(&dir, &mut j, phase)?;
+    // This journal also prevents conversion resume when the conversion itself
+    // stopped before its first durable recovery_progress checkpoint.
+    if j.progress_sha256.is_some() {
+        backup.mark(TransactionStage::RecoveryRequired)?;
+    }
+    Ok((dir, j))
+}
+
+pub const TWRP_OTHER_MESSAGE: &str = "TWRP에서 읽은 DeviceInfo가 원본도, 이 작업이 쓰기로 했던 값도 아닙니다. 쓰지 않고 원본 복구를 중단합니다. 백업과 작업 기록은 보존됩니다.";
+
+/// Original restore started with the tablet already in TWRP: DeviceInfo is
+/// read there first. Equal to the original, nothing is written; equal to the
+/// value this run planned, the original is written back and verified; any
+/// other value stops without a write. EDL then restores the partitions.
+#[allow(clippy::too_many_arguments)] // Explicit transport, recovery and clock seams for fault tests.
+pub fn run_from_twrp(
+    device: &mut impl FinishIo,
+    recovery: &mut impl Session,
+    backup: &VerifiedBackup,
+    loader: &Path,
+    clock: &mut impl workflow::Clock,
+    ui: &mut impl Ui,
+    log: &mut Vec<String>,
+) -> Result<Vec<String>, String> {
+    backup.verify()?;
+    let p = progress(backup)?;
+    if p.as_ref().is_some_and(|p| {
+        matches!(
+            p.phase,
+            Phase::FirmwareWriting | Phase::FinalReboot | Phase::Done
+        )
+    }) {
+        return Err(
+            "공식 펌웨어 설치가 시작된 백업입니다. 과거 구성 원본 복구 대신 설치를 이어가세요."
+                .into(),
+        );
+    }
+    let (dir, mut j) = open_journal(backup)?;
+    recovery.verify_identity(backup)?;
+    match p.as_ref().filter(|p| p.attempt.is_some()) {
+        Some(p) => {
+            let (original, planned) = proof(backup, p)?;
+            ui.phase(Phase::Planned);
+            ui.status("TWRP에서 DeviceInfo를 읽어 원본과 비교합니다.", false);
+            let scratch = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
+            let first = recovery.read(&scratch.path().join("twrp1"), log)?;
+            let second = recovery.read(&scratch.path().join("twrp2"), log)?;
+            if first != second {
+                return Err(
+                    "DeviceInfo 독립 읽기 두 개가 일치하지 않습니다. 쓰지 않았습니다.".into(),
+                );
+            }
+            if first == original {
+                live!(log, "TWRP의 DeviceInfo가 원본과 같습니다. 쓰지 않습니다.");
+            } else if first == planned {
+                live!(
+                    log,
+                    "TWRP의 DeviceInfo가 이 작업이 쓴 값입니다. 원본으로 되돌립니다."
+                );
+                preserve(&dir.join("deviceinfo_before.bin"), &first)?;
+                j.before_sha256 = Some(backup::digest_bytes(&first));
+                j.planned_sha256 = Some(backup::digest_bytes(&original));
+                // Transfers and the dry-run precede the durable write intent.
+                recovery.prepare(&first, &original, log)?;
+                save(&dir, &mut j, RestorePhase::RegionWritePending)?;
+                ui.status(
+                    "변환 전 DeviceInfo 4096바이트 전체를 복구하고 검증합니다.",
+                    false,
+                );
+                let (same, fresh) =
+                    recovery.apply(&first, &original, &scratch.path().join("apply"), log)?;
+                deviceinfo::verify(&original, &same, &fresh)?;
+                let independent = recovery.read(&scratch.path().join("independent"), log)?;
+                deviceinfo::verify(&original, &independent, &independent)?;
+                preserve(&dir.join("deviceinfo_after.bin"), &independent)?;
+                save(&dir, &mut j, RestorePhase::RegionVerified)?;
+            } else {
+                live!(log, "{TWRP_OTHER_MESSAGE}");
+                return Err(TWRP_OTHER_MESSAGE.into());
+            }
+        }
+        None => {
+            // DeviceInfo was never read, so it was never written either.
+            if p.as_ref().is_some_and(|p| {
+                !matches!(
+                    p.phase,
+                    Phase::Preflight
+                        | Phase::BackedUp
+                        | Phase::Staging
+                        | Phase::Staged
+                        | Phase::RecoveryRequested
+                        | Phase::RecoveryWaiting
+                )
+            }) {
+                return Err("DeviceInfo 원본 기록이 없습니다. 원본 복구를 중단합니다.".into());
+            }
+            live!(
+                log,
+                "DeviceInfo를 읽기 전에 멈춘 작업입니다. 쓰지 않고 EDL에서 복원합니다."
+            );
+        }
+    }
+    recovery.verify_identity(backup)?;
+    ui.status("EDL로 전환해 원본 파티션을 복원합니다.", false);
+    if let Err(e) = recovery.reboot_edl() {
+        live!(log, "원본 복구 EDL 재부팅 응답: {e}. 연결을 확인합니다.");
+    }
+    super::wait_for_edl(device, loader, clock, ui, log)?;
+    if !ui.finish_wait() {
+        return Err("연결 대기를 중지했습니다. 원본 복구 검증 기록을 보존했습니다.".into());
+    }
+    restore_partitions(device, backup, &dir, &mut j, ui, log)
+}
+
+/// The common end of every restore: originals written back in EDL.
+fn restore_partitions(
+    device: &mut impl FinishIo,
+    backup: &VerifiedBackup,
+    dir: &Path,
+    j: &mut Journal,
+    ui: &mut impl Ui,
+    log: &mut Vec<String>,
+) -> Result<Vec<String>, String> {
     ui.phase(Phase::Restoring);
     ui.status(
         "원본 vendor_boot·Recovery·GPT를 복원하고 재읽기 검증합니다.",
         false,
     );
-    // Recheck the PC proof and binding after every wait, before final writes.
-    preflight(backup)?;
     super::restore_originals(device, backup, log)?;
-    save(&dir, &mut j, RestorePhase::Complete)?;
+    save(dir, j, RestorePhase::Complete)?;
     backup.mark(TransactionStage::Restored)?;
     live!(
         log,
