@@ -323,14 +323,8 @@ fn navigation(app: &App) -> Element<'_, Message> {
             idle,
             false
         ),
-        container(
-            column![
-                small(super::supported_models()).size(12),
-                small(format!("v{} · GPL-3.0", env!("CARGO_PKG_VERSION"))).size(12)
-            ]
-            .spacing(2)
-        )
-        .padding(pad(8, 6, 0, 6)),
+        container(small(format!("v{} · GPL-3.0", env!("CARGO_PKG_VERSION"))).size(12))
+            .padding(pad(8, 6, 0, 6)),
     ]
     .spacing(4)
     .width(290)
