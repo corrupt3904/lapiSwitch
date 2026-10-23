@@ -16,22 +16,28 @@ fn state_store(args: &[String]) -> Result<StateStore, String> {
 }
 fn print_state(state: &RunState) {
     println!(
-        "작업 {}: {:?} ({:?})\n백업: {}",
-        state.run_id,
-        state.recovery.phase,
-        state.stage,
-        state.backup_dir.display()
+        "{}",
+        lapiswitch_core::msg!(
+            "cli_status_run",
+            run_id = state.run_id,
+            phase = format!("{:?}", state.recovery.phase),
+            stage = format!("{:?}", state.stage),
+            backup = state.backup_dir.display()
+        )
     );
     for warning in &state.warnings {
-        println!("경고: {warning}");
+        println!(
+            "{}",
+            lapiswitch_core::msg!("cli_status_warning", warning = warning)
+        );
     }
 }
 pub(super) fn status(args: &[String]) -> Result<(), String> {
     let store = state_store(args)?;
     match store.load()? {
         None => println!(
-            "저장된 작업이 없습니다. 상태 파일: {}",
-            store.path().display()
+            "{}",
+            lapiswitch_core::msg!("cli_status_none", path = store.path().display())
         ),
         Some(state) => {
             let transaction = VerifiedBackup::open(&state.backup_dir)
@@ -39,10 +45,25 @@ pub(super) fn status(args: &[String]) -> Result<(), String> {
             print_state(&state);
             match transaction {
                 Ok(stage) => {
-                    println!("백업 작업 상태: {stage:?}");
-                    println!("다음 동작: {:?}", state.resume_action(Some(stage)));
+                    println!(
+                        "{}",
+                        lapiswitch_core::msg!(
+                            "cli_status_backup_stage",
+                            stage = format!("{stage:?}")
+                        )
+                    );
+                    println!(
+                        "{}",
+                        lapiswitch_core::msg!(
+                            "cli_status_next",
+                            action = format!("{:?}", state.resume_action(Some(stage)))
+                        )
+                    );
                 }
-                Err(error) => println!("백업 확인 필요: {error}"),
+                Err(error) => println!(
+                    "{}",
+                    lapiswitch_core::msg!("cli_status_backup_check", error = error)
+                ),
             }
         }
     }

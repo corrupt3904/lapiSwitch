@@ -512,7 +512,11 @@ fn kind_hint(app: &App, field: &Field) -> String {
 fn short(value: &str) -> String {
     if value.chars().count() > 48 {
         let head: String = value.chars().take(40).collect();
-        format!("{head}… ({}자)", value.chars().count())
+        lapiswitch_core::msg!(
+            "run_text_truncated",
+            head = head,
+            count = value.chars().count()
+        )
     } else {
         value.to_owned()
     }

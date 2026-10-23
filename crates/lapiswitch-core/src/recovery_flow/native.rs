@@ -23,7 +23,9 @@ struct Output {
 impl Write for Output {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.all.len() + bytes.len() > 256 * 1024 {
-            return Err(std::io::Error::other("ADB 응답 허용 크기 초과"));
+            return Err(std::io::Error::other(crate::msg!(
+                "core_adb_response_too_large"
+            )));
         }
         self.all.extend_from_slice(bytes);
         if self.stream {
@@ -48,16 +50,17 @@ impl Write for Output {
     }
 }
 fn command_status(output: &[u8]) -> Result<(String, String), String> {
-    let text = String::from_utf8(output.to_vec()).map_err(|_| "ADB 응답이 UTF-8이 아닙니다.")?;
+    let text = String::from_utf8(output.to_vec())
+        .map_err(|_| crate::msg!("core_adb_response_not_utf8"))?;
     let (body, trailer) = text
         .rsplit_once(EXIT)
-        .ok_or("ADB 명령 종료 상태를 확인할 수 없습니다.")?;
+        .ok_or(crate::msg!("core_adb_exit_unknown"))?;
     Ok((body.trim().into(), trailer.trim().into()))
 }
 pub(crate) fn command_result(output: &[u8]) -> Result<String, String> {
     let (body, code) = command_status(output)?;
     if code != "0" {
-        return Err(format!("Recovery 명령 실패 (exit {code})"));
+        return Err(crate::msg!("core_recovery_command_failed", code = code));
     }
     Ok(body)
 }
@@ -65,16 +68,12 @@ pub(crate) fn command_result(output: &[u8]) -> Result<String, String> {
 /// held) without sending 0x203. 40, a signal or a missing status is unknown.
 /// The caller still requires two original reads before leaving WritePending.
 fn write_outcome(output: &[u8]) -> Result<(), String> {
-    let (_, code) =
-        command_status(output).map_err(|error| format!("DeviceInfo 쓰기 결과 불명: {error}"))?;
+    let (_, code) = command_status(output)
+        .map_err(|error| crate::msg!("core_write_result_unknown", error = error))?;
     match code.as_str() {
         "0" => Ok(()),
-        "1" | "2" | "3" => Err(format!(
-            "DeviceInfo helper가 쓰기 요청 전에 종료했습니다 (exit {code})."
-        )),
-        _ => Err(format!(
-            "DeviceInfo 쓰기 결과 불명 (exit {code}). 자동 재쓰기 없이 다시 읽어 확인합니다."
-        )),
+        "1" | "2" | "3" => Err(crate::msg!("core_helper_exit_before_write", code = code)),
+        _ => Err(crate::msg!("core_write_result_unknown_exit", code = code)),
     }
 }
 fn saved_serial(raw: &str) -> Option<&str> {
@@ -88,9 +87,9 @@ fn saved_serial(raw: &str) -> Option<&str> {
 /// The current TWRP slot must still match the slot backed up before staging.
 /// Never fall back to the other Keymaster partition after a read/write error.
 fn active_keymaster_path(expected: Slot, raw: &str) -> Result<&'static str, String> {
-    let active = Slot::parse(raw).ok_or("TWRP 활성 슬롯을 읽지 못했습니다.")?;
+    let active = Slot::parse(raw).ok_or(crate::msg!("core_twrp_slot_unread"))?;
     if active != expected {
-        return Err("TWRP 활성 슬롯이 백업 슬롯과 다릅니다.".into());
+        return Err(crate::msg!("core_twrp_slot_differs"));
     }
     Ok(deviceinfo::keymaster_path(active))
 }
@@ -115,10 +114,7 @@ impl Recovery {
         ui: &mut impl Ui,
         log: &mut Vec<String>,
     ) -> Result<Self, String> {
-        ui.status(
-            "TWRP ADB 연결을 기다립니다. PC와 태블릿의 USB 연결을 유지해 주세요.",
-            true,
-        );
+        ui.status(&crate::msg!("core_waiting_twrp"), true);
         let started = std::time::Instant::now();
         loop {
             super::stopped(ui)?;
@@ -135,7 +131,7 @@ impl Recovery {
                     std::process::id(),
                     chrono::Utc::now()
                         .timestamp_nanos_opt()
-                        .ok_or("시각 없음")?
+                        .ok_or(crate::msg!("core_no_time"))?
                 );
                 let mut recovery = Self {
                     usb,
@@ -157,17 +153,15 @@ impl Recovery {
                     // Atomically retire the timed stop before identity/helper
                     // preparation and DeviceInfo work can start.
                     if !ui.finish_wait() {
-                        return Err(
-                            "연결 대기를 중지했습니다. 백업과 작업 기록을 보존했습니다.".into()
-                        );
+                        return Err(crate::msg!("core_wait_stopped"));
                     }
                     recovery.verify_identity(backup)?;
                     recovery.serial = recovery.shell("getprop ro.serialno", false)?;
                     if recovery.serial.is_empty() {
-                        return Err("TWRP serial을 읽지 못했습니다.".into());
+                        return Err(crate::msg!("core_twrp_serial_unread"));
                     }
                     recovery.prepare(log)?;
-                    ui.status("TWRP 연결을 확인했습니다. DeviceInfo를 처리합니다.", false);
+                    ui.status(&crate::msg!("core_twrp_connected"), false);
                     return Ok(recovery);
                 }
             }
@@ -211,7 +205,7 @@ impl Recovery {
         drop(f);
         let len = std::fs::metadata(out).map_err(|e| e.to_string())?.len();
         if expected.is_some_and(|e| e != len) || len > 64 * 1024 * 1024 {
-            return Err("Recovery 파일 길이가 잘못되었습니다.".into());
+            return Err(crate::msg!("core_recovery_file_length"));
         }
         std::fs::read(out).map_err(|e| e.to_string())
     }
@@ -226,7 +220,7 @@ impl Recovery {
             .map_err(|e| e.to_string())?;
         let actual = self.shell(&format!("sha256sum {remote}"), false)?;
         if actual.split_whitespace().next() != Some(expected_hash) {
-            return Err("Recovery 전송 파일 SHA-256 불일치".into());
+            return Err(crate::msg!("core_recovery_push_sha"));
         }
         Ok(())
     }
@@ -234,7 +228,7 @@ impl Recovery {
         if self.shell("id -u", false)? != "0"
             || self.shell("getprop ro.twrp.version", false)?.is_empty()
         {
-            return Err("root TWRP 환경이 아닙니다.".into());
+            return Err(crate::msg!("core_twrp_not_root"));
         }
         let model = self.shell("getprop ro.product.model", false)?;
         let product = self.shell("getprop ro.product.device", false)?;
@@ -242,28 +236,28 @@ impl Recovery {
             || Device::identify(&model) != Some(self.device)
             || !product.eq_ignore_ascii_case(self.device.codename())
         {
-            return Err(format!(
-                "TWRP 기기가 {}/{}로 확인되지 않았습니다.",
-                self.device,
-                self.device.codename()
+            return Err(crate::msg!(
+                "core_twrp_device_unconfirmed",
+                device = self.device,
+                codename = self.device.codename()
             ));
         }
         if self.shell("getprop ro.product.cpu.abi", false)? != "arm64-v8a" {
-            return Err("ARM64 Recovery가 아닙니다.".into());
+            return Err(crate::msg!("core_twrp_not_arm64"));
         }
         self.active_keymaster()?;
         if !self.serial.is_empty() && self.shell("getprop ro.serialno", false)? != self.serial {
-            return Err("TWRP 기기가 바뀌었습니다.".into());
+            return Err(crate::msg!("core_twrp_device_changed"));
         }
         let serial = self.shell("getprop ro.serialno", false)?;
         if serial.is_empty() {
-            return Err("TWRP serial을 확인할 수 없습니다.".into());
+            return Err(crate::msg!("core_twrp_serial_unknown"));
         }
         if !backup.manifest().started_in_edl {
             let raw = std::fs::read_to_string(backup.file_path(crate::backup::IDENTITY_NAME)?)
                 .map_err(|e| e.to_string())?;
             if saved_serial(&raw) != Some(serial.as_str()) {
-                return Err("TWRP serial이 시작 시 ADB 기록과 다릅니다.".into());
+                return Err(crate::msg!("core_twrp_serial_differs"));
             }
         }
         // EDL starts have no ADB identity record; the disk GUID below binds
@@ -282,12 +276,12 @@ impl Recovery {
         let work = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
         let header = self.pull(&remote, &work.path().join("header.bin"), Some(8192))?;
         if header.get(4096..4104) != Some(b"EFI PART".as_slice()) {
-            return Err("TWRP에서 읽은 GPT 헤더가 잘못되었습니다.".into());
+            return Err(crate::msg!("core_twrp_gpt_invalid"));
         }
         let original =
             std::fs::read(backup.file_path("gpt_main4.bin")?).map_err(|e| e.to_string())?;
         if crate::storage::disk_guid(&header)? != crate::storage::disk_guid(&original)? {
-            return Err("TWRP GPT disk GUID가 백업 기기와 다릅니다.".into());
+            return Err(crate::msg!("core_twrp_gpt_guid_differs"));
         }
         Ok(())
     }
@@ -302,7 +296,7 @@ impl Recovery {
             .map(|b| format!("{b:02x}"))
             .collect();
         if hash != HELPER_SHA {
-            return Err("내장 DeviceInfo helper 해시 불일치".into());
+            return Err(crate::msg!("core_helper_hash_mismatch"));
         }
         self.shell(&format!("mkdir -p -m 700 {}", self.remote), false)?;
         let helper = format!("{}/deviceinfo", self.remote);
@@ -311,12 +305,11 @@ impl Recovery {
         self.shell(&format!("{helper} --self-test"), true)?;
         let ta = self.active_keymaster()?;
         self.shell(&format!("test -r {ta}"), false)
-            .map_err(|e| format!("활성 슬롯의 Keymaster 파티션을 읽을 수 없습니다: {ta}: {e}"))?;
+            .map_err(|e| crate::msg!("core_keymaster_unreadable", ta = ta, e = e))?;
         ltbox_core::live!(
             log,
-            "DeviceInfo helper 준비 완료. 활성 슬롯 {}의 {}를 사용합니다 (공유 버퍼 4096).",
-            self.slot.suffix(),
-            ta
+            "{}",
+            crate::msg!("core_helper_ready", slot = self.slot.suffix(), ta = ta)
         );
         Ok(())
     }
@@ -384,14 +377,11 @@ impl DeviceInfoIo for Recovery {
         _log: &mut Vec<String>,
     ) -> Result<(Vec<u8>, Vec<u8>), String> {
         // One write per successful dry-run of the identical plan.
-        let prepared = self
-            .prepared
-            .take()
-            .ok_or("DeviceInfo dry-run 기록이 없어 쓰기를 요청하지 않았습니다.")?;
+        let prepared = self.prepared.take().ok_or(crate::msg!("core_no_dry_run"))?;
         if prepared.before != backup::digest_bytes(before)
             || prepared.planned != backup::digest_bytes(planned)
         {
-            return Err("dry-run과 다른 DeviceInfo 계획이라 쓰기를 요청하지 않았습니다.".into());
+            return Err(crate::msg!("core_plan_differs_dry_run"));
         }
         // Recheck after dry-run and immediately before the only write request.
         let ta = self.active_keymaster()?;
@@ -406,7 +396,7 @@ impl DeviceInfoIo for Recovery {
                 ),
                 true,
             )
-            .map_err(|error| format!("DeviceInfo 쓰기 명령 연결 오류 (결과 불명): {error}"))?;
+            .map_err(|error| crate::msg!("core_write_connection_error", error = error))?;
         write_outcome(&output)?;
         let same = self.pull(
             &format!("{}/apply{tag}.after_same_session.bin", self.remote),
@@ -481,7 +471,7 @@ mod tests {
             assert!(
                 write_outcome(output.as_bytes())
                     .unwrap_err()
-                    .contains("쓰기 요청 전")
+                    .contains("before the write request")
             );
         }
         for output in [
@@ -493,7 +483,7 @@ mod tests {
             assert!(
                 write_outcome(output.as_bytes())
                     .unwrap_err()
-                    .contains("결과 불명")
+                    .contains("result unknown")
             );
         }
     }

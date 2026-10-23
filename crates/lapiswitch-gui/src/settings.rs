@@ -94,6 +94,8 @@ mod tests {
         let unused: Vec<_> = keys
             .iter()
             .filter(|key| !used.contains(*key))
+            // Country names are looked up by code; countries.rs checks them.
+            .filter(|key| !key.starts_with("country_"))
             .filter(|key| {
                 let quoted = format!("\"{key}\"");
                 !vendor.iter().any(|file| file.contains(&quoted))
@@ -233,6 +235,15 @@ impl Language {
             .copied()
             .unwrap_or(key)
     }
+    /// The name of a country code (`country_<CODE>`), else the code.
+    pub fn country_name(self, code: &str) -> &'static str {
+        let key = format!("country_{code}");
+        self.catalog()
+            .get(key.as_str())
+            .or_else(|| Self::English.catalog().get(key.as_str()))
+            .copied()
+            .unwrap_or_else(|| crate::countries::find(code).map_or("", |c| c.code))
+    }
     /// Translations of the DeviceInfo field descriptions, which the device
     /// files write in English.
     fn field_catalog(self) -> Option<&'static Catalog> {
@@ -255,12 +266,31 @@ impl Language {
             .and_then(|catalog| catalog.get(english).copied())
             .unwrap_or(english)
     }
+    /// The run messages of the core, worker and CLI in this language.
+    fn run_catalog(self) -> &'static Catalog {
+        static CATALOGS: [OnceLock<Catalog>; 5] = [const { OnceLock::new() }; 5];
+        let index = Self::ALL.iter().position(|l| *l == self).expect("listed");
+        CATALOGS[index].get_or_init(|| {
+            leak_catalog(lapiswitch_core::i18n::json(self.code()).expect("bundled run messages"))
+        })
+    }
+    fn code(self) -> &'static str {
+        match self {
+            Self::Korean => "ko",
+            Self::English => "en",
+            Self::Chinese => "zh",
+            Self::Japanese => "ja",
+            Self::Russian => "ru",
+        }
+    }
     /// Backend crates log through `ltbox_core::i18n::tr`; give them the
-    /// same catalog and fallback.
+    /// screen and run catalogs of this language. A key missing from both
+    /// returns itself, and `lapiswitch_core::i18n` then falls back to English.
     pub fn install(self) {
         ltbox_core::i18n::set_translator(move |key| {
             self.catalog()
                 .get(key)
+                .or_else(|| self.run_catalog().get(key))
                 .or_else(|| Self::English.catalog().get(key))
                 .map_or_else(|| key.to_owned(), |text| (*text).to_owned())
         });

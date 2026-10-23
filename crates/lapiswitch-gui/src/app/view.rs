@@ -1298,21 +1298,13 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             small(app.tr("view_firmware_rollback_index")).width(Fill)
         ]]
         .spacing(8);
-        for comparison in &app.comparison {
-            // Presentation only; the core has already made the rollback decision.
-            if let Some((image, values)) = comparison
-                .strip_prefix("롤백 비교 ")
-                .and_then(|s| s.split_once(": 펌웨어 "))
-                && let Some((firmware, device)) = values.split_once(", 기기 ")
-            {
-                table = table.push(row![
-                    label(image).size(13).width(Fill),
-                    label(device).size(13).width(Fill),
-                    label(firmware).size(13).width(Fill)
-                ]);
-            } else {
-                table = table.push(small(comparison));
-            }
+        // Presentation only; the core has already made the rollback decision.
+        for (image, firmware, device) in &app.comparison {
+            table = table.push(row![
+                label(image.as_str()).size(13).width(Fill),
+                label(device.as_str()).size(13).width(Fill),
+                label(firmware.as_str()).size(13).width(Fill)
+            ]);
         }
         content = content.push(table);
     }

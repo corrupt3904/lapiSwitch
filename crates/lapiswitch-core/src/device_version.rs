@@ -6,11 +6,9 @@ use lapiswitch_devices::{InstalledFirmware, VersionScheme};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum VersionError {
-    #[error("활성 슬롯의 vbmeta_system에서 기기 펌웨어 버전·리전을 순정롬으로 확인할 수 없습니다.")]
+    #[error("{}", crate::msg!("core_version_unrecognized"))]
     Unrecognized,
-    #[error(
-        "현재 기기 펌웨어 {display}는 지원 상한 {limit}을 초과합니다. 해당 버전에서는 리전 변환을 시작할 수 없습니다."
-    )]
+    #[error("{}", crate::msg!("core_version_above_limit", display = .display, limit = .limit))]
     AboveLimit {
         display: String,
         limit: &'static str,

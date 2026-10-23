@@ -43,11 +43,11 @@ fn check_partition_directory(path: &Path) -> Result<(), String> {
     {
         use std::os::windows::fs::MetadataExt;
         if metadata.file_attributes() & 0x400 != 0 {
-            return Err("Partition은 링크가 아닌 일반 폴더여야 합니다.".into());
+            return Err(crate::msg!("core_backup_partition_not_folder"));
         }
     }
     if !metadata.file_type().is_dir() {
-        return Err("Partition은 링크가 아닌 일반 폴더여야 합니다.".into());
+        return Err(crate::msg!("core_backup_partition_not_folder"));
     }
     Ok(())
 }
@@ -109,11 +109,11 @@ pub fn transaction_stage_in(dir: &Path) -> Result<Option<TransactionStage>, Stri
         Err(error) => return Err(error.to_string()),
     };
     if !metadata.file_type().is_file() || metadata.len() > 4096 {
-        return Err("작업 기록 파일이 잘못되었습니다.".into());
+        return Err(crate::msg!("core_backup_journal_invalid"));
     }
     let state: Transaction = read_json(&path)?;
     if state.version != 1 {
-        return Err("지원하지 않는 작업 기록 형식".into());
+        return Err(crate::msg!("core_backup_journal_unsupported"));
     }
     Ok(Some(state.stage))
 }
@@ -137,8 +137,9 @@ pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T
 }
 
 pub(crate) fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(), String> {
-    let mut file = tempfile::NamedTempFile::new_in(path.parent().ok_or("부모 폴더 없음")?)
-        .map_err(|error| error.to_string())?;
+    let mut file =
+        tempfile::NamedTempFile::new_in(path.parent().ok_or(crate::msg!("core_backup_no_parent"))?)
+            .map_err(|error| error.to_string())?;
     serde_json::to_writer_pretty(&mut file, value).map_err(|error| error.to_string())?;
     file.write_all(b"\n")
         .and_then(|_| file.as_file().sync_all())
@@ -156,10 +157,10 @@ pub(crate) fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(
                     file = error.file;
                     std::thread::sleep(std::time::Duration::from_millis(delay));
                 } else {
-                    return Err(format!(
-                        "JSON 파일 교체 실패 (기존 파일 보존): {}: {}",
-                        path.display(),
-                        error.error
+                    return Err(crate::msg!(
+                        "core_backup_json_replace_kept",
+                        path = path.display(),
+                        error = error.error
                     ));
                 }
             }
@@ -185,11 +186,17 @@ pub fn hash_file(path: &Path, limit: Option<u64>) -> Result<(u64, String), Strin
     let metadata =
         std::fs::symlink_metadata(path).map_err(|error| format!("{}: {error}", path.display()))?;
     if !metadata.file_type().is_file() {
-        return Err(format!("일반 파일이 아닙니다: {}", path.display()));
+        return Err(crate::msg!(
+            "core_backup_not_regular_file",
+            path = path.display()
+        ));
     }
     let size = limit.unwrap_or(metadata.len());
     if size > metadata.len() {
-        return Err(format!("파일이 잘렸습니다: {}", path.display()));
+        return Err(crate::msg!(
+            "core_backup_file_truncated",
+            path = path.display()
+        ));
     }
     let mut file = File::open(path)
         .map_err(|error| error.to_string())?
@@ -206,7 +213,10 @@ pub fn hash_file(path: &Path, limit: Option<u64>) -> Result<(u64, String), Strin
         count += len as u64;
     }
     if count != size {
-        return Err(format!("파일 읽기 길이가 다릅니다: {}", path.display()));
+        return Err(crate::msg!(
+            "core_backup_read_length_mismatch",
+            path = path.display()
+        ));
     }
     let hex = hash
         .finalize()
@@ -260,7 +270,7 @@ impl BackupBuilder {
                 Err(error) => return Err(error.to_string()),
             }
         }
-        Err("백업 폴더 이름을 만들 수 없습니다.".into())
+        Err(crate::msg!("core_backup_folder_name_failed"))
     }
 
     pub fn path(&self) -> &Path {
@@ -275,7 +285,10 @@ impl BackupBuilder {
         let path = self.dir.join(IDENTITY_NAME);
         if path.exists() {
             if std::fs::read(&path).map_err(|error| error.to_string())? != raw.as_bytes() {
-                return Err(format!("기존 {IDENTITY_NAME}가 현재 작업과 다릅니다."));
+                return Err(crate::msg!(
+                    "core_backup_identity_differs",
+                    identity_name = IDENTITY_NAME
+                ));
             }
             return Ok(());
         }
@@ -288,7 +301,7 @@ impl BackupBuilder {
         partition: Option<Partition>,
     ) -> Result<(), String> {
         if self.files.iter().any(|entry| entry.filename == filename) {
-            return Err("백업 항목 중복".into());
+            return Err(crate::msg!("core_backup_duplicate_entry"));
         }
         let path = if filename == IDENTITY_NAME {
             self.dir.join(filename)
@@ -306,7 +319,10 @@ impl BackupBuilder {
         if let Some(part) = &partition
             && size_bytes != part.size_bytes()?
         {
-            return Err(format!("백업 길이가 파티션 크기와 다릅니다: {filename}"));
+            return Err(crate::msg!(
+                "core_backup_length_mismatch",
+                filename = filename
+            ));
         }
         let avb = if path.extension().is_some_and(|extension| extension == "img") {
             crate::avb_info::read_avb(&path).ok()
@@ -370,7 +386,7 @@ impl VerifiedBackup {
         let path = dir.join(MANIFEST_NAME);
         let metadata = std::fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
         if !metadata.file_type().is_file() || metadata.len() > 1024 * 1024 {
-            return Err("잘못된 백업 manifest".into());
+            return Err(crate::msg!("core_backup_manifest_invalid"));
         }
         let manifest: BackupManifest = read_json(&path)?;
         let backup = Self {
@@ -413,16 +429,13 @@ impl VerifiedBackup {
             || manifest.operation != MANIFEST_OPERATION
             || Device::find(&manifest.model).is_none()
         {
-            return Err(
-                "지원하지 않는 백업 형식 또는 모델입니다. 이 버전에서 만든 백업만 사용할 수 있습니다."
-                    .into(),
-            );
+            return Err(crate::msg!("core_backup_unsupported"));
         }
         check_partition_directory(&self.dir.join(PARTITION_DIR))?;
         if manifest.absent_partitions != Vec::<String>::new()
             && manifest.absent_partitions != ["proinfo"]
         {
-            return Err("허용하지 않는 누락 파티션 기록입니다.".into());
+            return Err(crate::msg!("core_backup_missing_not_allowed"));
         }
         let mut required = HashSet::from([
             "gpt_main4.bin".to_owned(),
@@ -447,33 +460,39 @@ impl VerifiedBackup {
         let mut seen = HashSet::new();
         for entry in &manifest.files {
             if !required.contains(&entry.filename) || !seen.insert(entry.filename.clone()) {
-                return Err(format!(
-                    "예상하지 않은 백업 파일 또는 중복: {}",
-                    entry.filename
+                return Err(crate::msg!(
+                    "core_backup_unexpected_file",
+                    filename = entry.filename
                 ));
             }
             if entry.filename == "gpt_main4.bin" && entry.size_bytes > 1024 * 1024 {
-                return Err("GPT 백업이 허용 크기를 초과합니다.".into());
+                return Err(crate::msg!("core_backup_gpt_too_large"));
             }
             let (size, sha) = hash_file(&self.file_path(&entry.filename)?, None)?;
             if size == 0 || size != entry.size_bytes || sha != entry.sha256 {
-                return Err(format!("백업 검증 실패: {}", entry.filename));
+                return Err(crate::msg!(
+                    "core_backup_verify_failed",
+                    filename = entry.filename
+                ));
             }
             if let Some(part) = &entry.partition {
                 if size != part.size_bytes()? {
-                    return Err(format!("백업 좌표/길이 불일치: {}", entry.filename));
+                    return Err(crate::msg!(
+                        "core_backup_location_mismatch",
+                        filename = entry.filename
+                    ));
                 }
                 if entry.filename != format!("{}.img", part.name)
                     && entry.filename != "gpt_main4.bin"
                 {
-                    return Err("백업 파티션 이름 불일치".into());
+                    return Err(crate::msg!("core_backup_name_mismatch"));
                 }
             } else if entry.filename != IDENTITY_NAME {
-                return Err("백업 좌표 누락".into());
+                return Err(crate::msg!("core_backup_location_missing"));
             }
         }
         if seen != required {
-            return Err("필수 백업 파일이 누락되었습니다.".into());
+            return Err(crate::msg!("core_backup_required_missing"));
         }
         let bytes =
             std::fs::read(self.file_path("gpt_main4.bin")?).map_err(|error| error.to_string())?;
@@ -481,7 +500,7 @@ impl VerifiedBackup {
         storage::disk_guid(&bytes)?;
         let geometry = storage::primary_geometry(&bytes)?;
         if self.entry("gpt_main4.bin")?.partition.as_ref() != Some(&geometry) {
-            return Err("GPT 백업 좌표 불일치".into());
+            return Err(crate::msg!("core_backup_gpt_location_mismatch"));
         }
         // The staged table must be derivable from this original.
         gpt.remove_region_vbmeta(manifest.slot)
@@ -495,7 +514,7 @@ impl VerifiedBackup {
         ] {
             let part = storage::find_partition(&manifest.snapshot, &name, lun)?;
             if self.entry(&format!("{name}.img"))?.partition.as_ref() != Some(part) {
-                return Err(format!("백업 스냅샷 불일치: {name}"));
+                return Err(crate::msg!("core_backup_snapshot_mismatch", name = name));
             }
             if lun == 4 {
                 storage::match_gpt_partition(&gpt, part)?;
@@ -504,10 +523,10 @@ impl VerifiedBackup {
         if manifest.absent_partitions.is_empty() {
             let part = storage::find_partition(&manifest.snapshot, "proinfo", 0)?;
             if self.entry("proinfo.img")?.partition.as_ref() != Some(part) {
-                return Err("proinfo 백업 좌표 불일치".into());
+                return Err(crate::msg!("core_backup_proinfo_location_mismatch"));
             }
         } else if manifest.snapshot.iter().any(|part| part.name == "proinfo") {
-            return Err("proinfo 존재 여부가 모순됩니다.".into());
+            return Err(crate::msg!("core_backup_proinfo_contradiction"));
         }
         Ok(())
     }
@@ -517,7 +536,7 @@ impl VerifiedBackup {
             .files
             .iter()
             .find(|file| file.filename == name)
-            .ok_or_else(|| format!("백업 항목 없음: {name}"))
+            .ok_or_else(|| crate::msg!("core_backup_entry_missing", name = name))
     }
 
     pub fn mark(&self, stage: TransactionStage) -> Result<(), String> {
@@ -532,7 +551,7 @@ impl VerifiedBackup {
     }
 
     pub fn transaction_stage(&self) -> Result<TransactionStage, String> {
-        transaction_stage_in(&self.dir)?.ok_or_else(|| "작업 기록 파일이 없습니다.".into())
+        transaction_stage_in(&self.dir)?.ok_or_else(|| crate::msg!("core_backup_journal_missing"))
     }
 }
 
@@ -588,7 +607,7 @@ mod atomic_save_tests {
         let error = write_json_atomic(&path, &serde_json::json!({"stage":"S5"})).unwrap_err();
         assert!(started.elapsed() < Duration::from_secs(10));
         assert!(error.contains(path.to_str().unwrap()));
-        assert!(error.contains("JSON 파일 교체 실패"));
+        assert!(error.contains(&crate::msg!("core_backup_json_replace_failed")));
         assert_eq!(std::fs::read(&path).unwrap(), original);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
         drop(held);

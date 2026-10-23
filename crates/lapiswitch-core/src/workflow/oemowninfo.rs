@@ -33,7 +33,10 @@ fn hash(bytes: &[u8]) -> String {
 fn keep(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if path.try_exists().map_err(|e| e.to_string())? {
         if std::fs::read(path).map_err(|e| e.to_string())? != bytes {
-            return Err(format!("국가코드 증거 파일이 다릅니다: {}", path.display()));
+            return Err(crate::msg!(
+                "core_country_evidence_differs",
+                path = path.display()
+            ));
         }
         Ok(())
     } else {
@@ -56,11 +59,11 @@ pub(crate) fn change(
     let expected = original
         .partition
         .as_ref()
-        .ok_or_else(|| format!("{name} 백업 좌표 누락"))?;
+        .ok_or_else(|| crate::msg!("core_country_backup_location_missing", name = name))?;
     let (_, gpt) = read_primary(device, field.lun, work, &format!("country_{name}"), log)?;
     let entry = gpt
         .find(name)
-        .ok_or_else(|| format!("기기에 {name} 파티션이 없습니다."))?;
+        .ok_or_else(|| crate::msg!("core_country_device_no_partition", name = name))?;
     let part = Partition {
         name: name.into(),
         lun: field.lun,
@@ -69,7 +72,7 @@ pub(crate) fn change(
     };
     oemowninfo::validate_partition(field, &part)?;
     if &part != expected {
-        return Err(format!("현재 {name} 좌표가 원본 백업과 다릅니다."));
+        return Err(crate::msg!("core_country_location_differs", name = name));
     }
     device.ensure_single_target()?;
     let current = dump_bytes(
@@ -80,7 +83,7 @@ pub(crate) fn change(
     )?;
     let second = dump_bytes(device, &part, &work.join(format!("{name}.second.img")), log)?;
     if current != second {
-        return Err(format!("{name} 두 번 읽기 결과가 달라 쓰지 않았습니다."));
+        return Err(crate::msg!("core_country_reads_differ", name = name));
     }
     oemowninfo::detect(field, &current)?;
 
@@ -102,12 +105,13 @@ pub(crate) fn change(
             || intent.planned_sha256 != hash(&planned)
             || oemowninfo::plan(field, &before, &code)? != planned
         {
-            return Err(format!("{name} 국가코드 쓰기 기록/파일 검증 실패"));
+            return Err(crate::msg!(
+                "core_country_record_verify_failed",
+                name = name
+            ));
         }
         if current != planned && (intent.verified || current != before) {
-            return Err(format!(
-                "{name} 쓰기 결과를 확정할 수 없습니다. 자동 재쓰기 없이 백업과 기록을 보존합니다."
-            ));
+            return Err(crate::msg!("core_country_write_unknown", name = name));
         }
     } else {
         planned = oemowninfo::plan(field, &current, &code)?;
@@ -127,37 +131,46 @@ pub(crate) fn change(
     if current != planned {
         // Recheck the actual file consumed by EDL after the durable intent.
         if std::fs::read(&planned_file).map_err(|e| e.to_string())? != planned {
-            return Err(format!("{name} 예정 파일이 쓰기 전에 변경되었습니다."));
+            return Err(crate::msg!("core_country_planned_changed", name = name));
         }
         live!(
             log,
-            "국가코드: {} → {code}. {name}의 0x{:X}~0x{:X}만 변경합니다.",
-            oemowninfo::detect(field, &current)?,
-            field.offset,
-            field.offset + 3
+            "{}",
+            crate::msg!(
+                "core_country_changing",
+                current = oemowninfo::detect(field, &current)?,
+                code = code,
+                name = name,
+                offset = format!("{:X}", field.offset),
+                offset2 = format!("{:X}", field.offset + 3)
+            )
         );
-        device.write_at(&part, &planned_file, log).map_err(|e| {
-            format!("{name} 국가코드 쓰기 결과 불명: {e}. 백업과 기록을 보존합니다.")
-        })?;
+        device
+            .write_at(&part, &planned_file, log)
+            .map_err(|e| crate::msg!("core_country_result_unknown", name = name, e = e))?;
     } else {
         live!(
             log,
-            "국가코드가 목표값 {code}와 같습니다. 쓰기를 생략하고 전체를 검증합니다."
+            "{}",
+            crate::msg!("core_country_already_set", code = code)
         );
     }
     let verified = dump_bytes(device, &part, &work.join(format!("{name}.verify.img")), log)?;
     if verified != planned {
-        return Err(format!(
-            "{name} 국가코드 쓰기 후 전체 재읽기 검증 실패. 백업과 기록을 보존합니다."
-        ));
+        return Err(crate::msg!("core_country_readback_failed", name = name));
     }
     keep(&dir.join(format!("{name}.country.verified.img")), &verified)?;
     intent.verified = true;
     backup::write_json_atomic(&journal, &intent)?;
     live!(
         log,
-        "국가코드 {code} 및 {name} 전체 {}바이트 재읽기 검증 완료.",
-        verified.len()
+        "{}",
+        crate::msg!(
+            "core_country_verified",
+            code = code,
+            name = name,
+            verified = verified.len()
+        )
     );
     Ok(())
 }

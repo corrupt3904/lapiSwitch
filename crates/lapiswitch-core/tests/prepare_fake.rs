@@ -226,7 +226,13 @@ fn fastboot_start_is_refused_before_any_device_command() {
         &mut vec![],
     );
     assert!(matches!(result, Err(PrepareError::FastbootUnsupported)));
-    assert!(result.err().unwrap().to_string().contains("ADB로 연결"));
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("connect over ADB")
+    );
     assert!(!saved);
     assert_eq!(device.important(), ["detect"]);
 }
@@ -479,7 +485,7 @@ fn s1_never_reads_boot_or_compares_rollback_indices() {
         assert!(prepared.is_ok(), "{start:?}");
         assert!(!device.contains("boot_a"));
         assert!(!device.contains("boot_b"));
-        assert!(!log.iter().any(|line| line.contains("롤백")), "{log:?}");
+        assert!(!log.iter().any(|line| line.contains("ollback")), "{log:?}");
     }
 }
 
@@ -534,7 +540,10 @@ fn reset_failure_keeps_the_original_probe_error() {
         &mut log,
     );
     assert!(matches!(result, Err(PrepareError::WrongModel(_))));
-    assert!(log.iter().any(|line| line.contains("EDL 복귀 실패")));
+    assert!(
+        log.iter()
+            .any(|line| line.contains("Could not return to EDL"))
+    );
 }
 
 #[test]
@@ -549,7 +558,11 @@ fn edl_start_confirmation_is_required_before_open_and_cancellation_does_not_rese
             &mut |_| Ok(()),
             &mut || {
                 asked += 1;
-                if accept { Ok(()) } else { Err("취소".into()) }
+                if accept {
+                    Ok(())
+                } else {
+                    Err("cancelled".into())
+                }
             },
             &mut vec![],
         );

@@ -48,9 +48,11 @@ pub fn describe(downgrades: &[Downgrade]) -> String {
     downgrades
         .iter()
         .map(|image| {
-            format!(
-                "{}: 펌웨어 {} < 기기 {}",
-                image.partition, image.firmware, image.floor
+            crate::msg!(
+                "core_rollback_downgrade",
+                partition = image.partition,
+                firmware = image.firmware,
+                floor = image.floor
             )
         })
         .collect::<Vec<_>>()
@@ -98,7 +100,7 @@ mod tests {
         assert_eq!(
             describe(&downgrades),
             format!(
-                "boot: 펌웨어 {APR_05} < 기기 {JUL_05} / vbmeta_system: 펌웨어 {APR_05} < 기기 {JUL_05}"
+                "boot: firmware {APR_05} < device {JUL_05} / vbmeta_system: firmware {APR_05} < device {JUL_05}"
             )
         );
     }

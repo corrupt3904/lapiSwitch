@@ -181,7 +181,8 @@ struct App {
     /// The folder the last DeviceInfo dump was saved in.
     dump_folder: Option<PathBuf>,
     progress: RunProgress,
-    comparison: Vec<String>,
+    /// Rollback indices read from the run log: (image, firmware, device).
+    comparison: Vec<(String, String, String)>,
     wait_control: worker::WaitControl,
     wait_ticket: Option<worker::WaitTicket>,
     stop_confirmation: Option<worker::WaitTicket>,
@@ -1313,8 +1314,18 @@ impl App {
         } else {
             line
         };
-        if line.starts_with("롤백 비교 ") && self.comparison.len() < 2 {
-            self.comparison.push(line.clone());
+        if self.comparison.len() < 2
+            && let Some(values) = lapiswitch_core::i18n::parse("core_rollback_compare", &line)
+        {
+            let value = |name: &str| {
+                values
+                    .iter()
+                    .find(|(key, _)| key == name)
+                    .map(|(_, value)| value.clone())
+                    .unwrap_or_default()
+            };
+            self.comparison
+                .push((value("partition"), value("image"), value("floor")));
         }
         if self.logs.len() >= 400 {
             self.logs.pop_front();
@@ -1760,10 +1771,9 @@ impl App {
             }
         }
         if matches!(screen, "result" | "progress") {
-            self.comparison = vec![
-                "롤백 비교 boot: 펌웨어 1775347200, 기기 1775347200".into(),
-                "롤백 비교 vbmeta_system: 펌웨어 1775347200, 기기 1775347200".into(),
-            ];
+            self.comparison = ["boot", "vbmeta_system"]
+                .map(|image| (image.into(), "1775347200".into(), "1775347200".into()))
+                .into();
             self.add_log("DEMO · 실제 기기에 연결하지 않는 미리보기입니다.".into());
             self.add_log(
                 "S5: 자동 EDL 재진입은 보통 1분 정도 걸립니다. 연결을 계속 감시합니다.".into(),

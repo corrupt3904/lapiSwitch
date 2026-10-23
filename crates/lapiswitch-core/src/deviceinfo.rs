@@ -28,7 +28,7 @@ pub fn region(layout: map::Layout, bytes: &[u8]) -> Result<Region, String> {
     layout.check_buffer(bytes)?;
     layout
         .region(bytes)
-        .ok_or_else(|| "DeviceInfo 리전 필드가 PRC/ROW가 아닙니다.".into())
+        .ok_or_else(|| crate::msg!("core_deviceinfo_region_invalid"))
 }
 
 pub fn indices(layout: map::Layout, bytes: &[u8]) -> [u64; map::ROLLBACK_COUNT] {
@@ -69,10 +69,7 @@ pub fn conversion_edits(
 /// Both readbacks must equal the full 4096-byte plan.
 pub fn verify(planned: &[u8], same: &[u8], fresh_session: &[u8]) -> Result<(), String> {
     if planned.len() != SHARED_SIZE || same != planned || fresh_session != planned {
-        return Err(
-            "DeviceInfo 재읽기 전체 4096바이트 검증 실패. 재쓰지 않고 현재 상태를 확인하세요."
-                .into(),
-        );
+        return Err(crate::msg!("core_deviceinfo_readback_failed"));
     }
     Ok(())
 }
@@ -80,7 +77,7 @@ pub fn verify(planned: &[u8], same: &[u8], fresh_session: &[u8]) -> Result<(), S
 /// Only BCB command[32], preserving the other bytes of the dumped partition.
 pub fn recovery_misc(original: &[u8]) -> Result<Vec<u8>, String> {
     if original.len() < 32 {
-        return Err("misc 덤프가 너무 짧습니다.".into());
+        return Err(crate::msg!("core_deviceinfo_misc_short"));
     }
     let mut modified = original.to_vec();
     modified[..32].fill(0);

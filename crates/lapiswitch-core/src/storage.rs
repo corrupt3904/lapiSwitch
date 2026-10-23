@@ -19,15 +19,18 @@ impl Partition {
         self.start_sector
             .checked_add(self.num_sectors)
             .filter(|_| self.lun <= 5 && self.num_sectors > 0)
-            .ok_or_else(|| format!("잘못된 파티션 좌표: {}", self.name))?;
+            .ok_or_else(|| crate::msg!("core_storage_invalid_location", partition = self.name))?;
         self.num_sectors
             .checked_mul(SECTOR_SIZE as u64)
-            .ok_or_else(|| format!("파티션 크기 범위 초과: {}", self.name))
+            .ok_or_else(|| crate::msg!("core_storage_size_overflow", partition = self.name))
     }
 
     pub fn prefix(&self, bytes: u64) -> Result<Self, String> {
         if bytes == 0 || bytes > self.size_bytes()? {
-            return Err(format!("이미지가 파티션보다 큽니다: {}", self.name));
+            return Err(crate::msg!(
+                "core_storage_image_too_large",
+                partition = self.name
+            ));
         }
         Ok(Self {
             num_sectors: bytes.div_ceil(SECTOR_SIZE as u64),
@@ -42,9 +45,11 @@ pub fn find_partition<'a>(
     lun: u8,
 ) -> Result<&'a Partition, String> {
     let mut found = snapshot.iter().filter(|part| part.name == name);
-    let part = found.next().ok_or_else(|| format!("파티션 없음: {name}"))?;
+    let part = found
+        .next()
+        .ok_or_else(|| crate::msg!("core_storage_no_partition", name = name))?;
     if found.next().is_some() || part.lun != lun {
-        return Err(format!("파티션 위치가 모호하거나 LUN이 다릅니다: {name}"));
+        return Err(crate::msg!("core_storage_ambiguous", name = name));
     }
     part.size_bytes()?;
     Ok(part)
@@ -62,11 +67,11 @@ pub fn primary_geometry(header: &[u8]) -> Result<Partition, String> {
                 .checked_mul(h.entry_size as u64)
                 .and_then(|len| start.checked_add(len))
         })
-        .ok_or("GPT 배열 범위 초과")?;
+        .ok_or(crate::msg!("core_storage_gpt_array_range"))?;
     let bytes = h
         .first_usable_lba
         .checked_mul(SECTOR_SIZE as u64)
-        .ok_or("GPT 크기 범위 초과")?;
+        .ok_or(crate::msg!("core_storage_gpt_size_range"))?;
     if !(2..=256).contains(&h.first_usable_lba)
         || h.entries_lba < 2
         || h.num_entries == 0
@@ -74,7 +79,7 @@ pub fn primary_geometry(header: &[u8]) -> Result<Partition, String> {
         || end > bytes
         || h.last_usable_lba < h.first_usable_lba
     {
-        return Err("지원하지 않거나 손상된 primary GPT 배치입니다.".into());
+        return Err(crate::msg!("core_storage_gpt_layout"));
     }
     Ok(Partition {
         name: "gpt_main4".into(),
@@ -87,7 +92,7 @@ pub fn primary_geometry(header: &[u8]) -> Result<Partition, String> {
 pub fn validate_gpt(bytes: &[u8]) -> Result<PrimaryGpt, String> {
     let geometry = primary_geometry(bytes)?;
     if bytes.len() as u64 != geometry.size_bytes()? {
-        return Err("GPT 백업 길이가 헤더와 다릅니다.".into());
+        return Err(crate::msg!("core_storage_gpt_backup_length"));
     }
     let gpt = PrimaryGpt::parse(bytes).map_err(|error| error.to_string())?;
     let mut entries = gpt.entries();
@@ -101,10 +106,7 @@ pub fn validate_gpt(bytes: &[u8]) -> Result<PrimaryGpt, String> {
             || entry.last_lba < entry.first_lba
             || previous_end.is_some_and(|end| entry.first_lba <= end)
         {
-            return Err(format!(
-                "GPT 파티션 범위가 잘못되었거나 겹칩니다: {}",
-                entry.name
-            ));
+            return Err(crate::msg!("core_storage_gpt_range", entry = entry.name));
         }
         previous_end = Some(entry.last_lba);
     }
@@ -122,13 +124,13 @@ pub fn match_gpt_partition(gpt: &PrimaryGpt, part: &Partition) -> Result<(), Str
                 .then(|| gpt.scanned_end_marker())
                 .flatten()
         })
-        .ok_or_else(|| format!("원본 GPT에 {}가 없습니다.", part.name))?;
+        .ok_or_else(|| crate::msg!("core_storage_original_missing", part = part.name))?;
     let sectors = entry
         .last_lba
         .checked_sub(entry.first_lba)
         .and_then(|n| n.checked_add(1));
     if part.lun != 4 || part.start_sector != entry.first_lba || Some(part.num_sectors) != sectors {
-        return Err(format!("GPT와 고정 좌표가 다릅니다: {}", part.name));
+        return Err(crate::msg!("core_storage_fixed_location", part = part.name));
     }
     Ok(())
 }
@@ -138,9 +140,9 @@ pub fn match_gpt_partition(gpt: &PrimaryGpt, part: &Partition) -> Result<(), Str
 pub fn disk_guid(header: &[u8]) -> Result<&[u8], String> {
     let guid = header
         .get(SECTOR_SIZE + 56..SECTOR_SIZE + 72)
-        .ok_or("GPT 헤더가 짧습니다.")?;
+        .ok_or(crate::msg!("core_storage_gpt_header_short"))?;
     if guid.iter().all(|byte| *byte == 0) {
-        return Err("GPT disk GUID가 비어 있습니다.".into());
+        return Err(crate::msg!("core_storage_gpt_guid_empty"));
     }
     Ok(guid)
 }

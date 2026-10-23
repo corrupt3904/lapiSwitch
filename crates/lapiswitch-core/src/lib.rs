@@ -8,6 +8,7 @@ pub mod device;
 pub mod device_version;
 pub mod firmware;
 pub mod gpt;
+pub mod i18n;
 pub mod prepare;
 pub mod region;
 pub mod rollback;

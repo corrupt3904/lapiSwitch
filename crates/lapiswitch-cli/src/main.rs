@@ -78,7 +78,7 @@ fn parse_gpt_modify_args(args: &[String]) -> Result<(PathBuf, Slot, Option<PathB
             "--slot" if slot.is_none() => {
                 slot = Some(
                     Slot::parse(rest.next().ok_or(USAGE)?)
-                        .ok_or("활성 슬롯은 a 또는 b여야 합니다.")?,
+                        .ok_or(lapiswitch_core::msg!("cli_slot_invalid"))?,
                 );
             }
             _ if !arg.starts_with('-') && input.is_none() => input = Some(PathBuf::from(arg)),
@@ -87,7 +87,7 @@ fn parse_gpt_modify_args(args: &[String]) -> Result<(PathBuf, Slot, Option<PathB
     }
     Ok((
         input.ok_or(USAGE)?,
-        slot.ok_or("GPT 수정에는 활성 슬롯을 --slot a 또는 --slot b로 지정해야 합니다.")?,
+        slot.ok_or(lapiswitch_core::msg!("cli_slot_required"))?,
         output,
     ))
 }
@@ -178,9 +178,10 @@ fn prepare_device(args: &[String]) -> Result<(), String> {
     let (folder, region, output) = parse_prepare_args(args)?;
     let firmware = check_firmware(&folder, Some(region)).map_err(|error| error.to_string())?;
     std::fs::create_dir(&output).map_err(|error| {
-        format!(
-            "{}: {error} (새 출력 폴더를 지정해 주세요)",
-            output.display()
+        lapiswitch_core::msg!(
+            "cli_output_exists",
+            output = output.display(),
+            error = error
         )
     })?;
     let mut device = NativeDevice::new(&output)?;
@@ -198,8 +199,8 @@ fn prepare_device(args: &[String]) -> Result<(), String> {
             .map_err(|error| error.to_string())
     };
     println!(
-        "기기 확인과 EDL 전환을 시작합니다. 기록 폴더: {}",
-        output.display()
+        "{}",
+        lapiswitch_core::msg!("cli_prepare_start", folder = output.display())
     );
     let result = prepare(
         &mut device,
@@ -219,21 +220,30 @@ fn prepare_device(args: &[String]) -> Result<(), String> {
         Ok(prepared.report)
     });
     if let Err(error) = &result {
-        log.push(format!("준비 실패: {error}"));
+        log.push(lapiswitch_core::msg!("cli_prepare_failed", error = error));
     }
     let log_result = std::fs::write(output.join("prepare.log"), log.join("\n"))
         .map_err(|error| error.to_string());
     // Keep the preparation failure visible even if saving the log also fails.
     match result {
         Ok(report) => {
-            println!("활성 슬롯: {}", report.slot.suffix());
-            println!("기록 폴더: {}", output.display());
-            println!("준비 완료. GPT·boot·펌웨어는 쓰지 않았으며, 기기를 EDL로 돌려놓았습니다.");
+            println!(
+                "{}",
+                lapiswitch_core::msg!("cli_active_slot", slot = report.slot.suffix())
+            );
+            println!(
+                "{}",
+                lapiswitch_core::msg!("cli_record_folder", folder = output.display())
+            );
+            println!("{}", lapiswitch_core::msg!("cli_prepare_done"));
             log_result
         }
         Err(error) => {
             if let Err(log_error) = log_result {
-                eprintln!("로그 저장 실패: {log_error}");
+                eprintln!(
+                    "{}",
+                    lapiswitch_core::msg!("cli_log_save_failed", log_error = log_error)
+                );
             }
             Err(error)
         }

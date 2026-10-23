@@ -58,11 +58,11 @@ fn identify<D: StageIo>(
     let a = device.read_avb("vbmeta_system_a", log)?;
     let b = device.read_avb("vbmeta_system_b", log)?;
     let active = if slot == Slot::A { a } else { b };
-    let active = active.ok_or("활성 슬롯의 vbmeta_system 정보를 읽을 수 없습니다.")?;
+    let active = active.ok_or(crate::msg!("core_stage1_vbmeta_unread"))?;
     active
         .build_fingerprint()
         .filter(|fp| Device::identify(fp) == Some(expected))
-        .ok_or_else(|| format!("EDL 활성 슬롯의 기기 모델이 {expected}로 확인되지 않았습니다."))?;
+        .ok_or_else(|| crate::msg!("core_stage1_model_unconfirmed", expected = expected))?;
     let fingerprint = active.version_fingerprint().unwrap_or_default();
     Ok((fingerprint, format!("{:?}", active.key_class())))
 }
@@ -78,7 +78,7 @@ fn dump<D: StageIo>(
         .map_err(|error| error.to_string())?
         .len();
     if len != part.size_bytes()? {
-        return Err(format!("덤프 길이가 잘못되었습니다: {}", part.name));
+        return Err(crate::msg!("core_stage1_dump_length", part = part.name));
     }
     Ok(())
 }
@@ -91,9 +91,10 @@ fn country_partition(device: Device, snapshot: &[Partition]) -> Result<Option<Pa
     };
     let part = storage::find_partition(snapshot, field.partition, field.lun)?;
     if part.size_bytes()? != field.size as u64 {
-        return Err(format!(
-            "{} 파티션 크기가 기기 정보({}바이트)와 다릅니다.",
-            field.partition, field.size
+        return Err(crate::msg!(
+            "core_stage1_partition_size",
+            partition = field.partition,
+            size = field.size
         ));
     }
     Ok(Some(part.clone()))
@@ -121,27 +122,29 @@ pub fn take_backup_with_confirmation<D: StageIo>(
     log: &mut Vec<String>,
 ) -> Result<VerifiedBackup, String> {
     device.ensure_single_target()?;
-    live!(log, "S3: 기기를 다시 확인하고 원본 파티션을 백업합니다.");
+    live!(log, "{}", crate::msg!("core_s3_backup_start"));
     let (fingerprint, key) = identify(device, prepared.device, prepared.slot, log)?;
-    live!(log, "S3: 기기 서명 키 {key} (표시·기록용)");
+    live!(log, "{}", crate::msg!("core_s3_key", key = key));
     match crate::device_version::check(prepared.device, &fingerprint) {
         Ok(version) => live!(
             log,
-            "S3: 활성 슬롯 {} 기기 펌웨어 {version}, 버전 제한 검사 통과",
-            prepared.slot.suffix()
+            "{}",
+            crate::msg!(
+                "core_s3_version_ok",
+                slot = prepared.slot.suffix(),
+                version = version
+            )
         ),
         Err(crate::device_version::VersionError::Unrecognized) => {
-            live!(log, "S3: 순정롬 식별 불가 (system_ext 우선): {fingerprint}");
-            if !confirm_unrecognized()? {
-                return Err(
-                    "순정롬 확인 불가 경고에서 작업을 취소했습니다. 기기에는 쓰지 않았습니다."
-                        .into(),
-                );
-            }
             live!(
                 log,
-                "S3: 사용자가 순정롬 확인 불가 경고를 확인하고 계속 진행을 선택했습니다."
+                "{}",
+                crate::msg!("core_s3_unrecognized", fingerprint = fingerprint)
             );
+            if !confirm_unrecognized()? {
+                return Err(crate::msg!("core_s3_unrecognized_cancelled"));
+            }
+            live!(log, "{}", crate::msg!("core_s3_unrecognized_continued"));
             device.ensure_single_target()?;
         }
         Err(error) => return Err(error.to_string()),
@@ -173,14 +176,14 @@ pub fn take_backup_with_confirmation<D: StageIo>(
     let gpt = storage::validate_gpt(&bytes)?;
     // Re-read header must agree with the one used to choose the dump length.
     if bytes.get(..header_bytes.len()) != Some(header_bytes.as_slice()) {
-        return Err("GPT 헤더가 덤프 도중 변경되었습니다.".into());
+        return Err(crate::msg!("core_gpt_header_changed_dump"));
     }
     for part in snapshot.iter().filter(|part| part.lun == 4) {
         storage::match_gpt_partition(&gpt, part)?;
     }
     // Same rule as S1: set flags must agree; blank flags keep the ADB slot.
     if gpt.active_slot(Some(prepared.slot))? != prepared.slot {
-        return Err("백업 시 GPT 활성 슬롯이 준비 단계와 달라졌습니다.".into());
+        return Err(crate::msg!("core_gpt_slot_changed_backup"));
     }
     gpt.remove_region_vbmeta(prepared.slot)
         .map_err(|error| error.to_string())?;
@@ -216,8 +219,8 @@ pub fn take_backup_with_confirmation<D: StageIo>(
     let backup = builder.finish(prepared, fingerprint, key, snapshot, proinfo.is_none())?;
     live!(
         log,
-        "S3: 백업 파일을 다시 읽어 크기와 SHA-256을 확인했습니다: {}",
-        backup.path().display()
+        "{}",
+        crate::msg!("core_s3_backup_verified", backup = backup.path().display())
     );
     Ok(backup)
 }

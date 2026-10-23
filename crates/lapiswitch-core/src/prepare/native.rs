@@ -83,9 +83,7 @@ impl DeviceIo for NativeDevice {
             .map_err(|error| error.to_string())?
         {
             Some("device" | "recovery") => Ok(Connection::Adb),
-            Some(state) => Err(format!(
-                "ADB 상태: {state}. USB 디버깅 허용 또는 드라이버 상태를 확인해 주세요."
-            )),
+            Some(state) => Err(crate::msg!("core_adb_state", state = state)),
             None => Ok(Connection::None),
         }
     }
@@ -134,10 +132,13 @@ impl DeviceIo for NativeDevice {
     ) -> Result<Option<AvbSummary>, String> {
         // Only fixed internal names become filenames.
         if !matches!(partition, "vbmeta_system_a" | "vbmeta_system_b") {
-            return Err(format!("지원하지 않는 AVB 파티션: {partition}"));
+            return Err(crate::msg!(
+                "core_avb_unsupported_partition",
+                partition = partition
+            ));
         }
         let lun = ltbox_core::partition_lun::lun_for_partition(partition)
-            .ok_or_else(|| format!("LUN을 찾을 수 없습니다: {partition}"))?;
+            .ok_or_else(|| crate::msg!("core_lun_not_found", partition = partition))?;
         let path = self.scratch.path().join(format!("{partition}.img"));
         match session.dump_partition(partition, &path, 0, lun, log) {
             Ok(()) => {}
@@ -154,7 +155,15 @@ impl DeviceIo for NativeDevice {
         // read_avb's external parser erases I/O error types. A successfully
         // dumped image that fails AVB parsing is treated as invalid, as LTBox.
         if let Err(error) = &info {
-            ltbox_core::live!(log, "{partition}: AVB 파싱 불가: {error}");
+            ltbox_core::live!(
+                log,
+                "{}",
+                crate::msg!(
+                    "core_avb_parse_failed",
+                    partition = partition,
+                    error = error
+                )
+            );
         }
         std::fs::remove_file(&path).map_err(|error| error.to_string())?;
         Ok(info.ok())
@@ -174,7 +183,7 @@ impl DeviceIo for NativeDevice {
         let header = std::fs::read(&header_path).map_err(|e| e.to_string())?;
         let geometry = crate::storage::primary_geometry(&header)?;
         if geometry.size_bytes()? > 1024 * 1024 {
-            return Err("GPT 크기가 허용 범위를 초과합니다.".into());
+            return Err(crate::msg!("core_gpt_size_too_large"));
         }
         let path = work.path().join("gpt.bin");
         session
@@ -182,7 +191,7 @@ impl DeviceIo for NativeDevice {
             .map_err(|e| e.to_string())?;
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
         if bytes.get(..header.len()) != Some(header.as_slice()) {
-            return Err("활성 슬롯 확인 중 GPT 헤더가 변경되었습니다.".into());
+            return Err(crate::msg!("core_gpt_header_changed_slot"));
         }
         let gpt = crate::storage::validate_gpt(&bytes)?;
         let slot = gpt.active_slot(expected)?;
@@ -194,8 +203,8 @@ impl DeviceIo for NativeDevice {
         {
             ltbox_core::live!(
                 log,
-                "S1-E: GPT 슬롯 제어 값이 초기 상태입니다. ADB에서 확인한 활성 슬롯 {}를 사용합니다.",
-                slot.suffix()
+                "{}",
+                crate::msg!("core_s1e_slot_from_adb", slot = slot.suffix())
             );
         }
         Ok(slot)

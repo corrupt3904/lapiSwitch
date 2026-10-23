@@ -454,7 +454,7 @@ fn explicit_archive_cannot_race_a_running_job_or_archive_a_changed_confirmation(
             .store
             .archive_for_new_run(&setup.state)
             .unwrap_err()
-            .contains("변경")
+            .contains("changed")
     );
     assert_eq!(std::fs::read(setup.store.path()).unwrap(), updated);
     assert!(

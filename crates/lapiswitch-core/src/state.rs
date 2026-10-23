@@ -108,7 +108,7 @@ impl FirmwareBinding {
             || self.indices != firmware.indices
             || self.fingerprint != firmware.fingerprint
         {
-            return Err("저장된 펌웨어와 현재 펌웨어가 일치하지 않습니다.".into());
+            return Err(crate::msg!("core_firmware_binding_mismatch"));
         }
         Ok(())
     }
@@ -118,7 +118,7 @@ impl FirmwareBinding {
     pub fn verify(&self, firmware: &FirmwareReport) -> Result<(), String> {
         self.matches(firmware)?;
         if seal_firmware(firmware)? != self.files {
-            return Err("펌웨어 파일 또는 XML 구성이 변경되었습니다.".into());
+            return Err(crate::msg!("core_firmware_files_changed"));
         }
         Ok(())
     }
@@ -171,7 +171,7 @@ pub fn seal_firmware(firmware: &FirmwareReport) -> Result<Vec<SealedFile>, Strin
                 continue;
             };
             let path = ltbox_core::safe_path::safe_join(
-                xml.parent().ok_or("XML 부모 폴더 없음")?,
+                xml.parent().ok_or(crate::msg!("core_xml_no_parent"))?,
                 filename,
             )
             .map_err(|error| error.to_string())?;
@@ -186,7 +186,7 @@ pub fn seal_firmware(firmware: &FirmwareReport) -> Result<Vec<SealedFile>, Strin
                 let ancestor = absolute
                     .ancestors()
                     .find(|candidate| candidate.exists())
-                    .ok_or("경로의 상위 폴더 없음")?;
+                    .ok_or(crate::msg!("core_path_no_ancestor"))?;
                 let normalized = ancestor
                     .canonicalize()
                     .map_err(|error| error.to_string())?
@@ -333,7 +333,7 @@ impl RunState {
     /// The device of this run, bound with the backup at S3 at the latest.
     pub fn device(&self) -> Result<Device, String> {
         self.device
-            .ok_or_else(|| "저장된 작업에 기기 정보가 없습니다.".into())
+            .ok_or_else(|| crate::msg!("core_state_no_device"))
     }
 
     pub fn bind_backup(&mut self, backup: &VerifiedBackup) -> Result<(), String> {
@@ -343,10 +343,10 @@ impl RunState {
                 .canonicalize()
                 .map_err(|error| error.to_string())?
         {
-            return Err("백업과 실행 설정이 다릅니다.".into());
+            return Err(crate::msg!("core_state_backup_settings_differ"));
         }
         if self.device.is_some_and(|device| device != backup.device()) {
-            return Err("백업의 기기가 작업의 기기와 다릅니다.".into());
+            return Err(crate::msg!("core_state_backup_device_differs"));
         }
         self.device = Some(backup.device());
         self.backup_sha256 =
@@ -388,15 +388,15 @@ impl RunState {
             || self.device != Some(backup.device())
             || firmware.is_some_and(|firmware| self.device != Some(firmware.device))
         {
-            return Err("저장된 상태·백업이 일치하지 않습니다.".into());
+            return Err(crate::msg!("core_state_backup_mismatch"));
         }
         if seal_file(&self.loader.path)? != self.loader {
-            return Err("EDL 로더 파일이 변경되었습니다.".into());
+            return Err(crate::msg!("core_state_loader_changed"));
         }
         match (&self.firmware, firmware) {
             (Some(binding), Some(firmware)) => binding.matches(firmware),
             (None, None) => Ok(()),
-            _ => Err("저장된 작업의 펌웨어 설치 여부와 선택한 펌웨어가 다릅니다.".into()),
+            _ => Err(crate::msg!("core_state_firmware_choice_differs")),
         }
     }
 
@@ -422,7 +422,7 @@ impl StateStore {
         } else {
             dirs::data_dir()
         }
-        .ok_or("앱 데이터 폴더를 찾을 수 없습니다.")?;
+        .ok_or(crate::msg!("core_state_no_app_data"))?;
         Ok(base.join("lapiSwitch").join("state.json"))
     }
     pub fn path(&self) -> &Path {
@@ -438,7 +438,7 @@ impl StateStore {
         let name = self
             .path
             .file_name()
-            .ok_or("상태 파일 이름 없음")?
+            .ok_or(crate::msg!("core_state_no_file_name"))?
             .to_string_lossy();
         let file = OpenOptions::new()
             .read(true)
@@ -448,7 +448,7 @@ impl StateStore {
             .open(parent.join(format!("{name}.lock")))
             .map_err(|error| error.to_string())?;
         file.try_lock()
-            .map_err(|error| format!("다른 실행이 이 상태 파일을 사용 중입니다: {error}"))?;
+            .map_err(|error| crate::msg!("core_state_locked", error = error))?;
         Ok(RunLock { _file: file })
     }
     pub fn load(&self) -> Result<Option<RunState>, String> {
@@ -458,11 +458,11 @@ impl StateStore {
             Err(error) => return Err(error.to_string()),
         };
         if !metadata.file_type().is_file() || metadata.len() > 1024 * 1024 {
-            return Err("잘못된 상태 파일".into());
+            return Err(crate::msg!("core_state_invalid"));
         }
         let state: RunState = backup::read_json(&self.path)?;
         if state.version != STATE_VERSION {
-            return Err("지원하지 않는 상태 파일 버전".into());
+            return Err(crate::msg!("core_state_unsupported_version"));
         }
         if let Some(code) = state.options.country.as_deref() {
             country::validate(code)?;
@@ -477,7 +477,7 @@ impl StateStore {
     /// Preserve its exact JSON first so recovery history is never discarded.
     pub fn archive_restored(&self, backup: &VerifiedBackup) -> Result<Option<PathBuf>, String> {
         if backup.transaction_stage()? != TransactionStage::Restored {
-            return Err("원본 복구 완료가 확인되지 않아 작업 기록을 보존합니다.".into());
+            return Err(crate::msg!("core_state_restore_unconfirmed"));
         }
         let Some(state) = self.load()? else {
             return Ok(None);
@@ -496,7 +496,7 @@ impl StateStore {
         let history = self
             .path
             .parent()
-            .ok_or("작업 기록 폴더 없음")?
+            .ok_or(crate::msg!("core_state_no_history"))?
             .join("history");
         std::fs::create_dir_all(&history).map_err(|error| error.to_string())?;
         let original = std::fs::read(&self.path).map_err(|error| error.to_string())?;
@@ -518,17 +518,19 @@ impl StateStore {
     /// Take the same lock as device workflows and reject a stale confirmation.
     pub fn archive_for_new_run(&self, expected: &RunState) -> Result<PathBuf, String> {
         let _held = self.lock()?;
-        let current = self.load()?.ok_or("보관할 이전 작업 기록이 없습니다.")?;
+        let current = self
+            .load()?
+            .ok_or(crate::msg!("core_state_nothing_to_archive"))?;
         if serde_json::to_value(&current).map_err(|e| e.to_string())?
             != serde_json::to_value(expected).map_err(|e| e.to_string())?
         {
-            return Err("이전 작업 기록이 변경되었습니다. 작업 확인을 다시 열어 주세요.".into());
+            return Err(crate::msg!("core_state_changed_reopen"));
         }
         let original = std::fs::read(&self.path).map_err(|e| e.to_string())?;
         let history = self
             .path
             .parent()
-            .ok_or("작업 기록 폴더 없음")?
+            .ok_or(crate::msg!("core_state_no_history"))?
             .join("history");
         std::fs::create_dir_all(&history).map_err(|e| e.to_string())?;
         let archive = tempfile::Builder::new()
@@ -549,13 +551,13 @@ impl StateStore {
         )?;
         if std::fs::read(archive.path().join("state.json")).map_err(|e| e.to_string())? != original
         {
-            return Err("작업 기록 보관 검증에 실패했습니다. 이전 기록을 유지합니다.".into());
+            return Err(crate::msg!("core_state_archive_verify_failed"));
         }
         // Keep the durable history before touching the active pointer. A failed
         // remove leaves the active guard in place and the archive recoverable.
         let archived = archive.keep();
         if std::fs::read(&self.path).map_err(|e| e.to_string())? != original {
-            return Err("이전 작업 기록이 변경되었습니다. 활성 기록을 유지합니다.".into());
+            return Err(crate::msg!("core_state_changed_kept"));
         }
         std::fs::remove_file(&self.path).map_err(|e| e.to_string())?;
         Ok(archived)
@@ -566,9 +568,7 @@ impl StateStore {
             let transaction = backup::transaction_stage_in(&previous.backup_dir)?;
             let restartable = previous.resume_action(transaction) == ResumeAction::Restart;
             if !restartable {
-                return Err(
-                    "미완료 작업이 있습니다. status/resume 또는 restore로 확인해 주세요.".into(),
-                );
+                return Err(crate::msg!("core_state_unfinished"));
             }
         }
         self.save(state)

@@ -63,25 +63,21 @@ pub trait DeviceIo {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PrepareError {
-    #[error(
-        "기기가 연결되어 있지 않습니다. Android에서 USB 디버깅을 허용해 ADB로 연결하거나 EDL로 연결해 주세요."
-    )]
+    #[error("{}", crate::msg!("core_prepare_no_device"))]
     NoDevice,
-    #[error(
-        "Fastboot에서는 시작할 수 없습니다. 기기를 Android로 부팅하고 USB 디버깅을 허용한 뒤 ADB로 연결해 주세요."
-    )]
+    #[error("{}", crate::msg!("core_prepare_fastboot"))]
     FastbootUnsupported,
     #[error("{step}: {message}")]
-    Device { step: &'static str, message: String },
-    #[error("지원 기기로 확인할 수 없습니다: {0}")]
+    Device { step: String, message: String },
+    #[error("{}", crate::msg!("core_prepare_wrong_model", model = .0))]
     WrongModel(String),
-    #[error("연결된 기기({found})가 선택한 작업의 기기({expected})와 다릅니다.")]
+    #[error("{}", crate::msg!("core_prepare_other_device", found = .found, expected = .expected))]
     OtherDevice { expected: Device, found: Device },
-    #[error("ADB에서 활성 슬롯(a/b)을 읽을 수 없습니다.")]
+    #[error("{}", crate::msg!("core_prepare_missing_slot"))]
     MissingSlot,
-    #[error("ADB에서 기기 시리얼을 읽을 수 없습니다.")]
+    #[error("{}", crate::msg!("core_prepare_missing_serial"))]
     MissingSerial,
-    #[error("adb_identity.txt 저장 실패: {0}")]
+    #[error("{}", crate::msg!("core_prepare_identity_save", error = .0))]
     SaveIdentity(String),
 }
 
@@ -102,7 +98,7 @@ pub struct PreparedDevice<S> {
     pub session: S,
 }
 
-fn operation<T>(step: &'static str, result: Result<T, String>) -> Result<T, PrepareError> {
+fn operation<T>(step: String, result: Result<T, String>) -> Result<T, PrepareError> {
     result.map_err(|message| PrepareError::Device { step, message })
 }
 
@@ -151,16 +147,29 @@ pub fn prepare_with_confirmation<D: DeviceIo>(
     confirm_edl: &mut dyn FnMut() -> Result<(), String>,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
-    operation("USB 기기 확인", device.ensure_single_target())?;
-    let started_in = operation("연결 모드 확인", device.detect())?;
-    live!(log, "S1: 연결 모드 {started_in:?}");
+    operation(
+        crate::msg!("core_step_usb_check"),
+        device.ensure_single_target(),
+    )?;
+    let started_in = operation(crate::msg!("core_step_mode_check"), device.detect())?;
+    live!(
+        log,
+        "{}",
+        crate::msg!("core_s1_mode", started_in = format!("{:?}", started_in))
+    );
     match started_in {
         Connection::None => Err(PrepareError::NoDevice),
         Connection::Fastboot => Err(PrepareError::FastbootUnsupported),
         Connection::Edl => {
-            operation("EDL 시작 확인", confirm_edl())?;
-            operation("USB 기기 확인", device.ensure_single_target())?;
-            let session = operation("EDL 연결 (파티션 쓰기 전)", device.open_edl(loader, log))?;
+            operation(crate::msg!("core_step_edl_start"), confirm_edl())?;
+            operation(
+                crate::msg!("core_step_usb_check"),
+                device.ensure_single_target(),
+            )?;
+            let session = operation(
+                crate::msg!("core_step_edl_connect"),
+                device.open_edl(loader, log),
+            )?;
             probe_or_reset(device, session, expected, None, log)
         }
         Connection::Adb => prepare_adb(device, expected, loader, save_identity, log),
@@ -174,13 +183,13 @@ fn prepare_adb<D: DeviceIo>(
     save_identity: &mut dyn FnMut(&str) -> Result<(), String>,
     log: &mut Vec<String>,
 ) -> Result<PreparedDevice<D::Session>, PrepareError> {
-    let identity = operation("ADB 모델·슬롯 확인", device.adb_identity())?;
+    let identity = operation(crate::msg!("core_step_adb_identity"), device.adb_identity())?;
     let model = identity.model.as_deref().unwrap_or("").trim();
     let found =
         Device::identify(model).ok_or_else(|| PrepareError::WrongModel(model.to_owned()))?;
     let found = check_expected(expected, found)?;
     let slot = identity.slot.ok_or(PrepareError::MissingSlot)?;
-    let serial = operation("ADB 시리얼 확인", device.adb_serial())?;
+    let serial = operation(crate::msg!("core_step_adb_serial"), device.adb_serial())?;
     let serial = serial.trim();
     if serial.is_empty() || serial.chars().any(char::is_control) {
         return Err(PrepareError::MissingSerial);
@@ -189,17 +198,30 @@ fn prepare_adb<D: DeviceIo>(
     save_identity(&raw).map_err(PrepareError::SaveIdentity)?;
     live!(
         log,
-        "S1: ADB 활성 슬롯 {}, 기기 확인 기록 저장",
-        slot.suffix()
+        "{}",
+        crate::msg!("core_s1_adb_slot", slot = slot.suffix())
     );
-    operation("USB 기기 확인", device.ensure_single_target())?;
-    live!(log, "S2: ADB에서 EDL로 재부팅합니다.");
+    operation(
+        crate::msg!("core_step_usb_check"),
+        device.ensure_single_target(),
+    )?;
+    live!(log, "{}", crate::msg!("core_s2_reboot_edl"));
     if let Err(error) = device.adb_reboot("edl") {
-        live!(log, "S2: ADB EDL 재부팅 응답: {error}. 연결을 확인합니다.");
+        live!(
+            log,
+            "{}",
+            crate::msg!("core_s2_reboot_response", error = error)
+        );
     }
-    operation("USB 기기 확인", device.ensure_single_target())?;
-    operation("EDL 대기 (45초, 파티션 쓰기 전)", device.wait_edl())?;
-    let session = operation("EDL 연결 (파티션 쓰기 전)", device.open_edl(loader, log))?;
+    operation(
+        crate::msg!("core_step_usb_check"),
+        device.ensure_single_target(),
+    )?;
+    operation(crate::msg!("core_step_edl_wait"), device.wait_edl())?;
+    let session = operation(
+        crate::msg!("core_step_edl_connect"),
+        device.open_edl(loader, log),
+    )?;
     let mut prepared = probe_or_reset(device, session, Some(found), Some(slot), log)?;
     prepared.report.started_in = Connection::Adb;
     prepared.report.identity = Some(raw);
@@ -218,7 +240,11 @@ fn probe_or_reset<D: DeviceIo>(
         Ok(report) => Ok(PreparedDevice { report, session }),
         Err(error) => {
             if let Err(reset) = device.reset_to_edl(&mut session, log) {
-                live!(log, "EDL 복귀 실패: {reset}");
+                live!(
+                    log,
+                    "{}",
+                    crate::msg!("core_edl_reset_failed", reset = reset)
+                );
             }
             Err(error)
         }
@@ -235,13 +261,13 @@ fn probe_edl<D: DeviceIo>(
     log: &mut Vec<String>,
 ) -> Result<PrepareReport, PrepareError> {
     let slot = operation(
-        "EDL GPT 활성 슬롯 확인",
+        crate::msg!("core_step_edl_slot"),
         device.edl_active_slot(session, expected_slot, log),
     )?;
     let mut vbs = [None, None];
     for (i, slot) in [Slot::A, Slot::B].into_iter().enumerate() {
         vbs[i] = operation(
-            "EDL vbmeta_system 읽기",
+            crate::msg!("core_step_edl_vbmeta"),
             device.read_avb(session, &format!("vbmeta_system{}", slot.suffix()), log),
         )?;
     }
@@ -252,12 +278,12 @@ fn probe_edl<D: DeviceIo>(
         .as_ref()
         .and_then(AvbSummary::build_fingerprint)
         .and_then(|fp| Device::identify(&fp))
-        .ok_or_else(|| PrepareError::WrongModel("EDL 활성 슬롯 vbmeta_system".into()))?;
+        .ok_or_else(|| PrepareError::WrongModel(crate::msg!("core_edl_active_vbmeta")))?;
     let found = check_expected(expected, found)?;
     live!(
         log,
-        "S1-E: GPT 슬롯 속성 확인 완료. 활성 슬롯 {}",
-        slot.suffix()
+        "{}",
+        crate::msg!("core_s1e_slot", slot = slot.suffix())
     );
     Ok(PrepareReport {
         device: found,

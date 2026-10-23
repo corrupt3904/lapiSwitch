@@ -160,9 +160,9 @@ pub fn active_slot_from_attributes(a: u64, b: u64) -> Result<Option<Slot>, Strin
             priority = value;
         }
     }
-    let (slot, attrs) = selected.ok_or("GPT 슬롯 속성에서 활성 슬롯을 확인할 수 없습니다.")?;
+    let (slot, attrs) = selected.ok_or(crate::msg!("core_gpt_slot_unknown"))?;
     if attrs & (1 << 55) != 0 || (attrs & (1 << 54) == 0 && (attrs >> 51) & 7 == 0) {
-        return Err("GPT의 활성 슬롯이 부팅 불가 또는 재시도 소진 상태입니다. 기기를 복구한 뒤 다시 시도하세요.".into());
+        return Err(crate::msg!("core_gpt_slot_unbootable"));
     }
     Ok(Some(slot))
 }
@@ -245,18 +245,16 @@ impl PrimaryGpt {
             let mut found = entries.iter().filter(|entry| entry.name == name);
             let entry = found
                 .next()
-                .ok_or_else(|| format!("GPT에 {name}가 없습니다."))?;
+                .ok_or_else(|| crate::msg!("core_gpt_partition_missing", name = name))?;
             if found.next().is_some() {
-                return Err(format!("GPT에 {name}가 중복되었습니다."));
+                return Err(crate::msg!("core_gpt_partition_duplicate", name = name));
             }
             Ok(entry.attributes)
         };
         match active_slot_from_attributes(attrs("boot_a")?, attrs("boot_b")?)? {
-            None => expected.ok_or_else(|| {
-                "GPT 슬롯 속성이 초기 상태라 활성 슬롯을 확인할 수 없습니다. Android를 부팅한 뒤 ADB로 연결해 시작하세요.".into()
-            }),
+            None => expected.ok_or_else(|| crate::msg!("core_gpt_slot_blank")),
             Some(slot) if expected.is_some_and(|adb| adb != slot) => {
-                Err("ADB와 EDL GPT의 활성 슬롯이 다릅니다.".into())
+                Err(crate::msg!("core_gpt_slot_adb_mismatch"))
             }
             Some(slot) => Ok(slot),
         }

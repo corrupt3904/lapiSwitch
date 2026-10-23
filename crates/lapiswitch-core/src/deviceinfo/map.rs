@@ -124,16 +124,13 @@ impl Layout {
         self.fields()
             .into_iter()
             .find(|field| field.key == key)
-            .ok_or_else(|| format!("알 수 없는 DeviceInfo 필드: {key}"))
+            .ok_or_else(|| crate::msg!("core_map_unknown_field", key = key))
     }
 
     /// The read DeviceInfo must be a complete buffer with the expected magic.
     pub fn check_buffer(self, bytes: &[u8]) -> Result<(), String> {
         if bytes.len() != SHARED_SIZE || &bytes[..13] != b"ANDROID-BOOT!" {
-            return Err(format!(
-                "{} DeviceInfo 길이·매직이 올바르지 않습니다.",
-                self.model()
-            ));
+            return Err(crate::msg!("core_map_buffer_invalid", model = self.model()));
         }
         Ok(())
     }
@@ -213,9 +210,10 @@ pub fn display(field: &Field, bytes: &[u8]) -> String {
 fn parse_hex(text: &str, size: usize) -> Result<Vec<u8>, String> {
     let digits: String = text.chars().filter(|c| !c.is_whitespace()).collect();
     if digits.len() != size * 2 || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!(
-            "16진수 {size}바이트({}자리)를 정확히 입력하세요.",
-            size * 2
+        return Err(crate::msg!(
+            "core_map_hex_exact",
+            size = size,
+            size2 = size * 2
         ));
     }
     Ok((0..size)
@@ -233,10 +231,12 @@ fn parse_uint(text: &str, size: usize) -> Result<u64, String> {
         Some(digits) => u64::from_str_radix(digits, 16),
         None => text.parse::<u64>(),
     }
-    .map_err(|_| format!("0 ~ {max} 범위의 정수(10진수 또는 0x16진수)를 입력하세요."))?;
+    .map_err(|_| crate::msg!("core_map_uint_range", max = max))?;
     if value > max {
-        return Err(format!(
-            "{size}바이트 정수의 최대값({max}, 0x{max:X})을 넘습니다."
+        return Err(crate::msg!(
+            "core_map_uint_too_large",
+            size = size,
+            max = max
         ));
     }
     Ok(value)
@@ -253,7 +253,7 @@ pub fn encode(field: &Field, input: &str) -> Result<Vec<u8>, String> {
     match field.kind {
         Kind::Flag => match text {
             "0" | "1" => out[0] = text.parse().expect("checked"),
-            _ => return Err("0 또는 1을 입력하세요.".into()),
+            _ => return Err(crate::msg!("core_map_flag")),
         },
         Kind::Uint => {
             let value = parse_uint(text, field.size)?;
@@ -263,17 +263,17 @@ pub fn encode(field: &Field, input: &str) -> Result<Vec<u8>, String> {
             let region = match text.to_ascii_uppercase().as_str() {
                 "PRC" => Region::Prc,
                 "ROW" => Region::Row,
-                _ => return Err("PRC 또는 ROW를 입력하세요.".into()),
+                _ => return Err(crate::msg!("core_map_region")),
             };
             out[..3].copy_from_slice(region.token().as_bytes());
         }
         Kind::Text { nul } => {
             let limit = if nul { field.size - 1 } else { field.size };
             if !printable(text.as_bytes()) {
-                return Err("영문·숫자·기호(ASCII)만 입력할 수 있습니다.".into());
+                return Err(crate::msg!("core_map_ascii"));
             }
             if text.len() > limit {
-                return Err(format!("최대 {limit}자까지 입력할 수 있습니다."));
+                return Err(crate::msg!("core_map_text_limit", limit = limit));
             }
             out[..text.len()].copy_from_slice(text.as_bytes());
         }
@@ -305,8 +305,9 @@ pub fn check_plan(layout: Layout, before: &[u8], planned: &[u8]) -> Result<(), S
     layout.check_buffer(before)?;
     let logical = layout.logical_size();
     if planned.len() != SHARED_SIZE || planned[logical..] != before[logical..] {
-        return Err(format!(
-            "DeviceInfo 논리 크기(0x{logical:X}) 밖의 공유 버퍼는 바꿀 수 없습니다."
+        return Err(crate::msg!(
+            "core_map_outside_logical",
+            logical = format!("{:X}", logical)
         ));
     }
     Ok(())

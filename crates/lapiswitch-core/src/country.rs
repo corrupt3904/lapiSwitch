@@ -37,7 +37,7 @@ pub fn validate(code: &str) -> Result<String, String> {
     if KNOWN_CODES.contains(&code.as_str()) {
         Ok(code)
     } else {
-        Err(format!("지원하지 않는 국가 코드: {code}"))
+        Err(crate::msg!("core_country_unsupported", code = code))
     }
 }
 
@@ -47,7 +47,7 @@ pub fn validate_choice(code: &str) -> Result<String, String> {
     if CHOICE_CODES.contains(&code.as_str()) {
         Ok(code)
     } else {
-        Err(format!("선택할 수 없는 국가 코드: {code}"))
+        Err(crate::msg!("core_country_not_choosable", code = code))
     }
 }
 

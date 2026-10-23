@@ -109,9 +109,7 @@ pub fn validate(tx: Sender<Event>, folder: PathBuf) {
     std::thread::spawn(move || {
         let event = match std::panic::catch_unwind(|| check_firmware(&folder, None)) {
             Ok(result) => Event::Validated(result.map_err(|e| e.to_string())),
-            Err(_) => {
-                Event::Validated(Err("펌웨어 검사 작업이 예기치 않게 종료되었습니다.".into()))
-            }
+            Err(_) => Event::Validated(Err(lapiswitch_core::msg!("run_validate_crashed"))),
         };
         let _ = tx.send(event);
     });
@@ -123,7 +121,7 @@ pub fn validate_editor_firmware(tx: Sender<Event>, folder: PathBuf, region: Regi
         let result = std::panic::catch_unwind(|| check_firmware(&folder, Some(region)))
             .unwrap_or_else(|_| {
                 Err(lapiswitch_core::firmware::FirmwareError::XmlSelection(
-                    "펌웨어 검사 작업이 예기치 않게 종료되었습니다.".into(),
+                    lapiswitch_core::msg!("run_validate_crashed"),
                 ))
             })
             .map_err(|e| e.to_string());
@@ -149,7 +147,7 @@ pub fn check_backup(tx: Sender<Event>, folder: PathBuf) {
 pub fn drivers(tx: Sender<Event>) {
     std::thread::spawn(move || {
         let result = std::panic::catch_unwind(ltbox_device::driver::check_required_drivers)
-            .map_err(|_| "드라이버 확인 작업이 예기치 않게 종료되었습니다.".into());
+            .map_err(|_| lapiswitch_core::msg!("run_drivers_crashed"));
         let _ = tx.send(Event::Drivers(result));
     });
 }
@@ -157,7 +155,7 @@ pub fn drivers(tx: Sender<Event>) {
 pub fn device(tx: Sender<Event>, id: u64, passive: bool) {
     std::thread::spawn(move || {
         let result = std::panic::catch_unwind(|| crate::device::probe(passive))
-            .unwrap_or_else(|_| Err("기기 연결 확인 작업이 예기치 않게 종료되었습니다.".into()));
+            .unwrap_or_else(|_| Err(lapiswitch_core::msg!("run_device_probe_crashed")));
         // The probe has returned and dropped every USB handle before replay.
         let _ = tx.send(Event::Device(id, result));
     });
@@ -183,7 +181,7 @@ pub fn install_drivers(tx: Sender<Event>, storage_root: PathBuf, mask: bool) {
             pump.finish()?;
             result
         }))
-        .unwrap_or_else(|_| Err("드라이버 설치 작업이 예기치 않게 종료되었습니다.".into()));
+        .unwrap_or_else(|_| Err(lapiswitch_core::msg!("run_driver_install_crashed")));
         let _ = tx.send(Event::DriverInstalled(result));
         // Even a successful process exit is not proof the driver is present.
         drivers(tx);
@@ -200,18 +198,18 @@ impl ChannelUi {
         let (tx, rx) = mpsc::channel();
         self.tx
             .send(Event::ConfirmUnrecognizedFirmware(tx))
-            .map_err(|_| "순정롬 확인 불가 안내를 표시할 수 없습니다.")?;
+            .map_err(|_| lapiswitch_core::msg!("run_firmware_prompt_unavailable"))?;
         rx.recv()
-            .map_err(|_| "순정롬 확인 불가 안내가 닫혀 작업을 취소했습니다.".into())
+            .map_err(|_| lapiswitch_core::msg!("run_firmware_prompt_closed"))
     }
     fn confirm_edl_start(&mut self) -> Result<(), String> {
         let (tx, rx) = mpsc::channel();
         self.tx
             .send(Event::ConfirmEdlStart(tx))
-            .map_err(|_| "EDL 시작 안내를 표시할 수 없습니다.")?;
+            .map_err(|_| lapiswitch_core::msg!("run_edl_prompt_unavailable"))?;
         match rx.recv() {
             Ok(true) => Ok(()),
-            _ => Err("EDL에서 시작하는 작업을 취소했습니다. 기기에는 쓰지 않았습니다.".into()),
+            _ => Err(lapiswitch_core::msg!("run_edl_start_cancelled")),
         }
     }
     fn new(tx: Sender<Event>, wait_control: WaitControl) -> Self {
@@ -239,11 +237,10 @@ impl lapiswitch_core::recovery_flow::Ui for ChannelUi {
                 lapiswitch_core::rollback::describe(downgrades),
                 tx,
             ))
-            .map_err(|_| "롤백인덱스 경고를 표시할 수 없습니다.")?;
+            .map_err(|_| lapiswitch_core::msg!("run_rollback_prompt_unavailable"))?;
         // Closing the prompt is neither consent to reset nor to restore.
-        rx.recv().map_err(|_| {
-            "롤백인덱스 경고가 닫혀 작업을 멈췄습니다. DeviceInfo는 변경하지 않았습니다. 이어하기 또는 원본 복구를 선택하세요.".into()
-        })
+        rx.recv()
+            .map_err(|_| lapiswitch_core::msg!("run_rollback_prompt_closed"))
     }
     fn edit_deviceinfo(
         &mut self,
@@ -253,11 +250,10 @@ impl lapiswitch_core::recovery_flow::Ui for ChannelUi {
         let (tx, rx) = mpsc::channel();
         self.tx
             .send(Event::EditDeviceInfo(layout, before.to_vec(), tx))
-            .map_err(|_| "DeviceInfo 수정 창을 표시할 수 없습니다.")?;
+            .map_err(|_| lapiswitch_core::msg!("run_editor_unavailable"))?;
         // Closing the editor is neither an edit nor a request to restore.
-        rx.recv().map_err(|_| {
-            "DeviceInfo 수정 창이 닫혀 작업을 멈췄습니다. DeviceInfo는 변경하지 않았습니다. 이어하기 또는 원본 복구를 선택하세요.".into()
-        })
+        rx.recv()
+            .map_err(|_| lapiswitch_core::msg!("run_editor_closed"))
     }
     fn confirm(
         &mut self,
@@ -266,9 +262,9 @@ impl lapiswitch_core::recovery_flow::Ui for ChannelUi {
         let (tx, rx) = mpsc::channel();
         self.tx
             .send(Event::ConfirmRecoveryReboot(transition, tx))
-            .map_err(|_| "안내를 표시할 수 없습니다.")?;
+            .map_err(|_| lapiswitch_core::msg!("run_prompt_unavailable"))?;
         rx.recv()
-            .map_err(|_| "재부팅 확인이 취소되어 현재 단계를 보존했습니다.".into())
+            .map_err(|_| lapiswitch_core::msg!("run_reboot_cancelled"))
     }
     fn dumped(&mut self, folder: &Path) {
         let _ = self.tx.send(Event::Dumped(folder.to_owned()));
@@ -295,9 +291,7 @@ impl lapiswitch_core::recovery_flow::Ui for ChannelUi {
 pub fn launch(request: Request, tx: Sender<Event>) {
     std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(request, &tx)))
-            .unwrap_or_else(|_| {
-                Err("작업이 예기치 않게 종료되었습니다. 저장된 단계와 백업을 확인해 주세요.".into())
-            });
+            .unwrap_or_else(|_| Err(lapiswitch_core::msg!("run_crashed")));
         let _ = tx.send(Event::Finished(result));
     });
 }
@@ -322,10 +316,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 output,
             } => {
                 let _ = tx.send(Event::Progress(Step::Check));
-                ltbox_core::live!(
-                    log,
-                    "시작 전 펌웨어를 다시 검사하고 파일 해시를 기록합니다. 대용량 패키지는 시간이 걸릴 수 있습니다."
-                );
+                ltbox_core::live!(log, "{}", lapiswitch_core::msg!("run_recheck_firmware"));
                 let firmware = check_firmware(&approved.image_dir, Some(approved.region))
                     .map_err(|e| e.to_string())?;
                 confirm_approval(&approved, &firmware)?;
@@ -357,7 +348,10 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
             } => {
                 let _ = tx.send(Event::Progress(Step::Check));
                 if !loader.is_file() {
-                    return Err(format!("EDL 로더 파일이 없습니다: {}", loader.display()));
+                    return Err(lapiswitch_core::msg!(
+                        "run_loader_missing",
+                        loader = loader.display()
+                    ));
                 }
                 if let Some(device) = device {
                     device.write_layout()?;
@@ -383,7 +377,10 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
             } => {
                 let _ = tx.send(Event::Progress(Step::Check));
                 if !loader.is_file() {
-                    return Err(format!("EDL 로더 파일이 없습니다: {}", loader.display()));
+                    return Err(lapiswitch_core::msg!(
+                        "run_loader_missing",
+                        loader = loader.display()
+                    ));
                 }
                 let builder = BackupBuilder::create(&output, RunRequest::Dump, device)?;
                 let state = RunState::dump(device, &loader, builder.path(), &dump_root)?;
@@ -399,12 +396,14 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 )
             }
             Action::Resume => {
-                let mut state = store.load()?.ok_or("저장된 작업이 없습니다.")?;
+                let mut state = store
+                    .load()?
+                    .ok_or(lapiswitch_core::msg!("run_no_saved_run"))?;
                 let phase = state.recovery.phase;
                 let _ = tx.send(Event::RecoveryPhase(phase));
-                let _ = tx.send(Event::RecoveryStatus(
-                    "이어하기 전 백업과 펌웨어를 다시 검증합니다.".into(),
-                ));
+                let _ = tx.send(Event::RecoveryStatus(lapiswitch_core::msg!(
+                    "run_resume_verifying"
+                )));
                 let backup = VerifiedBackup::open(&state.backup_dir)?;
                 if matches!(
                     phase,
@@ -414,7 +413,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                         | lapiswitch_core::recovery_flow::Phase::Preflight
                         | lapiswitch_core::recovery_flow::Phase::BackedUp
                 ) {
-                    return Err("이 단계는 원본 구성을 복구하거나 새 작업으로 시작하세요.".into());
+                    return Err(lapiswitch_core::msg!("run_resume_not_possible"));
                 }
                 let firmware = match &state.firmware {
                     Some(binding) => Some(
@@ -429,7 +428,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 let mut device = if phase == lapiswitch_core::recovery_flow::Phase::Staged {
                     native.ensure_single_target()?;
                     if native.detect()? != Connection::Edl {
-                        return Err("준비된 기기를 EDL로 연결하세요. 이미 TWRP로 진입했다면 재부팅 요청 전송 상태를 확인해야 합니다.".into());
+                        return Err(lapiswitch_core::msg!("run_resume_connect_edl"));
                     }
                     let session = native.open_edl(state.loader_path(), &mut log)?;
                     NativeWorkflow::from_stage(NativeStage::new(native, session))
@@ -461,7 +460,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                         && state.backup_dir.canonicalize().map_err(|e| e.to_string())?
                             != backup.path().canonicalize().map_err(|e| e.to_string())?
                     {
-                        return Err("미완료 작업에 연결된 백업을 먼저 복구해 주세요.".into());
+                        return Err(lapiswitch_core::msg!("run_restore_pending_first"));
                     }
                 }
                 if let Some(state) = store.load()?
@@ -474,7 +473,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                             | lapiswitch_core::recovery_flow::Phase::Done
                     )
                 {
-                    return Err("공식 펌웨어 설치가 시작된 작업입니다. 과거 Recovery/GPT로 되돌리지 않고 펌웨어 설치를 이어가세요.".into());
+                    return Err(lapiswitch_core::msg!("run_restore_firmware_started"));
                 }
                 let mut device = NativeDevice::new(backup.path())?;
                 device.ensure_single_target()?;
@@ -505,17 +504,24 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                     return Ok(warnings);
                 }
                 if connection != Connection::Edl {
-                    return Err("복구할 기기를 TWRP(ADB Recovery) 또는 EDL로 연결해 주세요.".into());
+                    return Err(lapiswitch_core::msg!("run_restore_connect"));
                 }
                 let assessment = lapiswitch_core::recovery_flow::restore::preflight(&backup)?;
-                ltbox_core::live!(log, "원본 복구 DeviceInfo 판정: {:?}", assessment);
+                ltbox_core::live!(
+                    log,
+                    "{}",
+                    lapiswitch_core::msg!(
+                        "run_restore_assessment",
+                        assessment = format!("{:?}", assessment)
+                    )
+                );
                 let twrp = if assessment.needs_twrp() {
                     Some(lapiswitch_core::recovery_asset::acquire(
                         backup.device(),
                         &request
                             .state_path
                             .parent()
-                            .ok_or("캐시 경로 없음")?
+                            .ok_or(lapiswitch_core::msg!("run_no_cache_path"))?
                             .join("cache/twrp"),
                         &mut log,
                     )?)
@@ -544,12 +550,16 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
     })();
     match &result {
         Ok(warnings) => {
-            ltbox_core::live!(log, "작업 완료");
+            ltbox_core::live!(log, "{}", lapiswitch_core::msg!("run_done"));
             for w in warnings {
-                ltbox_core::live!(log, "경고: {w}");
+                ltbox_core::live!(log, "{}", lapiswitch_core::msg!("run_warning", w = w));
             }
         }
-        Err(error) => ltbox_core::live!(log, "작업 중단: {error}"),
+        Err(error) => ltbox_core::live!(
+            log,
+            "{}",
+            lapiswitch_core::msg!("run_stopped", error = error)
+        ),
     }
     pump.finish()?;
     result
@@ -565,12 +575,13 @@ fn archive_restored(
     match store.archive_restored(backup) {
         Ok(Some(path)) => ltbox_core::live!(
             log,
-            "복구 완료된 작업 기록을 보관했습니다: {}",
-            path.display()
+            "{}",
+            lapiswitch_core::msg!("core_restored_run_archived", path = path.display())
         ),
         Ok(None) => {}
-        Err(error) => warnings.push(format!(
-            "원본 복구는 완료했지만 이전 작업 기록 정리를 마치지 못했습니다: {error}"
+        Err(error) => warnings.push(lapiswitch_core::msg!(
+            "core_restored_archive_failed",
+            error = error
         )),
     }
 }
@@ -581,14 +592,15 @@ fn acquire_twrp(
     tx: &Sender<Event>,
     log: &mut Vec<String>,
 ) -> Result<PathBuf, String> {
-    let _ = tx.send(Event::RecoveryStatus(format!(
-        "{device} 공식 TWRP 파일을 준비하고 SHA-256을 확인합니다."
+    let _ = tx.send(Event::RecoveryStatus(lapiswitch_core::msg!(
+        "run_preparing_twrp",
+        device = device
     )));
     lapiswitch_core::recovery_asset::acquire(
         device,
         &state_path
             .parent()
-            .ok_or("캐시 경로 없음")?
+            .ok_or(lapiswitch_core::msg!("run_no_cache_path"))?
             .join("cache/twrp"),
         log,
     )
@@ -615,9 +627,9 @@ fn start_new(
     };
     let _ = tx.send(Event::Backup(builder.path().to_owned()));
     let _ = tx.send(Event::Progress(Step::Device));
-    let _ = tx.send(Event::RecoveryStatus(
-        "기기와 활성 슬롯을 확인한 뒤 EDL로 전환합니다.".into(),
-    ));
+    let _ = tx.send(Event::RecoveryStatus(lapiswitch_core::msg!(
+        "run_checking_device"
+    )));
     let mut device = NativeDevice::new(builder.path())?;
     let loader = state.loader_path().to_path_buf();
     let prepared = lapiswitch_core::prepare::prepare_with_confirmation(
@@ -639,9 +651,9 @@ fn start_new(
     };
     let mut stage = NativeStage::new(device, prepared.session);
     let _ = tx.send(Event::Progress(Step::Backup));
-    let _ = tx.send(Event::RecoveryStatus(
-        "원본 GPT·활성 슬롯 Recovery·misc와 고유 파티션을 백업합니다.".into(),
-    ));
+    let _ = tx.send(Event::RecoveryStatus(lapiswitch_core::msg!(
+        "run_backing_up"
+    )));
     let backup = stage1::take_backup_with_confirmation(
         &mut stage,
         &prepared.report,
@@ -656,9 +668,7 @@ fn start_new(
         lapiswitch_core::recovery_flow::Phase::BackedUp,
     )?;
     let _ = tx.send(Event::Progress(Step::StageRecovery));
-    let _ = tx.send(Event::RecoveryStatus(
-        "GPT를 수정하고 활성 슬롯 Recovery와 misc를 준비·검증합니다.".into(),
-    ));
+    let _ = tx.send(Event::RecoveryStatus(lapiswitch_core::msg!("run_staging")));
     lapiswitch_core::recovery_flow::stage(&mut stage, &backup, &twrp, &mut state, store, log)?;
     let mut device = NativeWorkflow::from_stage(stage);
     lapiswitch_core::recovery_flow::finish(
@@ -685,10 +695,7 @@ fn confirm_approval(approved: &FirmwareReport, current: &FirmwareReport) -> Resu
         || approved.patch_xmls != current.patch_xmls
         || approved.missing_images != current.missing_images
     {
-        Err(
-            "검사한 뒤 펌웨어 정보가 변경되었습니다. 폴더를 다시 선택하고 내용을 확인해 주세요."
-                .into(),
-        )
+        Err(lapiswitch_core::msg!("run_firmware_changed"))
     } else {
         Ok(())
     }

@@ -19,39 +19,37 @@ pub enum FirmwareError {
         path: String,
         source: std::io::Error,
     },
-    #[error(
-        "펌웨어 폴더가 아닙니다. {0} 또는 그 안의 image 폴더에 rawprogram*.xml(또는 rawprogram*.x) 파일이 없습니다."
-    )]
+    #[error("{}", crate::msg!("core_firmware_not_folder", folder = .0))]
     NotFirmwareFolder(String),
-    #[error("EDL 로더({0})를 {1} 또는 그 상위 폴더에서 찾을 수 없습니다.")]
+    #[error("{}", crate::msg!("core_firmware_loader_missing", loader = .0, folder = .1))]
     LoaderMissing(&'static str, String),
-    #[error("필수 이미지가 없습니다: {0}")]
+    #[error("{}", crate::msg!("core_firmware_image_missing", image = .0))]
     ImageMissing(String),
-    #[error("압축된 이미지(.zst)는 지원하지 않습니다. 압축을 푼 펌웨어를 선택하세요: {0}")]
+    #[error("{}", crate::msg!("core_firmware_compressed", image = .0))]
     CompressedImage(String),
-    #[error("{path} 파일을 복호화할 수 없습니다: {message}")]
+    #[error("{}", crate::msg!("core_firmware_decrypt_failed", path = .path, message = .message))]
     Decrypt { path: String, message: String },
     #[error(transparent)]
     Avb(#[from] avb_info::AvbReadError),
-    #[error("vbmeta_system.img에 빌드 지문(build fingerprint)이 없습니다.")]
+    #[error("{}", crate::msg!("core_firmware_no_fingerprint"))]
     NoFingerprint,
-    #[error("지원하지 않는 모델의 펌웨어입니다: {0}")]
+    #[error("{}", crate::msg!("core_firmware_wrong_model", model = .0))]
     WrongModel(String),
-    #[error("vbmeta_system.img가 알 수 없는 키로 서명되어 있습니다 ({0}).")]
+    #[error("{}", crate::msg!("core_firmware_unknown_key", key = .0))]
     UnknownKey(String),
-    #[error("vendor_boot.img의 Region을 확인할 수 없습니다: {0}")]
+    #[error("{}", crate::msg!("core_firmware_region_undetermined", reason = .0))]
     RegionUndetermined(String),
-    #[error("vendor_boot.img의 Region은 {}이지만 빌드 지문의 Region은 {}입니다.", marker.token(), fingerprint.token())]
+    #[error("{}", crate::msg!("core_firmware_region_mismatch", marker = .marker.token(), fingerprint = .fingerprint.token()))]
     RegionMismatch { marker: Region, fingerprint: Region },
-    #[error("선택한 리전은 {}이지만 펌웨어의 리전은 {}입니다. 선택한 리전과 같은 펌웨어를 선택하세요.", target.token(), firmware.token())]
+    #[error("{}", crate::msg!("core_firmware_wrong_region", target = .target.token(), firmware = .firmware.token()))]
     WrongRegion { firmware: Region, target: Region },
-    #[error("플래싱할 XML을 고르지 못했습니다: {0}")]
+    #[error("{}", crate::msg!("core_firmware_xml_selection", reason = .0))]
     XmlSelection(String),
-    #[error("제외해야 하는 XML이 선택되었습니다: {0}")]
+    #[error("{}", crate::msg!("core_firmware_excluded_xml", xml = .0))]
     ExcludedXmlSelected(String),
     #[error("{xml}: {message}")]
     Xml { xml: String, message: String },
-    #[error("분할된 super 이미지가 없습니다: {0}")]
+    #[error("{}", crate::msg!("core_firmware_super_missing", image = .0))]
     SuperImageMissing(String),
 }
 

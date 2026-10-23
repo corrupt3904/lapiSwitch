@@ -290,7 +290,7 @@ impl DeviceInfoIo for Info {
         map::check_plan(self.layout, &self.bytes, &p)?;
         if self.fail_before_write {
             self.fail_reads = self.lose_usb_on_write;
-            return Err("DeviceInfo helper가 쓰기 요청 전에 종료했습니다 (exit 1).".into());
+            return Err("The DeviceInfo helper exited before the write request (exit 1).".into());
         }
         self.writes += 1;
         self.bytes = p;
@@ -620,7 +620,7 @@ fn keep_lower_firmware_reset_answer_persists_reset_and_zeroes_all_indices() {
         saved
             .warnings
             .iter()
-            .any(|w| w.contains(recovery_flow::ROLLBACK_LOWER_MESSAGE))
+            .any(|w| w.contains(&recovery_flow::rollback_lower_message()))
     );
     // The confirmation re-read after the EDL prompt never asks again.
     s.transact().unwrap();
@@ -764,8 +764,8 @@ fn failed_write_request_with_two_original_reads_returns_to_planned_without_retry
         let original = s.info.bytes.clone();
         s.info.fail_before_write = true;
         let error = s.transact().unwrap_err();
-        assert!(error.contains("쓰기 요청 전"));
-        assert!(error.contains(recovery_flow::NOT_APPLIED_MESSAGE));
+        assert!(error.contains("before the write request"));
+        assert!(error.contains(&recovery_flow::not_applied_message()));
         assert_eq!(s.info.writes, 0);
         assert_eq!(s.info.bytes, original);
         assert_eq!(phase(&s), Phase::Planned);
@@ -785,7 +785,7 @@ fn unprovable_write_stays_pending_until_resume_reads_the_exact_original_twice() 
     s.info.fail_before_write = true;
     s.info.lose_usb_on_write = true;
     let error = s.transact().unwrap_err();
-    assert!(!error.contains(recovery_flow::NOT_APPLIED_MESSAGE));
+    assert!(!error.contains(&recovery_flow::not_applied_message()));
     assert_eq!(phase(&s), Phase::WritePending);
     assert!(matches!(
         restore::assess(&s.backup).unwrap(),
@@ -796,7 +796,7 @@ fn unprovable_write_stays_pending_until_resume_reads_the_exact_original_twice() 
     s.info.fail_before_write = false;
     assert_eq!(
         s.transact().unwrap_err(),
-        recovery_flow::NOT_APPLIED_MESSAGE
+        recovery_flow::not_applied_message()
     );
     assert_eq!(s.info.writes, 0);
     assert_eq!(phase(&s), Phase::Planned);
@@ -812,7 +812,7 @@ fn verified_region_is_never_downgraded_by_original_reads() {
     s.transact().unwrap();
     s.info.bytes = original;
     let error = s.transact().unwrap_err();
-    assert!(!error.contains(recovery_flow::NOT_APPLIED_MESSAGE));
+    assert!(!error.contains(&recovery_flow::not_applied_message()));
     assert_eq!(phase(&s), Phase::RegionVerified);
     assert_eq!(s.info.writes, 1);
 }
@@ -1085,7 +1085,7 @@ fn compact_plan_hash_tampering_stops_resume_without_a_second_write() {
     assert!(s.transact().is_err());
     s.state.recovery.attempt.as_mut().unwrap().planned_sha256 = "0".repeat(64);
     s.info.fail_after_apply = false;
-    assert!(s.transact().unwrap_err().contains("쓰기 의도"));
+    assert!(s.transact().unwrap_err().contains("write intent"));
     assert_eq!(s.info.writes, 1);
 }
 
@@ -1161,7 +1161,7 @@ fn changed_deviceinfo_after_failed_read_never_overwrites_the_fixed_original() {
     assert!(s.transact().is_err());
     s.info.unstable = false;
     s.info.bytes[0xFFF] ^= 1;
-    assert!(s.transact().unwrap_err().contains("최초 원본"));
+    assert!(s.transact().unwrap_err().contains("first original"));
     assert_eq!(s.info.writes, 0);
     assert_eq!(
         std::fs::read(
@@ -1241,11 +1241,11 @@ fn edl_wait_recovers_a_port_lost_between_probe_and_open_before_the_deadline() {
     assert_eq!(d.edl.attempts, 2);
     assert_eq!(
         log.iter()
-            .filter(|line| line.contains("EDL 연결이 늦어지고"))
+            .filter(|line| line.contains("EDL connection is slow"))
             .count(),
         0
     );
-    assert!(!log.iter().any(|line| line.contains("작업 중지")));
+    assert!(!log.iter().any(|line| line.contains("stop request")));
     assert!(d.inner.writes.is_empty());
     assert_eq!((d.flashed, d.active, d.reboots), (0, 0, 0));
     assert_eq!(std::fs::read(s.store.path()).unwrap(), state);
@@ -1348,7 +1348,7 @@ fn restoration_classifies_durable_intent_and_real_final_dumps_not_file_presence(
     assert!(
         restore::preflight(&s.backup)
             .unwrap_err()
-            .contains(restore::UNKNOWN_MESSAGE)
+            .contains(&restore::unknown_message())
     );
     s.info.fail_after_apply = false;
     s.transact().unwrap();
@@ -1611,8 +1611,8 @@ fn rollback_cancel_reboots_to_edl_restores_originals_and_archives_the_run() {
                 .is_some()
         );
         let message = recovery_flow::cancelled(Ok(warnings));
-        assert!(message.starts_with(recovery_flow::ROLLBACK_CANCELLED_MESSAGE));
-        assert!(message.contains("복구·검증"));
+        assert!(message.starts_with(&recovery_flow::rollback_cancelled_message()));
+        assert!(message.contains("restored and verified"));
     }
 }
 
@@ -1641,8 +1641,8 @@ fn stopping_the_edl_wait_after_a_rollback_cancel_writes_nothing_and_keeps_the_ru
     assert!(d.0.inner.resets.is_empty());
     assert!(s.store.load().unwrap().is_some());
     let message = recovery_flow::cancelled(Err(error));
-    assert!(message.starts_with(recovery_flow::ROLLBACK_CANCELLED_MESSAGE));
-    assert!(message.contains("EDL로 연결해 원본 복구"));
+    assert!(message.starts_with(&recovery_flow::rollback_cancelled_message()));
+    assert!(message.contains("Connect the device in EDL and restore the original"));
     // The manual restore remains available for the preserved backup.
     assert_eq!(
         recovery_flow::restore::preflight(&s.backup).unwrap(),
@@ -1705,7 +1705,7 @@ fn reverse_restore_writes_the_full_original_handles_both_slots_and_blocks_uncert
             assert!(
                 restore::preflight(&s.backup)
                     .unwrap_err()
-                    .contains(restore::UNKNOWN_MESSAGE)
+                    .contains(&restore::unknown_message())
             );
             assert!(
                 restore::run(
@@ -1842,7 +1842,7 @@ fn missing_reverse_journal_or_conversion_journal_is_never_a_clean_prewrite_state
     assert!(
         restore::preflight(&s.backup)
             .unwrap_err()
-            .contains(restore::UNKNOWN_MESSAGE)
+            .contains(&restore::unknown_message())
     );
     std::fs::remove_file(s.backup.path().join("recovery_progress.json")).unwrap();
     assert!(matches!(
@@ -2003,7 +2003,7 @@ fn edl_three_minute_timeout_preserves_evidence_and_never_restores_or_flashes() {
             &mut vec![],
         )
         .unwrap_err();
-        assert!(error.contains("EDL") && error.contains("180초"));
+        assert!(error.contains("EDL") && error.contains("180 s"));
         assert_eq!(clock.0, 180);
         assert_eq!(d.edl.attempts, if unstable { 180 } else { 0 });
         assert!(d.inner.writes.is_empty());
@@ -2044,7 +2044,7 @@ fn a_connection_that_returns_after_the_deadline_cannot_hand_off_to_writes() {
             &mut vec![]
         )
         .unwrap_err()
-        .contains("180초")
+        .contains("180 s")
     );
     assert_eq!(d.edl.attempts, 1);
     assert!(d.inner.writes.is_empty());
@@ -2215,7 +2215,7 @@ fn edit_region_change_requires_a_checked_firmware_folder_before_any_write() {
         s.edit = Some(edit_request(&[("region", "ROW")], firmware_dir.clone()));
         let error = s.transact().unwrap_err();
         if firmware_dir.is_none() {
-            assert!(error.contains("펌웨어 폴더"), "{error}");
+            assert!(error.contains("firmware folder"), "{error}");
         }
         assert_eq!(s.info.writes, 0);
         assert!(!s.info.prepared);
@@ -2313,7 +2313,7 @@ fn reverse_restore_of_an_edit_targets_the_complete_original() {
 fn a_dump_only_device_refuses_writes_after_reading() {
     let mut s = Setup::edit_for(tb522fu(), Slot::A);
     s.edit = Some(edit_request(&[("rollback_index[3]", "20")], None));
-    assert!(s.transact().unwrap_err().contains("덤프만"));
+    assert!(s.transact().unwrap_err().contains("only be dumped"));
     assert_eq!(s.info.writes, 0);
 }
 
@@ -2356,7 +2356,7 @@ fn a_dump_saves_two_matching_reads_and_never_writes() {
             &mut vec![],
         )
         .unwrap_err();
-        assert!(error.contains("일치하지"), "{error}");
+        assert!(error.contains("do not match"), "{error}");
         assert!(!root.exists());
         assert_eq!(s.info.writes, 0);
     }
@@ -2402,7 +2402,7 @@ fn a_tb522fu_edit_uses_its_own_map_and_backup() {
     // Its region field sits at 0xCD4; a change still needs TB522FU firmware.
     let mut s = Setup::edit_for(device, Slot::A);
     s.edit = Some(edit_request(&[("region", "ROW")], None));
-    assert!(s.transact().unwrap_err().contains("펌웨어 폴더"));
+    assert!(s.transact().unwrap_err().contains("firmware folder"));
     assert_eq!(s.info.writes, 0);
 }
 
@@ -2489,7 +2489,7 @@ fn a_lost_country_write_response_is_verified_on_resume_without_a_second_write() 
     assert!(
         finish_tb522fu(&mut s, &mut d)
             .unwrap_err()
-            .contains("결과 불명")
+            .contains("result unknown")
     );
     assert_eq!((d.active, d.reboots), (0, 0));
     assert_eq!(s.state.recovery.phase, Phase::FirmwareWriting);
@@ -2520,7 +2520,7 @@ fn a_corrupt_country_readback_keeps_evidence_and_never_rewrites() {
     assert!(
         finish_tb522fu(&mut s, &mut d)
             .unwrap_err()
-            .contains("재읽기 검증 실패")
+            .contains("did not verify")
     );
     assert_eq!((d.active, d.reboots), (0, 0));
     let count = d.inner.writes.len();
@@ -2528,7 +2528,7 @@ fn a_corrupt_country_readback_keeps_evidence_and_never_rewrites() {
     assert!(
         finish_tb522fu(&mut s, &mut d)
             .unwrap_err()
-            .contains("자동 재쓰기 없이")
+            .contains("without writing again")
     );
     assert_eq!(d.inner.writes.len(), count);
     s.backup.verify().unwrap();
@@ -2606,7 +2606,7 @@ fn a_restore_from_twrp_keeps_the_original_reverts_this_runs_value_and_stops_on_o
             &mut vec![],
         );
         if case == "other" {
-            assert_eq!(result.unwrap_err(), restore::TWRP_OTHER_MESSAGE);
+            assert_eq!(result.unwrap_err(), restore::twrp_other_message());
             assert_eq!(twrp.writes, 0);
             assert!(d.0.inner.writes.is_empty() && d.0.inner.resets.is_empty());
             continue;

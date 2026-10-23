@@ -10,9 +10,9 @@ pub fn validate_partition(field: &OemOwnInfo, part: &Partition) -> Result<(), St
         || part.lun != field.lun
         || part.size_bytes()? != field.size as u64
     {
-        return Err(format!(
-            "지원하지 않는 {} 파티션 위치/크기입니다.",
-            field.partition
+        return Err(crate::msg!(
+            "core_oemowninfo_unsupported_layout",
+            partition = field.partition
         ));
     }
     Ok(())
@@ -20,20 +20,24 @@ pub fn validate_partition(field: &OemOwnInfo, part: &Partition) -> Result<(), St
 
 pub fn detect<'a>(field: &OemOwnInfo, data: &'a [u8]) -> Result<&'a str, String> {
     if data.len() != field.size {
-        return Err(format!(
-            "{} 길이가 기기 정보({}바이트)와 다릅니다.",
-            field.partition, field.size
+        return Err(crate::msg!(
+            "core_oemowninfo_length_mismatch",
+            partition = field.partition,
+            size = field.size
         ));
     }
     let bytes = &data[field.offset..field.offset + field.field_size];
-    let code = std::str::from_utf8(&bytes[..2]).map_err(|_| "국가코드 형식 오류")?;
+    let code =
+        std::str::from_utf8(&bytes[..2]).map_err(|_| crate::msg!("core_oemowninfo_code_format"))?;
     if !super::KNOWN_CODES.contains(&code)
         || !matches!(&bytes[2..4], b"XX" | b"XE")
         || bytes[4..].iter().any(|b| *b != 0)
     {
-        return Err(format!(
-            "{}의 0x{:X} 국가코드 또는 {}바이트 필드 형식이 예상과 다릅니다.",
-            field.partition, field.offset, field.field_size
+        return Err(crate::msg!(
+            "core_oemowninfo_field_unexpected",
+            partition = field.partition,
+            offset = format!("{:X}", field.offset),
+            field_size = field.field_size
         ));
     }
     Ok(code)
@@ -58,9 +62,9 @@ pub fn verify_plan(field: &OemOwnInfo, before: &[u8], planned: &[u8]) -> Result<
     detect(field, planned)?;
     let at = field.offset;
     if before[..at] != planned[..at] || before[at + 4..] != planned[at + 4..] {
-        return Err(format!(
-            "{} 국가코드 4바이트 밖의 데이터가 변경되었습니다.",
-            field.partition
+        return Err(crate::msg!(
+            "core_oemowninfo_outside_changed",
+            partition = field.partition
         ));
     }
     Ok(())

@@ -8,7 +8,7 @@ pub use lapiswitch_devices::RegionMarker;
 fn word(b: &[u8], at: usize, big: bool) -> Result<usize, String> {
     let a: [u8; 4] = b
         .get(at..at.checked_add(4).ok_or("offset overflow")?)
-        .ok_or("잘린 vendor_boot/DTB 필드")?
+        .ok_or(crate::msg!("core_vb_truncated_field"))?
         .try_into()
         .unwrap();
     Ok(if big {
@@ -21,20 +21,23 @@ fn end(start: usize, len: usize, limit: usize) -> Result<usize, String> {
     start
         .checked_add(len)
         .filter(|e| *e <= limit)
-        .ok_or_else(|| "vendor_boot/DTB 범위 오류".into())
+        .ok_or_else(|| crate::msg!("core_vb_range"))
 }
 fn aligned(n: usize, unit: usize) -> Result<usize, String> {
-    Ok(n.checked_add(unit - 1).ok_or("정렬 overflow")? / unit * unit)
+    Ok(n.checked_add(unit - 1)
+        .ok_or(crate::msg!("core_vb_align_overflow"))?
+        / unit
+        * unit)
 }
 fn offsets(marker: RegionMarker, b: &[u8]) -> Result<Vec<usize>, String> {
     if b.get(..8) != Some(b"VNDRBOOT") {
-        return Err("vendor_boot 매직 오류".into());
+        return Err(crate::msg!("core_vb_magic"));
     }
     let version = word(b, 8, false)?;
     let expected = match version {
         3 => 2112,
         4 => 2128,
-        _ => return Err("지원하지 않는 vendor_boot 버전".into()),
+        _ => return Err(crate::msg!("core_vb_version")),
     };
     let page = word(b, 12, false)?;
     let header = word(b, 2096, false)?;
@@ -43,7 +46,7 @@ fn offsets(marker: RegionMarker, b: &[u8]) -> Result<Vec<usize>, String> {
         || header != expected
         || b.len() < header
     {
-        return Err("vendor_boot 헤더/페이지 크기 오류".into());
+        return Err(crate::msg!("core_vb_header"));
     }
     let start = end(
         aligned(header, page)?,
@@ -52,7 +55,7 @@ fn offsets(marker: RegionMarker, b: &[u8]) -> Result<Vec<usize>, String> {
     )?;
     let limit = end(start, word(b, 2100, false)?, b.len())?;
     if limit == start {
-        return Err("vendor_boot DTB가 없습니다.".into());
+        return Err(crate::msg!("core_vb_no_dtb"));
     }
     let mut base = start;
     let mut found = vec![];
@@ -63,24 +66,24 @@ fn offsets(marker: RegionMarker, b: &[u8]) -> Result<Vec<usize>, String> {
         }
         trees += 1;
         if trees > 256 || word(b, base, true)? != 0xd00dfeed {
-            return Err("DTB 매직/개수 오류".into());
+            return Err(crate::msg!("core_vb_dtb_magic"));
         }
         let size = word(b, base + 4, true)?;
         let tree_end = end(base, size, limit)?;
         if size < 40 || word(b, base + 20, true)? != 17 || word(b, base + 24, true)? > 17 {
-            return Err("DTB 헤더 오류".into());
+            return Err(crate::msg!("core_vb_dtb_header"));
         }
         let structure = word(b, base + 8, true)?;
         let strings = word(b, base + 12, true)?;
         let strings_size = word(b, base + 32, true)?;
         let struct_size = word(b, base + 36, true)?;
         if structure < 40 || strings < 40 || !structure.is_multiple_of(4) {
-            return Err("DTB 블록 위치 오류".into());
+            return Err(crate::msg!("core_vb_dtb_block"));
         }
         let s_end = end(structure, struct_size, size)?;
         let n_end = end(strings, strings_size, size)?;
         if structure < n_end && strings < s_end {
-            return Err("DTB 블록 중첩".into());
+            return Err(crate::msg!("core_vb_dtb_overlap"));
         }
         let names = &b[base + strings..base + n_end];
         let mut at = structure;
@@ -99,10 +102,10 @@ fn offsets(marker: RegionMarker, b: &[u8]) -> Result<Vec<usize>, String> {
                     let z = b[base + at..base + s_end]
                         .iter()
                         .position(|v| *v == 0)
-                        .ok_or("DTB 노드 종료 없음")?;
+                        .ok_or(crate::msg!("core_vb_node_end"))?;
                     if depth == 0 {
                         if root || z != 0 {
-                            return Err("DTB 루트 노드 오류".into());
+                            return Err(crate::msg!("core_vb_root_node"));
                         }
                         root = true;
                     }
@@ -113,7 +116,7 @@ fn offsets(marker: RegionMarker, b: &[u8]) -> Result<Vec<usize>, String> {
                     {
                         product_nodes += 1;
                         if product_nodes > 1 {
-                            return Err("중복 product_region 노드".into());
+                            return Err(crate::msg!("core_vb_duplicate_region_node"));
                         }
                     }
                     nodes.push(node);
@@ -121,23 +124,27 @@ fn offsets(marker: RegionMarker, b: &[u8]) -> Result<Vec<usize>, String> {
                     at = aligned(at + z + 1, 4)?;
                 }
                 2 => {
-                    depth = depth.checked_sub(1).ok_or("DTB 노드 깊이 오류")?;
+                    depth = depth
+                        .checked_sub(1)
+                        .ok_or(crate::msg!("core_vb_node_depth"))?;
                     nodes.pop();
                 }
                 3 => {
                     if depth == 0 {
-                        return Err("DTB 속성 위치 오류".into());
+                        return Err(crate::msg!("core_vb_property_location"));
                     }
                     end(at, 8, s_end)?;
                     let len = word(b, base + at, true)?;
                     let name = word(b, base + at + 4, true)?;
                     at += 8;
                     let value_end = end(at, len, s_end)?;
-                    let tail = names.get(name..).ok_or("DTB 속성 이름 범위 오류")?;
+                    let tail = names
+                        .get(name..)
+                        .ok_or(crate::msg!("core_vb_property_name_range"))?;
                     let z = tail
                         .iter()
                         .position(|v| *v == 0)
-                        .ok_or("DTB 속성 이름 종료 없음")?;
+                        .ok_or(crate::msg!("core_vb_property_name_end"))?;
                     let is_region = match marker {
                         RegionMarker::RegionCountry => &tail[..z] == b"region_country",
                         RegionMarker::ProductRegionBuildRegion => {
@@ -158,7 +165,7 @@ fn offsets(marker: RegionMarker, b: &[u8]) -> Result<Vec<usize>, String> {
                             || b[base + at + 3] != 0
                             || !matches!(&b[base + at..base + at + 3], b"PRC" | b"ROW")
                         {
-                            return Err("DTB 리전 속성 형식/중복 오류".into());
+                            return Err(crate::msg!("core_vb_region_property"));
                         }
                         region_seen = true;
                         found.push(base + at);
@@ -170,19 +177,19 @@ fn offsets(marker: RegionMarker, b: &[u8]) -> Result<Vec<usize>, String> {
                     done = true;
                     break;
                 }
-                _ => return Err("DTB 구조 토큰 오류".into()),
+                _ => return Err(crate::msg!("core_vb_struct_token")),
             }
             if at > s_end {
-                return Err("잘린 DTB 구조".into());
+                return Err(crate::msg!("core_vb_struct_truncated"));
             }
         }
         if !done {
-            return Err("DTB 종료 토큰 없음".into());
+            return Err(crate::msg!("core_vb_struct_end"));
         }
         base = tree_end;
     }
     if found.is_empty() {
-        return Err("vendor_boot에 리전 속성이 없습니다.".into());
+        return Err(crate::msg!("core_vb_no_region"));
     }
     Ok(found)
 }
@@ -190,7 +197,7 @@ pub fn region(marker: RegionMarker, b: &[u8]) -> Result<Region, String> {
     let found = offsets(marker, b)?;
     let token = &b[found[0]..found[0] + 3];
     if found.iter().any(|at| &b[*at..*at + 3] != token) {
-        return Err("DTB별 리전 속성이 일치하지 않습니다.".into());
+        return Err(crate::msg!("core_vb_region_differs"));
     }
     Ok(if token == b"PRC" {
         Region::Prc

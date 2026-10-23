@@ -22,7 +22,8 @@ fn session_or_wait<T>(
         Err(error @ (EdlError::PortNotFound | EdlError::PortTimeout(_))) => {
             ltbox_core::live!(
                 log,
-                "EDL 포트가 사라졌거나 안정화되지 않았습니다: {error}. 연결 감시를 계속합니다."
+                "{}",
+                crate::msg!("core_edl_port_unstable", error = error)
             );
             Ok(None)
         }
@@ -51,7 +52,7 @@ impl NativeWorkflow {
     pub(crate) fn stage(&mut self) -> Result<&mut NativeStage, String> {
         self.stage
             .as_mut()
-            .ok_or_else(|| "EDL 세션이 열려 있지 않습니다.".into())
+            .ok_or_else(|| crate::msg!("core_edl_no_session"))
     }
 }
 
@@ -111,7 +112,7 @@ impl FinishIo for NativeWorkflow {
         let stage = self
             .stage
             .take()
-            .ok_or("Recovery 재부팅용 EDL 세션이 없습니다.")?;
+            .ok_or(crate::msg!("core_edl_no_session_recovery"))?;
         let (device, mut session) = stage.into_parts();
         self.device = Some(device);
         let result = session.reset(log).map_err(|error| error.to_string());
@@ -120,9 +121,12 @@ impl FinishIo for NativeWorkflow {
     }
     fn open_edl(&mut self, loader: &Path, log: &mut Vec<String>) -> Result<(), String> {
         if self.stage.is_some() {
-            return Err("EDL 세션이 이미 열려 있습니다.".into());
+            return Err(crate::msg!("core_edl_session_open"));
         }
-        let device = self.device.as_mut().ok_or("기기 어댑터가 없습니다.")?;
+        let device = self
+            .device
+            .as_mut()
+            .ok_or(crate::msg!("core_no_device_adapter"))?;
         let session = device.open_edl(loader, log)?;
         self.stage = Some(NativeStage::new(
             self.device.take().expect("device exists"),
@@ -132,9 +136,12 @@ impl FinishIo for NativeWorkflow {
     }
     fn try_open_edl(&mut self, loader: &Path, log: &mut Vec<String>) -> Result<bool, String> {
         if self.stage.is_some() {
-            return Err("EDL 세션이 이미 열려 있습니다.".into());
+            return Err(crate::msg!("core_edl_session_open"));
         }
-        let device = self.device.as_mut().ok_or("기기 어댑터가 없습니다.")?;
+        let device = self
+            .device
+            .as_mut()
+            .ok_or(crate::msg!("core_no_device_adapter"))?;
         let Some(session) = session_or_wait(device.open_edl_session(loader, log), log)? else {
             return Ok(false);
         };
@@ -155,7 +162,7 @@ impl FinishIo for NativeWorkflow {
         let (raw, patch) = edl::collect_firmware_xmls_for_flash(&firmware.image_dir, false)
             .map_err(|error| error.to_string())?;
         if raw != firmware.raw_xmls || patch != firmware.patch_xmls {
-            return Err("펌웨어 XML 선택이 변경되었습니다.".into());
+            return Err(crate::msg!("core_firmware_xml_changed"));
         }
         for path in &raw {
             let name = path
@@ -164,7 +171,7 @@ impl FinishIo for NativeWorkflow {
                 .to_string_lossy()
                 .to_ascii_lowercase();
             if name.contains("blank_gpt") || name.contains("wipe_partitions") {
-                return Err("제외해야 할 XML이 선택되었습니다.".into());
+                return Err(crate::msg!("core_firmware_excluded_selected"));
             }
         }
         self.stage()?

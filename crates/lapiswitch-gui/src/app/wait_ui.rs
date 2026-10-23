@@ -23,9 +23,9 @@ impl App {
         }
         self.stop_confirmation = None;
         if self.can_stop_wait(ticket) && self.wait_control.request_stop(ticket) && self.demo {
-            self.event(Event::Finished(Err(
-                "연결 대기를 중지했습니다. 백업과 작업 기록을 보존했습니다.".into(),
-            )));
+            self.event(Event::Finished(Err(lapiswitch_core::msg!(
+                "core_wait_stopped"
+            ))));
         }
     }
     pub(super) fn refresh_wait_stop(&mut self) {

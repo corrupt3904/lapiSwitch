@@ -54,7 +54,7 @@ impl StageIo for NativeStage {
                     num_sectors: part.num_sectors,
                 };
                 if row.size_bytes()? != part.size_bytes {
-                    return Err("기기의 논리 섹터 크기가 4096바이트가 아닙니다.".into());
+                    return Err(crate::msg!("core_sector_size"));
                 }
                 Ok(row)
             })
@@ -87,9 +87,7 @@ impl StageIo for NativeStage {
             .dump_partition("proinfo", &work.path().join("proinfo.img"), 0, 0, log)
         {
             Err(EdlError::PartitionNotFound(_)) => Ok(()),
-            Ok(()) => {
-                Err("GPT 스캔에 없던 proinfo가 발견되었습니다. 스캔부터 다시 진행하세요.".into())
-            }
+            Ok(()) => Err(crate::msg!("core_proinfo_appeared")),
             Err(error) => Err(error.to_string()),
         }
     }

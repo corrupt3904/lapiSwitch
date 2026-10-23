@@ -9,9 +9,7 @@ pub fn size(device: Device) -> u64 {
 pub fn verify(device: Device, path: &Path) -> Result<(), String> {
     let twrp = device.twrp();
     if crate::backup::hash_file(path, None)? != (twrp.size, twrp.sha256.to_owned()) {
-        return Err(format!(
-            "{device} TWRP Release 크기 또는 SHA-256이 일치하지 않습니다."
-        ));
+        return Err(crate::msg!("core_twrp_mismatch", device = device));
     }
     Ok(())
 }
@@ -25,8 +23,8 @@ pub fn acquire(device: Device, cache: &Path, log: &mut Vec<String>) -> Result<Pa
     }
     ltbox_core::live!(
         log,
-        "{device} TWRP {}: 공식 Release를 다운로드합니다.",
-        twrp.tag
+        "{}",
+        crate::msg!("core_twrp_download", device = device, tag = twrp.tag)
     );
     ltbox_core::downloader::download_to_file(twrp.url, &path, log).map_err(|e| e.to_string())?;
     verify(device, &path)?;

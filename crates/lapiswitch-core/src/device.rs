@@ -35,8 +35,9 @@ impl Serialize for Device {
 impl<'de> Deserialize<'de> for Device {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let model = String::deserialize(deserializer)?;
-        Self::find(&model)
-            .ok_or_else(|| serde::de::Error::custom(format!("지원하지 않는 기기: {model}")))
+        Self::find(&model).ok_or_else(|| {
+            serde::de::Error::custom(crate::msg!("core_device_unsupported", model = model))
+        })
     }
 }
 
@@ -82,21 +83,14 @@ impl Device {
     pub fn write_layout(self) -> Result<Layout, String> {
         match self.layout() {
             Some(layout) if self.writable() => Ok(layout),
-            _ => Err(format!(
-                "{}은(는) DeviceInfo 쓰기를 지원하지 않습니다. 덤프만 할 수 있습니다.",
-                self.model()
-            )),
+            _ => Err(crate::msg!("core_device_dump_only", model = self.model())),
         }
     }
     /// The field map of a device that has one, also when it is only dumped:
     /// a saved write is still verified and restored with it.
     pub fn field_map(self) -> Result<Layout, String> {
-        self.layout().ok_or_else(|| {
-            format!(
-                "{}의 DeviceInfo 필드 맵(deviceinfo.toml)이 없습니다.",
-                self.model()
-            )
-        })
+        self.layout()
+            .ok_or_else(|| crate::msg!("core_device_no_field_map", model = self.model()))
     }
     /// The size the DeviceInfo helper is told: the logical structure, or
     /// the whole shared buffer for a device that is only dumped.

@@ -3,7 +3,9 @@
 use super::*;
 use crate::{region::Region, vendor_boot};
 
-pub const UNKNOWN_MESSAGE: &str = "DeviceInfo 쓰기 결과를 확인할 수 없어 원본 복구를 진행할 수 없습니다. 리전 불일치로 부팅되지 않을 수 있습니다. 기존 백업과 작업 기록은 보존됩니다.";
+pub fn unknown_message() -> String {
+    crate::msg!("core_restore_unknown")
+}
 const JOURNAL: &str = "original_restore.json";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,16 +23,18 @@ impl Assessment {
     pub fn description(&self) -> String {
         let token = |region: &Option<Region>| region.map_or("?", Region::token);
         match self {
-            Self::BeforeWrite => "쓰기 전".into(),
-            Self::Verified { changed: false, .. } => "변경 검증 완료 · 변경 없음".into(),
+            Self::BeforeWrite => crate::msg!("core_assessment_before_write"),
+            Self::Verified { changed: false, .. } => {
+                crate::msg!("core_assessment_unchanged")
+            }
             Self::Verified {
                 original, current, ..
-            } => format!(
-                "변경 검증 완료 · 리전 {} → {}",
-                token(original),
-                token(current)
+            } => crate::msg!(
+                "core_assessment_changed",
+                original = token(original),
+                current = token(current)
             ),
-            Self::Unknown(_) => "결과 불명".into(),
+            Self::Unknown(_) => crate::msg!("core_assessment_unknown"),
         }
     }
     /// The original DeviceInfo must be written back through TWRP.
@@ -40,7 +44,7 @@ impl Assessment {
 }
 fn evidence_json<T: serde::de::DeserializeOwned>(p: &Path) -> Result<T, String> {
     if backup::hash_file(p, None)?.0 > 65536 {
-        return Err("작업 기록 크기 오류".into());
+        return Err(crate::msg!("core_record_size_error"));
     }
     backup::read_json(p)
 }
@@ -53,21 +57,24 @@ fn progress(backup: &VerifiedBackup) -> Result<Option<Progress>, String> {
     Ok(Some(p))
 }
 fn proof(backup: &VerifiedBackup, p: &Progress) -> Result<(Vec<u8>, Vec<u8>), String> {
-    let a = p.attempt.as_ref().ok_or("DeviceInfo 쓰기 의도 누락")?;
+    let a = p
+        .attempt
+        .as_ref()
+        .ok_or(crate::msg!("core_write_intent_missing"))?;
     let dir = attempt_dir(backup, &a.directory)?;
     let before_path = dir.join("before_shared_1.bin");
     if backup::hash_file(&before_path, None)?
         != (deviceinfo::SHARED_SIZE as u64, a.before_sha256.clone())
     {
-        return Err("DeviceInfo 원본 백업 해시 불일치".into());
+        return Err(crate::msg!("core_original_hash_mismatch"));
     }
     let before = std::fs::read(before_path).map_err(|e| e.to_string())?;
     if backup.device().field_map()?.region(&before) != a.original_region {
-        return Err("원래 리전 기록 불일치".into());
+        return Err(crate::msg!("core_original_region_mismatch"));
     }
     let planned = map::apply(backup.device().field_map()?, &before, &a.edits)?;
     if backup::digest_bytes(&planned) != a.planned_sha256 {
-        return Err("DeviceInfo 예정 값 해시 불일치".into());
+        return Err(crate::msg!("core_planned_hash_mismatch"));
     }
     Ok((before, planned))
 }
@@ -78,13 +85,13 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
             let name = file.map_err(|e| e.to_string())?.file_name();
             let name = name.to_string_lossy();
             if name == ATTEMPT_DIR {
-                return Err("DeviceInfo 폴더가 있지만 작업 기록이 없습니다.".into());
+                return Err(crate::msg!("core_attempt_without_record"));
             }
         }
         if backup.transaction_stage()? == TransactionStage::BackupVerified {
             return Ok(Assessment::BeforeWrite);
         }
-        return Err("DeviceInfo 작업 기록이 누락되었습니다.".into());
+        return Err(crate::msg!("core_deviceinfo_record_missing"));
     };
     if matches!(
         p.phase,
@@ -97,7 +104,7 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
             | Phase::Planned
     ) {
         if p.phase == Phase::Planned && p.attempt.is_none() {
-            return Err("예정 작업의 원본 기록 누락".into());
+            return Err(crate::msg!("core_planned_original_missing"));
         }
         if let Some(a) = &p.attempt {
             proof(backup, p)?;
@@ -106,7 +113,7 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
                 .try_exists()
                 .map_err(|e| e.to_string())?
             {
-                return Err("쓰기 전 단계와 최종 재읽기 파일이 충돌합니다.".into());
+                return Err(crate::msg!("core_prewrite_final_conflict"));
             }
         }
         for file in std::fs::read_dir(backup.work_dir()?).map_err(|e| e.to_string())? {
@@ -120,7 +127,7 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
                     .try_exists()
                     .map_err(|e| e.to_string())?
             {
-                return Err("쓰기 전 기록에 최종 재읽기 파일이 남아 있습니다.".into());
+                return Err(crate::msg!("core_prewrite_final_left"));
             }
         }
         return Ok(Assessment::BeforeWrite);
@@ -131,7 +138,7 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
     if backup::hash_file(&final_path, None)?
         != (deviceinfo::SHARED_SIZE as u64, a.planned_sha256.clone())
     {
-        return Err("최종 DeviceInfo 재읽기 증거 누락/변조".into());
+        return Err(crate::msg!("core_final_evidence_bad"));
     }
     let after = std::fs::read(final_path).map_err(|e| e.to_string())?;
     deviceinfo::verify(&planned, &after, &after)?;
@@ -153,7 +160,7 @@ pub fn assess(backup: &VerifiedBackup) -> Result<Assessment, String> {
                     Phase::FirmwareWriting | Phase::FinalReboot | Phase::Done
                 )
             }) {
-                return Err("공식 펌웨어 설치가 시작된 백업입니다. 과거 구성 원본 복구 대신 설치를 이어가세요.".into());
+                return Err(crate::msg!("core_backup_firmware_started"));
             }
             Ok(classify(backup, p.as_ref()).unwrap_or_else(Assessment::Unknown))
         }
@@ -183,11 +190,11 @@ fn regular_directory(path: &Path) -> Result<(), String> {
     {
         use std::os::windows::fs::MetadataExt;
         if meta.file_attributes() & 0x400 != 0 {
-            return Err("원본 복구 폴더는 링크일 수 없습니다.".into());
+            return Err(crate::msg!("core_restore_folder_link"));
         }
     }
     if !meta.file_type().is_dir() {
-        return Err("원본 복구 폴더 오류".into());
+        return Err(crate::msg!("core_restore_folder_error"));
     }
     Ok(())
 }
@@ -223,8 +230,9 @@ fn load_journal(backup: &VerifiedBackup) -> Result<Option<Journal>, String> {
                 .next()
                 .is_some()
         {
-            return Err(format!(
-                "{UNKNOWN_MESSAGE}\n원본 복구 파일이 있지만 복구 기록이 없습니다."
+            return Err(crate::msg!(
+                "core_restore_files_without_record",
+                unknown_message = unknown_message()
             ));
         }
         return Ok(None);
@@ -235,7 +243,7 @@ fn load_journal(backup: &VerifiedBackup) -> Result<Option<Journal>, String> {
             != backup::hash_file(&backup.path().join(backup::MANIFEST_NAME), None)?.1
         || j.progress_sha256 != progress_hash(backup)?
     {
-        return Err("원본 복구 기록과 백업이 일치하지 않습니다.".into());
+        return Err(crate::msg!("core_restore_record_mismatch"));
     }
     Ok(Some(j))
 }
@@ -247,27 +255,33 @@ fn restore_proof(backup: &VerifiedBackup, j: &Journal) -> Result<bool, String> {
         return Ok(false);
     }
     let before_path = dir.join("deviceinfo_before.bin");
-    let before_hash = j.before_sha256.as_ref().ok_or("복구 직전 원본 해시 누락")?;
+    let before_hash = j
+        .before_sha256
+        .as_ref()
+        .ok_or(crate::msg!("core_restore_before_hash_missing"))?;
     if backup::hash_file(&before_path, None)? != (4096, before_hash.clone()) {
-        return Err("복구 직전 DeviceInfo 백업 변조".into());
+        return Err(crate::msg!("core_restore_before_altered"));
     }
     let before = std::fs::read(before_path).map_err(|e| e.to_string())?;
-    let p = progress(backup)?.ok_or("변환 기록 누락")?;
+    let p = progress(backup)?.ok_or(crate::msg!("core_conversion_record_missing"))?;
     let (original, converted) = proof(backup, &p)?;
     if before != converted {
-        return Err("복구 직전 DeviceInfo와 검증된 변환 결과가 다릅니다.".into());
+        return Err(crate::msg!("core_restore_before_differs"));
     }
     let planned = original;
-    let expected = j.planned_sha256.as_ref().ok_or("복구 예정 해시 누락")?;
+    let expected = j
+        .planned_sha256
+        .as_ref()
+        .ok_or(crate::msg!("core_restore_planned_hash_missing"))?;
     if backup::digest_bytes(&planned) != *expected {
-        return Err("원본 DeviceInfo 복구 계획 불일치".into());
+        return Err(crate::msg!("core_restore_plan_mismatch"));
     }
     let after_path = dir.join("deviceinfo_after.bin");
     if !after_path.try_exists().map_err(|e| e.to_string())? {
         return Ok(false);
     }
     if backup::hash_file(&after_path, None)? != (4096, expected.clone()) {
-        return Err("원본 DeviceInfo 최종 재읽기 증거 변조".into());
+        return Err(crate::msg!("core_restore_final_altered"));
     }
     let after = std::fs::read(after_path).map_err(|e| e.to_string())?;
     deviceinfo::verify(&planned, &after, &after)?;
@@ -277,7 +291,7 @@ fn restore_proof(backup: &VerifiedBackup, j: &Journal) -> Result<bool, String> {
 pub fn preflight(backup: &VerifiedBackup) -> Result<Assessment, String> {
     let state = assess(backup)?;
     if let Assessment::Unknown(reason) = &state {
-        return Err(format!("{UNKNOWN_MESSAGE}\n{reason}"));
+        return Err(format!("{}\n{reason}", unknown_message()));
     }
     let j = load_journal(backup)?;
     if let Assessment::Verified {
@@ -293,7 +307,7 @@ pub fn preflight(backup: &VerifiedBackup) -> Result<Assessment, String> {
         if original.is_some_and(|original| {
             vendor_boot::region(backup.device().region_marker(), &vb).ok() != Some(original)
         }) {
-            return Err("원본 vendor_boot DTB와 원래 DeviceInfo 리전이 다릅니다.".into());
+            return Err(crate::msg!("core_restore_vendor_boot_region"));
         }
         if let Some(j) = &j {
             let proven = restore_proof(backup, j)?;
@@ -304,8 +318,9 @@ pub fn preflight(backup: &VerifiedBackup) -> Result<Assessment, String> {
                     | RestorePhase::Complete
             )) && !proven
             {
-                return Err(format!(
-                    "{UNKNOWN_MESSAGE}\n원본 DeviceInfo 복구 쓰기의 최종 검증 증거가 없습니다."
+                return Err(crate::msg!(
+                    "core_restore_write_unproven",
+                    unknown_message = unknown_message()
                 ));
             }
         }
@@ -317,7 +332,7 @@ pub fn ensure_conversion_allowed(backup: &VerifiedBackup) -> Result<(), String> 
         .try_exists()
         .map_err(|e| e.to_string())?
     {
-        return Err("원본 복구를 시작한 백업입니다. 변환 대신 원본 복구를 완료하세요.".into());
+        return Err(crate::msg!("core_restore_started"));
     }
     Ok(())
 }
@@ -356,7 +371,7 @@ impl Connector for NoConnector {
         _: &mut impl Ui,
         _: &mut Vec<String>,
     ) -> Result<Self::Recovery, String> {
-        Err("DeviceInfo가 변경되지 않은 원본 복구에는 TWRP 연결이 필요하지 않습니다.".into())
+        Err(crate::msg!("core_restore_no_twrp_needed"))
     }
 }
 impl Session for super::native::Recovery {
@@ -374,7 +389,7 @@ fn save(dir: &Path, j: &mut Journal, phase: RestorePhase) -> Result<(), String> 
 fn preserve(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if path.try_exists().map_err(|e| e.to_string())? {
         if backup::hash_file(path, None)? != (bytes.len() as u64, backup::digest_bytes(bytes)) {
-            return Err("기존 원본 복구 파일이 변경되었습니다.".into());
+            return Err(crate::msg!("core_restore_file_changed"));
         }
         Ok(())
     } else {
@@ -402,7 +417,7 @@ fn bootstrap(
     let modified = vendor_boot::patch(backup.device().region_marker(), &original, current)?;
     let live = data(device, &vb, &work.path().join("live_vendor_boot.img"), log)?;
     if live != original && live != modified {
-        return Err("기기의 vendor_boot가 원본/검증된 임시 이미지와 다릅니다.".into());
+        return Err(crate::msg!("core_live_vendor_boot_differs"));
     }
     let gpt = storage::validate_gpt(&original_bytes(backup, "gpt_main4.bin")?)?
         .remove_region_vbmeta(backup.manifest().slot)
@@ -449,28 +464,25 @@ pub fn run(
     } = assessment
         && !restore_proof(backup, &j)?
     {
-        let current = current.ok_or("변경된 DeviceInfo의 리전이 PRC/ROW가 아닙니다.")?;
-        ui.status(
-            "확인된 리전에 맞춰 vendor_boot DTB와 TWRP를 준비합니다.",
-            false,
-        );
+        let current = current.ok_or(crate::msg!("core_changed_region_invalid"))?;
+        ui.status(&crate::msg!("core_restore_bootstrap"), false);
         bootstrap(
             device,
             backup,
-            twrp.ok_or("공식 TWRP 파일이 필요합니다.")?,
+            twrp.ok_or(crate::msg!("core_twrp_required"))?,
             current,
             log,
         )?;
         save(&dir, &mut j, RestorePhase::BootRequested)?;
         device.reboot_recovery(log)?;
         ui.phase(Phase::RecoveryWaiting);
-        ui.status("원래 DeviceInfo를 복구할 TWRP ADB 연결을 기다립니다.", true);
+        ui.status(&crate::msg!("core_restore_waiting_twrp"), true);
         let mut recovery = connector.connect(backup, ui, log)?;
         recovery.verify_identity(backup)?;
         let scratch = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
         let before = recovery.read(&scratch.path().join("read1"), log)?;
         let second = recovery.read(&scratch.path().join("read2"), log)?;
-        let p = progress(backup)?.ok_or("변환 기록 누락")?;
+        let p = progress(backup)?.ok_or(crate::msg!("core_conversion_record_missing"))?;
         let (planned, expected) = proof(backup, &p)?;
         deviceinfo::verify(&expected, &before, &second)?;
         preserve(&dir.join("deviceinfo_before.bin"), &before)?;
@@ -480,10 +492,7 @@ pub fn run(
         recovery.prepare(&before, &planned, log)?;
         save(&dir, &mut j, RestorePhase::RegionWritePending)?;
         ui.phase(Phase::Planned);
-        ui.status(
-            "변환 전 DeviceInfo 4096바이트 전체를 복구하고 검증합니다.",
-            false,
-        );
+        ui.status(&crate::msg!("core_restore_writing"), false);
         let (same, fresh) =
             recovery.apply(&before, &planned, &scratch.path().join("apply"), log)?;
         deviceinfo::verify(&planned, &same, &fresh)?;
@@ -493,12 +502,16 @@ pub fn run(
         save(&dir, &mut j, RestorePhase::RegionVerified)?;
         recovery.verify_identity(backup)?;
         if let Err(e) = recovery.reboot_edl() {
-            live!(log, "원본 복구 EDL 재부팅 응답: {e}. 연결을 확인합니다.");
+            live!(
+                log,
+                "{}",
+                crate::msg!("core_restore_edl_reboot_response", e = e)
+            );
         }
         drop(recovery);
         super::wait_for_edl(device, loader, clock, ui, log)?;
         if !ui.finish_wait() {
-            return Err("연결 대기를 중지했습니다. 원본 복구 검증 기록을 보존했습니다.".into());
+            return Err(crate::msg!("core_restore_wait_stopped"));
         }
     }
     // Recheck the PC proof and binding after every wait, before final writes.
@@ -530,7 +543,9 @@ fn open_journal(backup: &VerifiedBackup) -> Result<(PathBuf, Journal), String> {
     Ok((dir, j))
 }
 
-pub const TWRP_OTHER_MESSAGE: &str = "TWRP에서 읽은 DeviceInfo가 원본도, 이 작업이 쓰기로 했던 값도 아닙니다. 쓰지 않고 원본 복구를 중단합니다. 백업과 작업 기록은 보존됩니다.";
+pub fn twrp_other_message() -> String {
+    crate::msg!("core_restore_twrp_other")
+}
 
 /// Original restore started with the tablet already in TWRP: DeviceInfo is
 /// read there first. Equal to the original, nothing is written; equal to the
@@ -554,10 +569,7 @@ pub fn run_from_twrp(
             Phase::FirmwareWriting | Phase::FinalReboot | Phase::Done
         )
     }) {
-        return Err(
-            "공식 펌웨어 설치가 시작된 백업입니다. 과거 구성 원본 복구 대신 설치를 이어가세요."
-                .into(),
-        );
+        return Err(crate::msg!("core_backup_firmware_started"));
     }
     let (dir, mut j) = open_journal(backup)?;
     recovery.verify_identity(backup)?;
@@ -565,32 +577,24 @@ pub fn run_from_twrp(
         Some(p) => {
             let (original, planned) = proof(backup, p)?;
             ui.phase(Phase::Planned);
-            ui.status("TWRP에서 DeviceInfo를 읽어 원본과 비교합니다.", false);
+            ui.status(&crate::msg!("core_restore_twrp_reading"), false);
             let scratch = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
             let first = recovery.read(&scratch.path().join("twrp1"), log)?;
             let second = recovery.read(&scratch.path().join("twrp2"), log)?;
             if first != second {
-                return Err(
-                    "DeviceInfo 독립 읽기 두 개가 일치하지 않습니다. 쓰지 않았습니다.".into(),
-                );
+                return Err(crate::msg!("core_reads_differ_not_written"));
             }
             if first == original {
-                live!(log, "TWRP의 DeviceInfo가 원본과 같습니다. 쓰지 않습니다.");
+                live!(log, "{}", crate::msg!("core_restore_twrp_original"));
             } else if first == planned {
-                live!(
-                    log,
-                    "TWRP의 DeviceInfo가 이 작업이 쓴 값입니다. 원본으로 되돌립니다."
-                );
+                live!(log, "{}", crate::msg!("core_restore_twrp_revert"));
                 preserve(&dir.join("deviceinfo_before.bin"), &first)?;
                 j.before_sha256 = Some(backup::digest_bytes(&first));
                 j.planned_sha256 = Some(backup::digest_bytes(&original));
                 // Transfers and the dry-run precede the durable write intent.
                 recovery.prepare(&first, &original, log)?;
                 save(&dir, &mut j, RestorePhase::RegionWritePending)?;
-                ui.status(
-                    "변환 전 DeviceInfo 4096바이트 전체를 복구하고 검증합니다.",
-                    false,
-                );
+                ui.status(&crate::msg!("core_restore_writing"), false);
                 let (same, fresh) =
                     recovery.apply(&first, &original, &scratch.path().join("apply"), log)?;
                 deviceinfo::verify(&original, &same, &fresh)?;
@@ -599,8 +603,8 @@ pub fn run_from_twrp(
                 preserve(&dir.join("deviceinfo_after.bin"), &independent)?;
                 save(&dir, &mut j, RestorePhase::RegionVerified)?;
             } else {
-                live!(log, "{TWRP_OTHER_MESSAGE}");
-                return Err(TWRP_OTHER_MESSAGE.into());
+                live!(log, "{}", twrp_other_message());
+                return Err(twrp_other_message());
             }
         }
         None => {
@@ -616,22 +620,23 @@ pub fn run_from_twrp(
                         | Phase::RecoveryWaiting
                 )
             }) {
-                return Err("DeviceInfo 원본 기록이 없습니다. 원본 복구를 중단합니다.".into());
+                return Err(crate::msg!("core_restore_no_original_record"));
             }
-            live!(
-                log,
-                "DeviceInfo를 읽기 전에 멈춘 작업입니다. 쓰지 않고 EDL에서 복원합니다."
-            );
+            live!(log, "{}", crate::msg!("core_restore_before_read"));
         }
     }
     recovery.verify_identity(backup)?;
-    ui.status("EDL로 전환해 원본 파티션을 복원합니다.", false);
+    ui.status(&crate::msg!("core_restore_to_edl"), false);
     if let Err(e) = recovery.reboot_edl() {
-        live!(log, "원본 복구 EDL 재부팅 응답: {e}. 연결을 확인합니다.");
+        live!(
+            log,
+            "{}",
+            crate::msg!("core_restore_edl_reboot_response", e = e)
+        );
     }
     super::wait_for_edl(device, loader, clock, ui, log)?;
     if !ui.finish_wait() {
-        return Err("연결 대기를 중지했습니다. 원본 복구 검증 기록을 보존했습니다.".into());
+        return Err(crate::msg!("core_restore_wait_stopped"));
     }
     restore_partitions(device, backup, &dir, &mut j, ui, log)
 }
@@ -646,20 +651,14 @@ fn restore_partitions(
     log: &mut Vec<String>,
 ) -> Result<Vec<String>, String> {
     ui.phase(Phase::Restoring);
-    ui.status(
-        "원본 vendor_boot·Recovery·GPT를 복원하고 재읽기 검증합니다.",
-        false,
-    );
+    ui.status(&crate::msg!("core_restore_partitions"), false);
     super::restore_originals(device, backup, log)?;
     save(dir, j, RestorePhase::Complete)?;
     backup.mark(TransactionStage::Restored)?;
-    live!(
-        log,
-        "원본 구성 복구·검증 완료. DeviceInfo는 변환 전 값이며 misc 덤프는 보존했습니다."
-    );
+    live!(log, "{}", crate::msg!("core_restore_done"));
     let mut warnings = vec![];
     if let Err(e) = device.reset(crate::stage1::ResetMode::System, log) {
-        warnings.push(format!("시스템 부팅 요청 실패: {e}"));
+        warnings.push(crate::msg!("core_system_boot_failed", e = e));
     }
     Ok(warnings)
 }

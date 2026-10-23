@@ -92,7 +92,7 @@ fn backups_from_other_format_versions_are_rejected() {
             VerifiedBackup::open(backup.path())
                 .err()
                 .unwrap()
-                .contains("이 버전에서 만든 백업만"),
+                .contains("Only backups made by this version"),
             "{version} {operation}"
         );
     }

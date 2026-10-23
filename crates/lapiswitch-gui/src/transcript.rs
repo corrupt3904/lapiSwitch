@@ -79,7 +79,7 @@ impl Transcript {
                 Err(e) => return Err(e.to_string()),
             }
         }
-        Err("로그 파일을 만들 수 없습니다.".into())
+        Err(lapiswitch_core::msg!("run_log_create_failed"))
     }
     pub fn path(&self) -> &Path {
         &self.path
@@ -182,9 +182,7 @@ impl Pump {
                 std::thread::sleep(POLL_INTERVAL);
             }
             output.failure.map_or(Ok(()), |e| {
-                Err(format!(
-                    "로그 저장 실패 (작업 상태와 백업을 확인하세요): {e}"
-                ))
+                Err(lapiswitch_core::msg!("run_log_save_failed", e = e))
             })
         });
         Self {
@@ -199,7 +197,7 @@ impl Pump {
         self.stop.store(true, Ordering::Release);
         self.handle.take().map_or(Ok(()), |h| {
             h.join()
-                .unwrap_or_else(|_| Err("로그 작업 종료 오류".into()))
+                .unwrap_or_else(|_| Err(lapiswitch_core::msg!("run_log_thread_failed")))
         })
     }
 }
