@@ -187,8 +187,8 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
     let storage = section(
         app.t("로그 및 백업 위치", "Logs and backup location"),
         app.t(
-            "선택한 위치 아래 logs에 로그를, backup/region_change에 새 백업을 저장합니다. 기존 파일은 이동하지 않습니다.",
-            "Logs go to logs and new backups to backup/region_change under this location. Existing files are not moved.",
+            "선택한 위치 아래 logs에 로그를, backup의 작업별 폴더(firmware_flashing·DeviceInfo_Write·DeviceInfo_Dump)에 새 백업을 저장합니다. 기존 파일은 이동하지 않습니다.",
+            "Logs go to logs and new backups to per-task folders under backup (firmware_flashing, DeviceInfo_Write, DeviceInfo_Dump) in this location. Existing files are not moved.",
         ),
         None,
         vec![

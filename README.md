@@ -77,7 +77,7 @@ The default data location is `%LOCALAPPDATA%\lapiSwitch`:
 | Contents | Location |
 |---|---|
 | Operation logs | `logs` |
-| Original backups | `backup\region_change` |
+| Original backups | `backup\firmware_flashing` (firmware flashing), `backup\DeviceInfo_Write` (DeviceInfo editing), `backup\DeviceInfo_Dump` (DeviceInfo dump) |
 | Settings | `preferences.json` |
 | Run record (resume and restore) | `state.json`, `history` |
 

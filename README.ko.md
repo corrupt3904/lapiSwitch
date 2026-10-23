@@ -77,7 +77,7 @@ TWRP는 지정된 [lapis용 릴리즈 `v3.7.1_16-20261014`](https://github.com/l
 | 내용 | 하위 경로 |
 |---|---|
 | 작업 로그 | `logs` |
-| 원본 백업 | `backup\region_change` |
+| 원본 백업 | `backup\firmware_flashing`(펌웨어 플래싱), `backup\DeviceInfo_Write`(DeviceInfo 수정), `backup\DeviceInfo_Dump`(DeviceInfo 덤프) |
 | 앱 설정 | `preferences.json` |
 | 작업 기록 (이어하기·원본 복구) | `state.json`, `history` |
 

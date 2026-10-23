@@ -154,8 +154,18 @@ fn manifest_path_traversal_duplicate_and_coordinate_tampering_are_rejected() {
 #[test]
 fn backup_folders_are_unique_and_the_adb_identity_cannot_be_overwritten() {
     let out = tempfile::tempdir().unwrap();
-    let a = BackupBuilder::create(out.path(), Some(tb520fu())).unwrap();
-    let b = BackupBuilder::create(out.path(), Some(tb520fu())).unwrap();
+    let a = BackupBuilder::create(
+        out.path(),
+        lapiswitch_core::state::Request::Edit,
+        Some(tb520fu()),
+    )
+    .unwrap();
+    let b = BackupBuilder::create(
+        out.path(),
+        lapiswitch_core::state::Request::Edit,
+        Some(tb520fu()),
+    )
+    .unwrap();
     assert_ne!(a.path(), b.path());
     a.save_identity("first").unwrap();
     a.save_identity("first").unwrap();
@@ -230,7 +240,12 @@ fn a_tb522fu_backup_uses_its_own_rules_and_keeps_the_country_partition() {
     for slot in [Slot::A, Slot::B] {
         let out = tempfile::tempdir().unwrap();
         let mut device = tb522fu_fake(256, "10.028.260924C");
-        let builder = BackupBuilder::create(out.path(), Some(tb522fu)).unwrap();
+        let builder = BackupBuilder::create(
+            out.path(),
+            lapiswitch_core::state::Request::Edit,
+            Some(tb522fu),
+        )
+        .unwrap();
         assert!(
             builder
                 .path()
@@ -272,7 +287,12 @@ fn tb522fu_country_partition_size_and_build_date_ceiling_are_enforced_before_bac
     ] {
         let out = tempfile::tempdir().unwrap();
         let mut device = tb522fu_fake(sectors, build);
-        let builder = BackupBuilder::create(out.path(), Some(tb522fu)).unwrap();
+        let builder = BackupBuilder::create(
+            out.path(),
+            lapiswitch_core::state::Request::Edit,
+            Some(tb522fu),
+        )
+        .unwrap();
         let error = lapiswitch_core::stage1::take_backup(
             &mut device,
             &tb522fu_prepared(Slot::A),
@@ -287,7 +307,12 @@ fn tb522fu_country_partition_size_and_build_date_ceiling_are_enforced_before_bac
     // A TB520FU fingerprint is not the TB522FU the run prepared.
     let out = tempfile::tempdir().unwrap();
     let mut device = Fake::with_recovery(600, true);
-    let builder = BackupBuilder::create(out.path(), Some(tb522fu)).unwrap();
+    let builder = BackupBuilder::create(
+        out.path(),
+        lapiswitch_core::state::Request::Edit,
+        Some(tb522fu),
+    )
+    .unwrap();
     assert!(
         lapiswitch_core::stage1::take_backup(
             &mut device,
@@ -297,4 +322,27 @@ fn tb522fu_country_partition_size_and_build_date_ceiling_are_enforced_before_bac
         )
         .is_err()
     );
+}
+
+#[test]
+fn each_kind_of_run_backs_up_into_its_own_folder() {
+    use lapiswitch_core::state::Request;
+    let out = tempfile::tempdir().unwrap();
+    for (request, folder) in [
+        (
+            Request::Convert {
+                target: lapiswitch_core::region::Region::Row,
+                rollback_mode: lapiswitch_core::deviceinfo::RollbackMode::Reset,
+            },
+            "firmware_flashing",
+        ),
+        (Request::Edit, "DeviceInfo_Write"),
+        (Request::Dump, "DeviceInfo_Dump"),
+    ] {
+        let builder = BackupBuilder::create(out.path(), request, Some(tb520fu())).unwrap();
+        assert_eq!(
+            builder.path().parent().unwrap(),
+            out.path().join("backup").join(folder)
+        );
+    }
 }

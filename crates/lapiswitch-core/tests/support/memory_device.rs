@@ -178,7 +178,12 @@ impl Fake {
 
     /// Requires the Recovery partitions from `with_recovery`.
     pub(crate) fn backup(&mut self, output: &Path, slot: Slot) -> VerifiedBackup {
-        let builder = BackupBuilder::create(output, Some(tb520fu())).unwrap();
+        let builder = BackupBuilder::create(
+            output,
+            lapiswitch_core::state::Request::Edit,
+            Some(tb520fu()),
+        )
+        .unwrap();
         self.journal = Some(builder.path().to_path_buf());
         stage1::take_backup(self, &prepared(slot, Connection::Adb), builder, &mut vec![]).unwrap()
     }

@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::device::Device;
 use crate::prepare::{Connection, PrepareReport};
 use crate::slot::Slot;
+use crate::state::Request;
 use crate::storage::{self, Partition};
 
 pub const MANIFEST_NAME: &str = "manifest.json";
@@ -220,10 +221,23 @@ pub struct BackupBuilder {
     files: Vec<BackupFile>,
 }
 
+/// The folder under `<output>/backup` that holds a kind of run's backups.
+pub fn folder(request: Request) -> &'static str {
+    match request {
+        Request::Convert { .. } => "firmware_flashing",
+        Request::Edit => "DeviceInfo_Write",
+        Request::Dump => "DeviceInfo_Dump",
+    }
+}
+
 impl BackupBuilder {
     /// `device` names the folder; an edit started in EDL learns it later.
-    pub fn create(output_root: &Path, device: Option<Device>) -> Result<Self, String> {
-        let parent = output_root.join("backup").join("region_change");
+    pub fn create(
+        output_root: &Path,
+        request: Request,
+        device: Option<Device>,
+    ) -> Result<Self, String> {
+        let parent = output_root.join("backup").join(folder(request));
         std::fs::create_dir_all(&parent).map_err(|error| error.to_string())?;
         let stem = format!(
             "{}_{}",

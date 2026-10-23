@@ -1055,8 +1055,8 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         ]
         .spacing(4),
         warning_note(app.t(
-            "펌웨어 플래싱 시 사용자 데이터는 반드시 초기화됩니다. 앱·사진·계정이 삭제되므로 중요한 파일은 먼저 별도로 백업하세요.",
-            "Firmware flashing always erases user data. Apps, photos and accounts will be deleted. Back up important files separately first.",
+            "펌웨어 플래싱 시 사용자 데이터는 반드시 초기화됩니다.\n앱·사진·계정·파일 등이 삭제되므로 중요한 데이터는 먼저 별도로 백업하세요.",
+            "Firmware flashing always erases user data.\nApps, photos, accounts, files and more are deleted, so back up important data separately first.",
         )),
         group(vec![
             group_row(
@@ -1082,7 +1082,7 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             ),
             group_row(
                 app.t("사용자 데이터", "User data"),
-                label(app.t("초기화", "Erased")).size(14).color(danger()).into(),
+                label(app.t("초기화", "Erased")).size(18).color(danger()).into(),
                 None,
             ),
             link_row(
@@ -1106,7 +1106,7 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             group_row(
                 app.t("백업 위치", "Backup location"),
                 label(short_path(
-                    &app.output.join("backup").join("region_change"),
+                    &app.output.join("backup").join("firmware_flashing"),
                     value_width(app, 150.0),
                 ))
                 .size(14)
@@ -1584,8 +1584,8 @@ fn recovery(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let mut content = column![
         title(
             app,
-            "원본 구성 복구",
-            "Restore original configuration",
+            "원본 복구",
+            "Restore original",
             "백업한 기기 한 대를 EDL로 연결하세요.",
             "Connect the backed-up device in EDL mode."
         ),

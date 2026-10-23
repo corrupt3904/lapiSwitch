@@ -13,6 +13,7 @@ use lapiswitch_core::prepare::{Connection, DeviceIo, native::NativeDevice};
 use lapiswitch_core::recovery_flow::EditRequest;
 use lapiswitch_core::region::Region;
 use lapiswitch_core::stage1::{self, native::NativeStage};
+use lapiswitch_core::state::Request as RunRequest;
 use lapiswitch_core::state::{FlashOptions, ResumeAction, RunState, StateStore};
 use lapiswitch_core::workflow::native::{NativeWorkflow, SystemClock};
 
@@ -329,7 +330,14 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                     .map_err(|e| e.to_string())?;
                 confirm_approval(&approved, &firmware)?;
                 firmware.device.write_layout()?;
-                let builder = BackupBuilder::create(&output, Some(firmware.device))?;
+                let builder = BackupBuilder::create(
+                    &output,
+                    RunRequest::Convert {
+                        target: firmware.region,
+                        rollback_mode,
+                    },
+                    Some(firmware.device),
+                )?;
                 let state = RunState::convert(&firmware, rollback_mode, options, builder.path())?;
                 start_new(
                     state,
@@ -354,7 +362,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 if let Some(device) = device {
                     device.write_layout()?;
                 }
-                let builder = BackupBuilder::create(&output, device)?;
+                let builder = BackupBuilder::create(&output, RunRequest::Edit, device)?;
                 let state = RunState::edit(device, &loader, builder.path())?;
                 start_new(
                     state,
@@ -377,7 +385,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 if !loader.is_file() {
                     return Err(format!("EDL 로더 파일이 없습니다: {}", loader.display()));
                 }
-                let builder = BackupBuilder::create(&output, device)?;
+                let builder = BackupBuilder::create(&output, RunRequest::Dump, device)?;
                 let state = RunState::dump(device, &loader, builder.path(), &dump_root)?;
                 start_new(
                     state,
@@ -587,7 +595,7 @@ fn start_new(
     )
     .map_err(|e| e.to_string())?;
     // An edit started in EDL learns its device only now.
-    if state.request != lapiswitch_core::state::Request::Dump {
+    if state.request != RunRequest::Dump {
         prepared.report.device.write_layout()?;
     }
     let twrp = match twrp.take() {

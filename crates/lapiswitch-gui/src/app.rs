@@ -2072,11 +2072,16 @@ mod tests {
         let _ = app.picked(Picker::Output, Some(selected.clone()));
         assert_eq!(app.output, selected);
         assert_eq!(transcript::log_dir(&app.output), selected.join("logs"));
-        let builder = lapiswitch_core::backup::BackupBuilder::create(&app.output, None).unwrap();
+        let builder = lapiswitch_core::backup::BackupBuilder::create(
+            &app.output,
+            lapiswitch_core::state::Request::Edit,
+            None,
+        )
+        .unwrap();
         assert!(
             builder
                 .path()
-                .starts_with(selected.join("backup/region_change"))
+                .starts_with(selected.join("backup/DeviceInfo_Write"))
         );
         assert_eq!(
             Preferences::load(&app.preferences_path).storage_root,

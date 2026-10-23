@@ -428,7 +428,12 @@ impl Setup {
             }
         }
         fw.device = device;
-        let builder = BackupBuilder::create(dir.path(), Some(device)).unwrap();
+        let builder = BackupBuilder::create(
+            dir.path(),
+            lapiswitch_core::state::Request::Edit,
+            Some(device),
+        )
+        .unwrap();
         let mut state = match mode {
             Some(mode) => {
                 RunState::convert(&fw, mode, FlashOptions::new(None).unwrap(), builder.path())
@@ -1891,7 +1896,12 @@ fn s3_device_version_gate_uses_active_slot_before_partition_backup() {
                 format!("vbmeta_system{}", slot.other().suffix()),
                 "qti/TB520FU/TB520FU:16/BUILD/ZUI_99.0.0.0_260408_ROW:user/release-keys".into(),
             );
-            let builder = BackupBuilder::create(dir.path(), Some(tb520fu())).unwrap();
+            let builder = BackupBuilder::create(
+                dir.path(),
+                lapiswitch_core::state::Request::Edit,
+                Some(tb520fu()),
+            )
+            .unwrap();
             let folder = builder.partition_dir().to_owned();
             let result = stage1::take_backup(
                 &mut d,
@@ -1934,7 +1944,12 @@ fn edl_backups_bind_the_gpt_slot_and_do_not_require_an_adb_identity() {
             gpt[4096 + 88..4096 + 92].copy_from_slice(&crc.to_le_bytes());
             refresh_header(&mut gpt);
             disk.disk[4][..gpt.len()].copy_from_slice(&gpt);
-            let builder = BackupBuilder::create(s._dir.path(), Some(tb520fu())).unwrap();
+            let builder = BackupBuilder::create(
+                s._dir.path(),
+                lapiswitch_core::state::Request::Edit,
+                Some(tb520fu()),
+            )
+            .unwrap();
             let backup = stage1::take_backup(
                 &mut disk,
                 &prepared(slot, lapiswitch_core::prepare::Connection::Edl),
@@ -2059,7 +2074,12 @@ fn s3_system_ext_version_and_custom_rom_consent_are_separate_from_stock_ceiling(
             let ext =
                 format!("qti/TB520FU/TB520FU:17/CQ2A.260712.001/{incremental}:user/release-keys");
             d.system_ext_fingerprints.insert(name, ext.clone());
-            let builder = BackupBuilder::create(dir.path(), Some(tb520fu())).unwrap();
+            let builder = BackupBuilder::create(
+                dir.path(),
+                lapiswitch_core::state::Request::Edit,
+                Some(tb520fu()),
+            )
+            .unwrap();
             let folder = builder.partition_dir().to_owned();
             let mut called = 0;
             let result = stage1::take_backup_with_confirmation(
