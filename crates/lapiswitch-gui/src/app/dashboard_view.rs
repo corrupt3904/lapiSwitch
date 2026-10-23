@@ -210,18 +210,29 @@ fn detail<'a>(
     value: String,
     outline: Option<iced::Color>,
 ) -> Element<'a, Message> {
-    container(column![small(name).size(12), label(value).size(14)].spacing(2))
-        .padding([10, 14])
-        .width(Fill)
-        .style(move |theme| {
-            let mut style = super::fluent::card_style(theme);
-            if let Some(color) = outline {
-                style.border.color = color;
-                style.border.width = 2.0;
-            }
-            style
-        })
-        .into()
+    container(
+        column![
+            small(name).size(12),
+            container(
+                label(value)
+                    .size(14)
+                    .wrapping(iced::widget::text::Wrapping::None)
+            )
+            .clip(true)
+        ]
+        .spacing(2),
+    )
+    .padding([10, 14])
+    .width(Fill)
+    .style(move |theme| {
+        let mut style = super::fluent::card_style(theme);
+        if let Some(color) = outline {
+            style.border.color = color;
+            style.border.width = 2.0;
+        }
+        style
+    })
+    .into()
 }
 /// Support outline: green when DeviceInfo can be written, yellow when it
 /// can only be dumped, red for an unsupported model; none without a model.
@@ -294,7 +305,17 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
         (app.t("지원 상태", "Support"), support),
     ];
     let support_name = app.t("지원 상태", "Support");
+    // Each cell keeps one line: long values end in an ellipsis.
+    let cell_width = ((app.window_width - 290.0 - 36.0).min(1000.0) - 26.0) / 2.0 - 2.0 - 28.0;
+    let budget = ((cell_width / 8.2) as usize).max(8);
     let cell = |name: &'static str, text: String| {
+        let text = if text.chars().count() > budget {
+            let mut short: String = text.chars().take(budget - 1).collect();
+            short.push('…');
+            short
+        } else {
+            text
+        };
         detail(
             name,
             text,

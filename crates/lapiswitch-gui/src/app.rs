@@ -1522,6 +1522,14 @@ impl App {
         self.country = Some("KR".into());
         match screen {
             "dashboard" => self.page = Page::Dashboard,
+            "dashboard-twrp" => {
+                self.page = Page::Dashboard;
+                self.device.snapshot.mode = crate::device::Mode::Recovery;
+                self.device.snapshot.android = "17".into();
+                self.device.snapshot.slot = "_a".into();
+                self.device.snapshot.firmware =
+                    "twrp_lapis-eng 99.87.36 BP2A.250605.031.A2 1791987058 test-keys".into();
+            }
             "dashboard-dump-only" | "dashboard-unsupported" => {
                 self.page = Page::Dashboard;
                 let (model, name) = if screen == "dashboard-dump-only" {
@@ -2637,6 +2645,7 @@ mod tests {
                 "dump",
                 "dump-only",
                 "dashboard-dump-only",
+                "dashboard-twrp",
                 "dashboard-unsupported",
                 "dump-result",
                 "flash-result",
