@@ -130,17 +130,13 @@ pub(super) fn device_card(app: &App) -> Element<'_, Message> {
 }
 pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
     let s = &app.device.snapshot;
-    let unsupported;
     let detail = if let Some(error) = &s.error {
         error.as_str()
     } else if app.device.unsupported_model() {
-        unsupported = app
-            .t(
-                "지원하지 않는 기기입니다. {models}만 사용할 수 있습니다.",
-                "Unsupported device. Supported: {models}.",
-            )
-            .replace("{models}", &super::supported_models());
-        unsupported.as_str()
+        app.t(
+            "지원하지 않는 기기입니다. 지원 가능한 기기를 확인해주세요.",
+            "Unsupported device. Check the supported devices.",
+        )
     } else {
         match s.mode {
         Mode::None => app.t("기기가 연결되어 있지 않습니다. 기기를 연결해야 작업을 시작할 수 있습니다.", "No device is connected. Connect a device before starting."),

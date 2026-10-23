@@ -1927,7 +1927,6 @@ fn demo_deviceinfo(layout: lapiswitch_core::deviceinfo::map::Layout) -> Vec<u8> 
     b[layout.rollback_start() + 8] = 1;
     b
 }
-/// Every supported model with its codename, e.g. `TB520FU (lapis)`.
 /// Opens a folder in the file manager; a file is shown selected in its
 /// folder.
 fn open_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
@@ -1961,12 +1960,6 @@ fn open_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
         };
         Command::new("xdg-open").arg(folder).spawn().map(drop)
     }
-}
-pub(crate) fn supported_models() -> String {
-    lapiswitch_core::device::Device::all()
-        .map(|device| format!("{} ({})", device.model(), device.codename()))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 fn demo_saved_state(stage: Stage) -> lapiswitch_core::state::RunState {
     let fw = demo_report(Region::Row);
