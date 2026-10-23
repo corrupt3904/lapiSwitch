@@ -50,7 +50,7 @@ pub struct Field {
     pub size: usize,
     pub kind: Kind,
     pub class: Class,
-    /// Korean meaning from the structure map.
+    /// English meaning from the structure map; the app translates it.
     pub description: &'static str,
 }
 

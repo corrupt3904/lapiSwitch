@@ -117,6 +117,42 @@ mod tests {
     }
 
     #[test]
+    fn every_deviceinfo_field_description_is_translated() {
+        let english: BTreeSet<String> = lapiswitch_core::device::Device::all()
+            .filter_map(|device| device.layout())
+            .flat_map(|layout| layout.fields())
+            .map(|field| field.description.to_owned())
+            .collect();
+        assert!(english.len() > 20, "{english:?}");
+        for language in [
+            Language::Korean,
+            Language::Chinese,
+            Language::Japanese,
+            Language::Russian,
+        ] {
+            let catalog = language.field_catalog().unwrap();
+            let keys: BTreeSet<String> = catalog.keys().map(|k| (*k).to_owned()).collect();
+            let missing: Vec<_> = english.difference(&keys).collect();
+            let stale: Vec<_> = keys.difference(&english).collect();
+            assert!(missing.is_empty(), "{language:?} missing: {missing:#?}");
+            assert!(stale.is_empty(), "{language:?} unused: {stale:#?}");
+            assert!(catalog.values().all(|v| !v.trim().is_empty()));
+        }
+        assert_eq!(
+            Language::Korean.field_description("Bootloader unlock state"),
+            "부트로더 잠금 해제 상태"
+        );
+        assert_eq!(
+            Language::English.field_description("Bootloader unlock state"),
+            "Bootloader unlock state"
+        );
+        assert_eq!(
+            Language::Korean.field_description("Not mapped"),
+            "Not mapped"
+        );
+    }
+
+    #[test]
     fn log_translations_cover_the_same_keys_and_placeholders() {
         let english: HashMap<String, String> =
             serde_json::from_str(include_str!("../lang/en.json")).unwrap();
@@ -206,6 +242,28 @@ impl Language {
             Self::Russian => (&RU, include_str!("../lang/ui/ru.json")),
         };
         Some(cell.get_or_init(|| leak_catalog(json)))
+    }
+    /// Translations of the DeviceInfo field descriptions, which the device
+    /// files write in English.
+    fn field_catalog(self) -> Option<&'static Catalog> {
+        static KO: OnceLock<Catalog> = OnceLock::new();
+        static ZH: OnceLock<Catalog> = OnceLock::new();
+        static JA: OnceLock<Catalog> = OnceLock::new();
+        static RU: OnceLock<Catalog> = OnceLock::new();
+        let (cell, json) = match self {
+            Self::English => return None,
+            Self::Korean => (&KO, include_str!("../lang/deviceinfo/ko.json")),
+            Self::Chinese => (&ZH, include_str!("../lang/deviceinfo/zh.json")),
+            Self::Japanese => (&JA, include_str!("../lang/deviceinfo/ja.json")),
+            Self::Russian => (&RU, include_str!("../lang/deviceinfo/ru.json")),
+        };
+        Some(cell.get_or_init(|| leak_catalog(json)))
+    }
+    /// A DeviceInfo field description in this language, or the English one.
+    pub fn field_description(self, english: &'static str) -> &'static str {
+        self.field_catalog()
+            .and_then(|catalog| catalog.get(english).copied())
+            .unwrap_or(english)
     }
     pub fn text(self, ko: &'static str, en: &'static str) -> &'static str {
         match self {

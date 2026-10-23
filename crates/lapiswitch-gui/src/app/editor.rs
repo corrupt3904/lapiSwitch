@@ -412,7 +412,12 @@ fn choice_row<'a>(
     basic_box(
         column![
             row![
-                label(field.description).size(15),
+                label(
+                    app.preferences
+                        .language
+                        .field_description(field.description)
+                )
+                .size(15),
                 small(format!(
                     "{} · 0x{:04X} · {}B",
                     field.key, field.offset, field.size
@@ -534,7 +539,11 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
     let mut head = row![
         label(field.key.clone()).size(15),
         small(format!("0x{:04X} · {}B", field.offset, field.size)),
-        small(field.description),
+        small(
+            app.preferences
+                .language
+                .field_description(field.description)
+        ),
     ]
     .spacing(10)
     .align_y(Alignment::Center);
@@ -750,11 +759,17 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
             ),
             true,
         ));
-        let query = editor.query.trim().to_ascii_lowercase();
+        // The key, the English description and the shown translation all match.
+        let query = editor.query.trim().to_lowercase();
+        let language = app.preferences.language;
         for field in editor.fields.iter().filter(|field| {
             query.is_empty()
-                || field.key.to_ascii_lowercase().contains(&query)
-                || field.description.contains(editor.query.trim())
+                || field.key.to_lowercase().contains(&query)
+                || field.description.to_lowercase().contains(&query)
+                || language
+                    .field_description(field.description)
+                    .to_lowercase()
+                    .contains(&query)
         }) {
             list = list.push(field_row(app, editor, field));
         }

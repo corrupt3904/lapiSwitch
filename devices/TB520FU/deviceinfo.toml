@@ -15,7 +15,7 @@ offset = 0x0000
 size = 0x0D
 kind = "text"
 class = "protected"
-description = "DeviceInfo 매직"
+description = "DeviceInfo magic"
 
 [[field]]
 key = "is_unlocked"
@@ -23,7 +23,7 @@ offset = 0x000D
 size = 1
 kind = "uint"
 class = "protected"
-description = "부트로더 잠금 해제 상태"
+description = "Bootloader unlock state"
 
 [[field]]
 key = "is_unlock_critical"
@@ -31,7 +31,7 @@ offset = 0x000E
 size = 1
 kind = "uint"
 class = "protected"
-description = "critical 잠금 해제 상태"
+description = "Critical unlock state"
 
 [[field]]
 key = "charger_screen_enabled"
@@ -39,7 +39,7 @@ offset = 0x000F
 size = 1
 kind = "flag"
 class = "basic"
-description = "충전 화면 사용"
+description = "Charger screen enabled"
 
 [[field]]
 key = "bootloader_version"
@@ -47,7 +47,7 @@ offset = 0x0010
 size = 0x40
 kind = "text_nul"
 class = "advanced"
-description = "부트로더 버전 문자열"
+description = "Bootloader version string"
 
 [[field]]
 key = "radio_version"
@@ -55,7 +55,7 @@ offset = 0x0050
 size = 0x40
 kind = "text_nul"
 class = "advanced"
-description = "라디오/베이스밴드 버전 문자열"
+description = "Radio/baseband version string"
 
 [[field]]
 key = "verity_mode"
@@ -63,7 +63,7 @@ offset = 0x0090
 size = 1
 kind = "uint"
 class = "protected"
-description = "verity 모드"
+description = "Verity mode"
 
 [[field]]
 key = "reserved_0091"
@@ -71,7 +71,7 @@ offset = 0x0091
 size = 3
 kind = "bytes"
 class = "advanced"
-description = "정렬/예약"
+description = "Alignment/reserved"
 
 [[field]]
 key = "user_public_key_length"
@@ -79,7 +79,7 @@ offset = 0x0094
 size = 4
 kind = "uint"
 class = "protected"
-description = "사용자 공개키 길이"
+description = "User public key length"
 
 [[field]]
 key = "user_public_key"
@@ -87,7 +87,7 @@ offset = 0x0098
 size = 0x800
 kind = "bytes"
 class = "protected"
-description = "사용자 공개키"
+description = "User public key"
 
 [[field]]
 key = "rollback_index[{n}]"
@@ -97,7 +97,7 @@ count = 32
 stride = 8
 kind = "uint"
 class = "basic"
-description = "롤백인덱스"
+description = "Rollback index"
 
 [[field]]
 key = "persistent[{n}].valid"
@@ -107,7 +107,7 @@ count = 8
 stride = 0x5E
 kind = "uint"
 class = "protected"
-description = "AVB persistent value 사용 여부"
+description = "AVB persistent value in use"
 
 [[field]]
 key = "persistent[{n}].name_length"
@@ -117,7 +117,7 @@ count = 8
 stride = 0x5E
 kind = "uint"
 class = "protected"
-description = "AVB persistent value 이름 길이"
+description = "AVB persistent value name length"
 
 [[field]]
 key = "persistent[{n}].value_length"
@@ -127,7 +127,7 @@ count = 8
 stride = 0x5E
 kind = "uint"
 class = "protected"
-description = "AVB persistent value 값 길이"
+description = "AVB persistent value data length"
 
 [[field]]
 key = "persistent[{n}].name"
@@ -137,7 +137,7 @@ count = 8
 stride = 0x5E
 kind = "text"
 class = "protected"
-description = "AVB persistent value 이름"
+description = "AVB persistent value name"
 
 [[field]]
 key = "persistent[{n}].value"
@@ -147,7 +147,7 @@ count = 8
 stride = 0x5E
 kind = "bytes"
 class = "protected"
-description = "AVB persistent value 값"
+description = "AVB persistent value data"
 
 [[field]]
 key = "golden_snapshot"
@@ -155,7 +155,7 @@ offset = 0x0C88
 size = 8
 kind = "uint"
 class = "advanced"
-description = "golden snapshot (추정)"
+description = "Golden snapshot (presumed)"
 
 [[field]]
 key = "audio_framework"
@@ -163,7 +163,7 @@ offset = 0x0C90
 size = 0x10
 kind = "bytes"
 class = "advanced"
-description = "audio framework 버퍼"
+description = "Audio framework buffer"
 
 [[field]]
 key = "fdr_frs_uds_flag"
@@ -171,7 +171,7 @@ offset = 0x0CA0
 size = 1
 kind = "uint"
 class = "protected"
-description = "FDR/FRS-UDS 상태"
+description = "FDR/FRS-UDS state"
 
 [[field]]
 key = "reserved_0CA1"
@@ -179,7 +179,7 @@ offset = 0x0CA1
 size = 3
 kind = "bytes"
 class = "advanced"
-description = "정렬/예약"
+description = "Alignment/reserved"
 
 [[field]]
 key = "frs_uds_cache_length"
@@ -187,7 +187,7 @@ offset = 0x0CA4
 size = 4
 kind = "uint"
 class = "protected"
-description = "FRS/UDS 캐시 길이"
+description = "FRS/UDS cache length"
 
 [[field]]
 key = "frs_uds_cache"
@@ -195,7 +195,7 @@ offset = 0x0CA8
 size = 0x20
 kind = "bytes"
 class = "protected"
-description = "FRS/UDS 캐시 (기기 고유)"
+description = "FRS/UDS cache (device-unique)"
 
 [[field]]
 key = "region_magic_1"
@@ -203,7 +203,7 @@ offset = 0x0CC8
 size = 8
 kind = "text"
 class = "protected"
-description = "리전 레코드 매직 1"
+description = "Region record magic 1"
 
 [[field]]
 key = "oem_reserved_1"
@@ -211,7 +211,7 @@ offset = 0x0CD0
 size = 0x40
 kind = "bytes"
 class = "advanced"
-description = "OEM 예약 (미확인)"
+description = "OEM reserved (unidentified)"
 
 [[field]]
 key = "region"
@@ -219,7 +219,7 @@ offset = 0x0D10
 size = 0x10
 kind = "region"
 class = "basic"
-description = "리전"
+description = "Region"
 
 [[field]]
 key = "region_magic_2"
@@ -227,7 +227,7 @@ offset = 0x0D20
 size = 8
 kind = "text"
 class = "protected"
-description = "리전 레코드 매직 2"
+description = "Region record magic 2"
 
 [[field]]
 key = "region_padding"
@@ -235,7 +235,7 @@ offset = 0x0D28
 size = 8
 kind = "bytes"
 class = "advanced"
-description = "리전 후미 (미확인)"
+description = "Region trailer (unidentified)"
 
 [[field]]
 key = "oem_reserved_2"
@@ -243,7 +243,7 @@ offset = 0x0D30
 size = 0x170
 kind = "bytes"
 class = "advanced"
-description = "OEM 예약 (미확인)"
+description = "OEM reserved (unidentified)"
 
 [[field]]
 key = "fastboot_mode"
@@ -251,7 +251,7 @@ offset = 0x0EA0
 size = 1
 kind = "uint"
 class = "advanced"
-description = "fastboot 부팅 모드 플래그"
+description = "Fastboot boot mode flag"
 
 [[field]]
 key = "recovery_mode"
@@ -259,7 +259,7 @@ offset = 0x0EA1
 size = 1
 kind = "uint"
 class = "advanced"
-description = "recovery 부팅 모드 플래그"
+description = "Recovery boot mode flag"
 
 [[field]]
 key = "factory_mode"
@@ -267,7 +267,7 @@ offset = 0x0EA2
 size = 1
 kind = "uint"
 class = "advanced"
-description = "factory 부팅 모드 플래그"
+description = "Factory boot mode flag"
 
 [[field]]
 key = "reserved_end"
@@ -275,4 +275,4 @@ offset = 0x0EA3
 size = 5
 kind = "bytes"
 class = "advanced"
-description = "후미 예약"
+description = "Trailing reserved"

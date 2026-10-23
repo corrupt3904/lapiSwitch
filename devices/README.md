@@ -50,8 +50,11 @@ devices/
    - 필수 필드(`magic`, `is_unlocked`, `is_unlock_critical`, `region`, `rollback_index[0..31]`)와 형식별 크기
    - `deviceinfo_read = true`이면 `codename`, `[firmware]`, `[installed]`, `[twrp]`, `[country]`가 모두 있는지, 알 수 없는 항목이나 값이 없는지
    - `deviceinfo_write = true`이면 `deviceinfo_read = true`이고 `deviceinfo.toml`이 있는지
-4. TWRP Release의 라이선스 고지를 `crates/lapiswitch-gui/assets/licenses.json`에 추가합니다. 테스트가 모든 기기의 TWRP 고지를 확인합니다.
-5. 실제 덤프가 있으면 `LAPISWITCH_DEVICEINFO_<모델명>` 환경 변수에 경로를 지정하고
+4. `deviceinfo.toml`의 `description`은 영어로 씁니다. 화면에 보일 번역은
+   `crates/lapiswitch-gui/lang/deviceinfo/`의 `ko.json`·`zh.json`·`ja.json`·`ru.json`에 영어 설명을 키로 추가합니다.
+   번역이 없으면 영어로 표시되며, 테스트가 빠진 번역과 쓰지 않는 번역을 알려 줍니다.
+5. TWRP Release의 라이선스 고지를 `crates/lapiswitch-gui/assets/licenses.json`에 추가합니다. 테스트가 모든 기기의 TWRP 고지를 확인합니다.
+6. 실제 덤프가 있으면 `LAPISWITCH_DEVICEINFO_<모델명>` 환경 변수에 경로를 지정하고
    `cargo test -p lapiswitch-core -- --ignored real_dump`로 필드 맵을 덤프와 맞춰 볼 수 있습니다.
 
 실제 DeviceInfo 덤프와 기기 고유 값(FRS/UDS 캐시 등)은 이 폴더에 넣지 마세요.
