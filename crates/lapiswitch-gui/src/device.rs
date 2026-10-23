@@ -174,12 +174,16 @@ pub fn probe(passive: bool) -> Result<Snapshot, String> {
             result.mode = Mode::Unauthorized;
             return Ok(result);
         }
-        result.mode =
-            if model.to_ascii_lowercase().starts_with("twrp_") || state == Some("recovery") {
-                Mode::Recovery
-            } else {
-                Mode::Adb
-            };
+        // TWRP booted through misc can report a normal ro.bootmode; its own
+        // version property marks it, as the TWRP connection itself checks.
+        result.mode = if model.to_ascii_lowercase().starts_with("twrp_")
+            || state == Some("recovery")
+            || !prop(&mut adb, "ro.twrp.version").is_empty()
+        {
+            Mode::Recovery
+        } else {
+            Mode::Adb
+        };
         result.model = if model.to_ascii_lowercase().starts_with("twrp_") {
             model[5..].into()
         } else {
