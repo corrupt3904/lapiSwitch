@@ -1450,21 +1450,24 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         content = content.push(group(places));
     }
     content = content.push(logs(app));
-    (
-        content.into(),
+    let export = action(
+        app.t("로그 다른 곳에 저장", "Export log"),
+        Message::Pick(Picker::Export),
+        app.log_path.is_some() || app.demo,
+    );
+    let home = action(app.t("처음으로", "Home"), Message::Home, true);
+    // A finished run needs no restore; Home becomes the main action.
+    let footer = if success {
+        row![space().width(Fill), export.style(soft_style), home]
+    } else {
         row![
             space().width(Fill),
-            action(app.t("처음으로", "Home"), Message::Home, true).style(soft_style),
+            home.style(soft_style),
             action(app.t("원본 복구", "Recovery"), Message::Recovery, true).style(recovery_style),
-            action(
-                app.t("로그 다른 곳에 저장", "Export log"),
-                Message::Pick(Picker::Export),
-                app.log_path.is_some() || app.demo
-            )
+            export
         ]
-        .spacing(10)
-        .into(),
-    )
+    };
+    (content.into(), footer.spacing(10).into())
 }
 /// DeviceInfo edit setup. Values are chosen later from the live DeviceInfo
 /// read in TWRP; only the EDL loader is needed now.
