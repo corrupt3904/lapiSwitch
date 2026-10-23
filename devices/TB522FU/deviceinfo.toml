@@ -1,11 +1,11 @@
-# TB522FU DeviceInfo 필드 맵.
+# TB522FU DeviceInfo field map.
 #
-# 모든 필드가 0부터 logical_size까지 빈틈·겹침 없이 덮어야 합니다. 빌드할 때 검사합니다.
-# kind:  flag (1바이트 0/1) · uint (리틀엔디언 1/2/4/8바이트) · region (PRC/ROW, 16바이트)
-#        text (ASCII, NUL 채움) · text_nul (ASCII, 마지막 1바이트는 NUL 유지) · bytes (16진수)
-# class: basic · advanced · protected (보안·구조 필드: 사용자지정 탭에서 바꾸면 위험 확인 필요)
-# count/stride: 같은 모양이 반복되는 필드. key의 {n}이 0..count-1로 바뀌고 offset은 stride씩 증가합니다.
-# 필수 필드: magic, is_unlocked, is_unlock_critical, region, rollback_index[0..31]
+# The fields must cover 0..logical_size without gaps or overlaps; this is checked at build time.
+# kind:  flag (1 byte, 0/1) · uint (little-endian, 1/2/4/8 bytes) · region (PRC/ROW, 16 bytes)
+#        text (ASCII, NUL padded) · text_nul (ASCII, the last byte stays NUL) · bytes (hex)
+# class: basic · advanced · protected (security/structure fields: changing them in the custom tab needs a risk confirmation)
+# count/stride: a repeated field. {n} in key becomes 0..count-1 and offset grows by stride.
+# Required fields: magic, is_unlocked, is_unlock_critical, region, rollback_index[0..31]
 
 logical_size = 0x0D20
 

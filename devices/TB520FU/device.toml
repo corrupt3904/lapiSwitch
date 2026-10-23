@@ -1,24 +1,23 @@
-# TB520FU 기기 정보. 폴더 이름과 model이 같아야 합니다.
+# TB520FU device information. The folder name must equal model.
 
 model = "TB520FU"
-# ADB/EDL에서 모델명 대신 보일 수 있는 코드네임 (선택)
+# Codename that may appear instead of the model name over ADB/EDL.
 codename = "lapis"
-# true: 이 기기로 백업·TWRP·DeviceInfo 수정·복구 흐름을 실행합니다.
-# true: DeviceInfo 덤프를 지원합니다. 백업·TWRP·원본 복원 흐름을 실행하므로 [firmware]·[installed]·[twrp]·[country]가 필요합니다.
+# true: DeviceInfo can be dumped. This runs the backup, TWRP and restore flow, so [firmware], [installed], [twrp] and [country] are required.
 deviceinfo_read = true
-# true: DeviceInfo 쓰기(펌웨어 플래싱·DeviceInfo 수정)를 지원합니다. deviceinfo.toml이 필요합니다.
+# true: DeviceInfo can be written (firmware flashing and DeviceInfo editing). Requires deviceinfo.toml.
 deviceinfo_write = true
 
-# 공식 펌웨어 폴더 검사 (flow = true일 때 필수)
+# Official firmware folder check.
 [firmware]
 loader = "xbl_s_devprg_ns.melf"
 required_images = ["vbmeta_system.img", "vendor_boot.img", "boot.img", "vbmeta.img"]
-# vendor_boot DTB에서 펌웨어 리전을 읽는 위치: region_country 또는 product_region/build_region
+# Where the vendor_boot DTB names the firmware region: region_country or product_region/build_region.
 region_marker = "region_country"
 
-# 현재 기기에 설치된 펌웨어의 허용 범위 (flow = true일 때 필수).
-# scheme: zui_version (예: ZUI_18.5.10.037_260408_ROW) 또는 build_date (예: 10.028.260924C)
-# region과 family가 맞는 항목만 허용하고, max가 있으면 그 버전 이하만 허용합니다.
+# Accepted range of the firmware installed on the device.
+# scheme: zui_version (e.g. ZUI_18.5.10.037_260408_ROW) or build_date (e.g. 10.028.260924C).
+# Only entries with a matching region and family are accepted; with max, only that version or lower.
 [installed]
 scheme = "zui_version"
 
@@ -28,7 +27,7 @@ family = "ZUXOS"
 max = "1.5.10.186"
 label = "ZUXOS_1.5.10.186"
 
-# 이전 PRC ZUI 계열은 버전 제한 없이 허용합니다.
+# The earlier PRC ZUI family is accepted without a version limit.
 [[installed.allow]]
 region = "PRC"
 family = "ZUI"
@@ -39,7 +38,7 @@ family = "ZUI"
 max = "18.5.10.37"
 label = "ZUI_18.5.10.037"
 
-# 사용할 TWRP 공식 Release (flow = true일 때 필수). 사용할 때마다 크기와 SHA-256을 확인합니다.
+# Official TWRP release to use. Its size and SHA-256 are checked on every use.
 [twrp]
 tag = "v3.7.1_16-20261014"
 name = "TWRP-3.7.1_16-lapis-20261014-landscape.img"
@@ -47,6 +46,6 @@ size = 104857600
 sha256 = "310ff2ecfc4c52060f9b6a0ad6f6e466a63a36d8ae87bc39f0c5408d2dcf24a4"
 url = "https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/download/v3.7.1_16-20261014/TWRP-3.7.1_16-lapis-20261014-landscape.img"
 
-# 국가코드 변경 방식: devinfo_persist (devinfo·persist 패치) 또는 oemowninfo (파티션의 고정 필드)
+# Country code method: devinfo_persist (devinfo and persist patching) or oemowninfo (a fixed field of a partition).
 [country]
 method = "devinfo_persist"

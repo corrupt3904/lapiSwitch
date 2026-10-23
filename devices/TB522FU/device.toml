@@ -1,23 +1,23 @@
-# TB522FU 기기 정보. 폴더 이름과 model이 같아야 합니다.
+# TB522FU device information. The folder name must equal model.
 
 model = "TB522FU"
-# ADB/EDL에서 모델명 대신 보일 수 있는 코드네임
+# Codename that may appear instead of the model name over ADB/EDL.
 codename = "mojito"
-# true: DeviceInfo 덤프를 지원합니다. 백업·TWRP·원본 복원 흐름을 실행하므로 [firmware]·[installed]·[twrp]·[country]가 필요합니다.
+# true: DeviceInfo can be dumped. This runs the backup, TWRP and restore flow, so [firmware], [installed], [twrp] and [country] are required.
 deviceinfo_read = true
-# true: DeviceInfo 쓰기(펌웨어 플래싱·DeviceInfo 수정)를 지원합니다. deviceinfo.toml이 필요합니다.
-# 쓰기 검증 전까지 덤프만 지원합니다.
+# true: DeviceInfo can be written (firmware flashing and DeviceInfo editing). Requires deviceinfo.toml.
+# Dump only until its writes are validated.
 deviceinfo_write = false
 
-# 공식 펌웨어 폴더 검사
+# Official firmware folder check.
 [firmware]
 loader = "xbl_s_devprg_ns.melf"
 required_images = ["vbmeta_system.img", "vendor_boot.img", "boot.img", "vbmeta.img"]
-# vendor_boot DTB의 product_region 노드 아래 build_region 속성으로 리전을 읽습니다.
+# The region is read from the build_region property of the product_region node in the vendor_boot DTB.
 region_marker = "product_region/build_region"
 
-# 현재 기기에 설치된 펌웨어의 허용 범위.
-# build_date: 빌드 번호 끝의 YYMMDD 날짜와 리전 글자(C=PRC, W=ROW). max 날짜까지 허용합니다.
+# Accepted range of the firmware installed on the device.
+# build_date: the YYMMDD date and region letter (C=PRC, W=ROW) at the end of the build number; accepted up to the max date.
 [installed]
 scheme = "build_date"
 
@@ -33,7 +33,7 @@ suffix = "W"
 max = "2026-09-04"
 label = "2026-09-04 (11.055.260904W)"
 
-# 사용할 TWRP 공식 Release. 사용할 때마다 크기와 SHA-256을 확인합니다.
+# Official TWRP release to use. Its size and SHA-256 are checked on every use.
 [twrp]
 tag = "TWRP-3.7.1_16"
 name = "TWRP-3.7.1_16-TB522FU-landscape.img"
@@ -41,8 +41,8 @@ size = 104857600
 sha256 = "9734a068dbff736e92e2ad1d3aefd96d3ee8e4dcedaf56b5b134dcafbe43f77b"
 url = "https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/download/TWRP-3.7.1_16/TWRP-3.7.1_16-TB522FU-landscape.img"
 
-# 국가코드: oemowninfo 파티션(LUN 0, 1 MiB)의 0xE4부터 32바이트 필드만 바꿉니다.
-# 이 파티션은 작업 전에 원본도 백업합니다.
+# Country code: only the 32-byte field at 0xE4 of the oemowninfo partition (LUN 0, 1 MiB) is changed.
+# The original partition is backed up before any work.
 [country]
 method = "oemowninfo"
 partition = "oemowninfo"
