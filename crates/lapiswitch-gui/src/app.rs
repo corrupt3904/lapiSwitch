@@ -1778,6 +1778,17 @@ impl App {
                     tx,
                 ));
             }
+            "flash-result" => {
+                self.reset_progress(RunKind::Convert);
+                self.backup_path = Some(
+                    r"C:\Users\LAPTOP\AppData\Local\lapiSwitch\backup\firmware_flashing\TB520FU_2026-10-23_120000"
+                        .into(),
+                );
+                self.log_path = Some(
+                    r"C:\Users\LAPTOP\AppData\Local\lapiSwitch\logs\lapiSwitch_2026-10-23_120000.log".into(),
+                );
+                self.event(Event::Finished(Ok(vec![])));
+            }
             "result" => {
                 self.page = Page::Result;
                 self.result = Some(Ok(vec!["DEMO: 화면 검증용 결과입니다.".into()]));
@@ -2521,6 +2532,7 @@ mod tests {
                 "dashboard-dump-only",
                 "dashboard-unsupported",
                 "dump-result",
+                "flash-result",
                 "deviceinfo-editor",
                 "deviceinfo-editor-custom",
                 "deviceinfo-editor-rollback",
