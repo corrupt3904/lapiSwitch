@@ -482,11 +482,15 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 let _ = tx.send(Event::Backup(backup.path().to_owned()));
                 if connection == Connection::Adb {
                     // Already in TWRP: DeviceInfo is read and judged there.
+                    // Detection claimed the ADB interface; release it so the
+                    // TWRP session can open it.
+                    drop(device);
                     let _ = tx.send(Event::Progress(Step::Twrp));
                     let mut recovery = lapiswitch_core::recovery_flow::native::Recovery::wait(
                         &backup, &mut ui, &mut log,
                     )?;
-                    let mut device = NativeWorkflow::disconnected(device);
+                    let mut device =
+                        NativeWorkflow::disconnected(NativeDevice::new(backup.path())?);
                     let mut warnings = lapiswitch_core::recovery_flow::restore::run_from_twrp(
                         &mut device,
                         &mut recovery,
