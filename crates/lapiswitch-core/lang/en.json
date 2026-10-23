@@ -285,7 +285,7 @@
   "core_stage1_model_unconfirmed": "The device model on the EDL active slot was not confirmed as {expected}.",
   "core_stage1_partition_size": "The {partition} partition size differs from the device information ({size} bytes).",
   "core_stage1_vbmeta_unread": "The active slot's vbmeta_system information cannot be read.",
-  "core_stage_error_rollback": "TWRP preparation error: {error}. Trying to restore the original GPT and Recovery. The misc dump is only kept.",
+  "core_stage_error_rollback": "TWRP preparation error: {error}. Trying to restore the original GPT and Recovery. The misc dump is left as is.",
   "core_stage_not_restartable": "TWRP preparation cannot run again in this state.",
   "core_stage_previous_image_differs": "The previously prepared image differs from what was expected.",
   "core_stage_restore_failed": "{error}\nRestoring the original configuration failed: {restore}",

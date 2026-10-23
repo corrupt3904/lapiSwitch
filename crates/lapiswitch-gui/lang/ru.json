@@ -288,7 +288,7 @@
   "settings_check_adb_android_bootloader_drivers_in": "Проверьте драйверы ADB / Android Bootloader в диспетчере устройств Windows. Для режима Userspace устройству 9008 нужен WinUSB, режим Kernel использует последовательный драйвер Qualcomm. После изменения драйвера проверьте состояние снова.",
   "settings_choose_folder": "Выбрать папку",
   "settings_choose_the_driver_mode_used_to": "Выберите режим драйвера для подключения к устройству.",
-  "settings_core_operation_errors_and_some_detailed": "Ошибки основных операций и часть подробных журналов могут отображаться на корейском языке.",
+  "settings_core_operation_errors_and_some_detailed": "Текст ошибок от устройства или Windows может отображаться без перевода.",
   "settings_dark": "Тёмная",
   "settings_default_userspace_winusb": "По умолчанию: Userspace / WinUSB",
   "settings_display_language_of_the_app": "Язык интерфейса приложения",

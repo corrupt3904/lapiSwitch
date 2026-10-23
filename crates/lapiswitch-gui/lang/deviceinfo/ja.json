@@ -13,7 +13,7 @@
   "DeviceInfo format version": "DeviceInfo 形式バージョン",
   "DeviceInfo magic": "DeviceInfo マジック",
   "FDR/FRS-UDS state": "FDR/FRS-UDS 状態",
-  "FRS/UDS cache (device-unique)": "FRS/UDS キャッシュ（端末固有）",
+  "FRS/UDS cache (device-unique)": "FRS/UDS キャッシュ（デバイス固有）",
   "FRS/UDS cache length": "FRS/UDS キャッシュの長さ",
   "Factory boot mode flag": "factory 起動モードフラグ",
   "Fastboot boot mode flag": "fastboot 起動モードフラグ",

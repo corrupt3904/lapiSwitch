@@ -288,7 +288,7 @@
   "settings_check_adb_android_bootloader_drivers_in": "Check ADB / Android Bootloader drivers in Device Manager. Userspace mode requires WinUSB for the 9008 device; Kernel mode uses the Qualcomm serial driver. Recheck after setup.",
   "settings_choose_folder": "Choose folder",
   "settings_choose_the_driver_mode_used_to": "Choose the driver mode used to connect to the device.",
-  "settings_core_operation_errors_and_some_detailed": "Core operation errors and some detailed logs may appear in Korean.",
+  "settings_core_operation_errors_and_some_detailed": "Error text sent by the device or Windows is shown as received and may not be translated.",
   "settings_dark": "Dark",
   "settings_default_userspace_winusb": "Default: Userspace / WinUSB",
   "settings_display_language_of_the_app": "Display language of the app",
