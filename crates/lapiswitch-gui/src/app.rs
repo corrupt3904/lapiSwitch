@@ -1620,7 +1620,8 @@ impl App {
             | "deviceinfo-editor-rollback"
             | "deviceinfo-editor-review"
             | "deviceinfo-editor-notices"
-            | "deviceinfo-editor-custom-notices" => {
+            | "deviceinfo-editor-custom-notices"
+            | "deviceinfo-editor-country" => {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
@@ -1652,11 +1653,13 @@ impl App {
                 }
                 if matches!(
                     screen,
-                    "deviceinfo-editor-notices" | "deviceinfo-editor-custom-notices"
+                    "deviceinfo-editor-notices"
+                        | "deviceinfo-editor-custom-notices"
+                        | "deviceinfo-editor-country"
                 ) {
                     self.editor_update(editor::EditorMessage::Input("region".into(), "ROW".into()));
                     self.demo_pick(Picker::EditorFirmware);
-                    let unlocked = if screen == "deviceinfo-editor-notices" {
+                    let unlocked = if screen != "deviceinfo-editor-custom-notices" {
                         "1"
                     } else {
                         ""
@@ -1665,6 +1668,9 @@ impl App {
                         "is_unlocked".into(),
                         unlocked.into(),
                     ));
+                }
+                if screen == "deviceinfo-editor-country" {
+                    let _ = self.update(Message::CountryOpen);
                 }
                 if screen == "deviceinfo-editor-review" {
                     self.editor_update(editor::EditorMessage::Input("region".into(), "ROW".into()));
@@ -2549,6 +2555,9 @@ mod tests {
                 "deviceinfo-editor-custom",
                 "deviceinfo-editor-rollback",
                 "deviceinfo-editor-review",
+                "deviceinfo-editor-notices",
+                "deviceinfo-editor-custom-notices",
+                "deviceinfo-editor-country",
                 "twrp-wait",
                 "deviceinfo",
                 "new-flash",

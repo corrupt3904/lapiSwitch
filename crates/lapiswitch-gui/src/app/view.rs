@@ -791,9 +791,20 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             .max_width(660),
         )
     } else if let Some(editor) = &app.editor {
-        // The country picker opens over the editor for a region change.
+        // The country picker opens over the editor for a region change; the
+        // editor stays visible behind it.
         Some(if app.country_open {
-            country_view::modal(app)
+            container(stack![
+                container(super::editor::modal(app, editor)).center(Fill),
+                opaque(container(country_view::modal(app)).center(Fill).style(|_| {
+                    container::Style {
+                        background: Some(Background::Color(fluent::p().scrim)),
+                        ..Default::default()
+                    }
+                })),
+            ])
+            .width(Fill)
+            .height(Fill)
         } else {
             super::editor::modal(app, editor)
         })

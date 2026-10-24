@@ -212,6 +212,12 @@ impl App {
         let before_target = firmware_target(editor);
         match message {
             EditorMessage::Input(key, value) => {
+                // The region is typed as the token it is written as.
+                let value = if key == "region" {
+                    value.to_ascii_uppercase()
+                } else {
+                    value
+                };
                 editor.inputs.insert(key, value);
             }
             EditorMessage::Reset(key) => {
@@ -933,6 +939,21 @@ mod tests {
         app.editor_update(EditorMessage::Tab(Tab::Custom));
         app.editor_update(EditorMessage::Input(rollback_key(7), "5".into()));
         assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Custom);
+    }
+
+    #[test]
+    fn the_region_is_typed_in_capitals() {
+        let (mut app, _rx) = open();
+        app.editor_update(EditorMessage::Input("region".into(), "prc".into()));
+        let field = editor(&app)
+            .fields
+            .iter()
+            .find(|f| f.key == "region")
+            .unwrap();
+        assert_eq!(editor(&app).input(field), "PRC");
+        assert!(editor(&app).unchanged("region"));
+        app.editor_update(EditorMessage::Input("region".into(), "row".into()));
+        assert!(editor(&app).region_changed());
     }
 
     #[test]
