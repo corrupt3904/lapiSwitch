@@ -214,6 +214,7 @@
   "editor_search_fields": "필드 검색",
   "editor_some_fields_have_invalid_input": "입력 형식이 맞지 않는 필드가 있습니다.",
   "editor_the_region_field_must_be_prc": "리전 필드는 PRC 또는 ROW여야 합니다.",
+  "editor_this_security_structure_field_can_stop": "보안·구조 필드입니다. 값을 잘못 바꾸면 기기가 부팅되지 않거나 보안 상태가 바뀔 수 있습니다.",
   "err_active_slot_detect_failed": "{timeout}초 이내에 활성 슬롯을 감지하지 못했습니다. {detail} Android나 복구 모드에서 기기를 ADB로 연결하거나 Fastboot 모드로 전환한 뒤 다시 시도하세요.",
   "licenses_close": "닫기",
   "licenses_no_matching_components": "검색 결과가 없습니다.",

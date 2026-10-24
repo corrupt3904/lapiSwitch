@@ -1618,7 +1618,9 @@ impl App {
             "deviceinfo-editor"
             | "deviceinfo-editor-custom"
             | "deviceinfo-editor-rollback"
-            | "deviceinfo-editor-review" => {
+            | "deviceinfo-editor-review"
+            | "deviceinfo-editor-notices"
+            | "deviceinfo-editor-custom-notices" => {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
@@ -1628,7 +1630,10 @@ impl App {
                     .and_then(|device| device.layout())
                     .expect("demo device map");
                 let mut editor = editor::Editor::new(layout, demo_deviceinfo(layout), tx);
-                if screen == "deviceinfo-editor-custom" {
+                if matches!(
+                    screen,
+                    "deviceinfo-editor-custom" | "deviceinfo-editor-custom-notices"
+                ) {
                     editor.tab = editor::Tab::Custom;
                 }
                 self.editor = Some(editor);
@@ -1643,6 +1648,22 @@ impl App {
                     self.editor_update(editor::EditorMessage::Input(
                         "rollback_index[3]".into(),
                         "20".into(),
+                    ));
+                }
+                if matches!(
+                    screen,
+                    "deviceinfo-editor-notices" | "deviceinfo-editor-custom-notices"
+                ) {
+                    self.editor_update(editor::EditorMessage::Input("region".into(), "ROW".into()));
+                    self.demo_pick(Picker::EditorFirmware);
+                    let unlocked = if screen == "deviceinfo-editor-notices" {
+                        "1"
+                    } else {
+                        ""
+                    };
+                    self.editor_update(editor::EditorMessage::Input(
+                        "is_unlocked".into(),
+                        unlocked.into(),
                     ));
                 }
                 if screen == "deviceinfo-editor-review" {

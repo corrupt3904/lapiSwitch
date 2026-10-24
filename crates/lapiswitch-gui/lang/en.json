@@ -214,6 +214,7 @@
   "editor_search_fields": "Search fields",
   "editor_some_fields_have_invalid_input": "Some fields have invalid input.",
   "editor_the_region_field_must_be_prc": "The region field must be PRC or ROW.",
+  "editor_this_security_structure_field_can_stop": "This is a security/structure field. A wrong value can stop the device from booting or change its security state.",
   "err_active_slot_detect_failed": "Could not detect the active slot within {timeout} s. {detail} Connect the device with ADB available in Android or recovery mode, or place it in Fastboot mode, then retry.",
   "licenses_close": "Close",
   "licenses_no_matching_components": "No matching components.",

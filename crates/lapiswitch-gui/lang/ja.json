@@ -214,6 +214,7 @@
   "editor_search_fields": "フィールドを検索",
   "editor_some_fields_have_invalid_input": "入力形式が正しくないフィールドがあります。",
   "editor_the_region_field_must_be_prc": "リージョンフィールドは PRC または ROW である必要があります。",
+  "editor_this_security_structure_field_can_stop": "セキュリティ・構造フィールドです。値を誤ると、デバイスが起動しなくなったり、セキュリティ状態が変わったりする可能性があります。",
   "err_active_slot_detect_failed": "{timeout} 秒以内にアクティブスロットを検出できませんでした。{detail} Android またはリカバリーモードで ADB を使える状態にして接続するか、Fastboot モードに切り替えてから再試行してください。",
   "licenses_close": "閉じる",
   "licenses_no_matching_components": "該当するコンポーネントはありません。",

@@ -214,6 +214,7 @@
   "editor_search_fields": "搜索字段",
   "editor_some_fields_have_invalid_input": "部分字段的输入格式不正确。",
   "editor_the_region_field_must_be_prc": "区域字段必须为 PRC 或 ROW。",
+  "editor_this_security_structure_field_can_stop": "这是安全/结构字段。值错误可能导致设备无法启动，或改变其安全状态。",
   "err_active_slot_detect_failed": "{timeout} 秒内未能检测到活动槽位。{detail} 请在 Android 或恢复模式下通过 ADB 连接设备，或切换到 Fastboot 模式后重试。",
   "licenses_close": "关闭",
   "licenses_no_matching_components": "未找到匹配的组件。",

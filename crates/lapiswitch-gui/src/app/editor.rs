@@ -124,13 +124,18 @@ impl Editor {
             .map(|planned| map::diff(self.layout, &self.before, &planned))
             .unwrap_or_default()
     }
+    /// The region the region field asks for. Only that field counts, so an
+    /// invalid input elsewhere does not hide the region change.
     pub(crate) fn target_region(&self) -> Option<Region> {
-        self.planned()
+        let field = self.fields.iter().find(|f| f.key == "region")?;
+        let edits = map::Edits::from([(field.key.clone(), self.input(field).to_owned())]);
+        map::apply(self.layout, &self.before, &edits)
+            .ok()
             .and_then(|planned| self.layout.region(&planned))
     }
     pub(crate) fn region_changed(&self) -> bool {
-        self.planned()
-            .is_some_and(|planned| self.layout.region(&planned) != self.layout.region(&self.before))
+        self.target_region()
+            .is_some_and(|target| Some(target) != self.layout.region(&self.before))
     }
     /// Security/structure fields changed outside the basic choices.
     pub(crate) fn protected_changed(&self) -> bool {
@@ -415,9 +420,38 @@ fn choice_row<'a>(
             .align_y(Alignment::Center),
             choices,
         ]
-        .spacing(8),
+        .spacing(8)
+        .extend(field_notice(app, editor, field)),
         !unchanged,
     )
+}
+
+/// The notice a changed field shows inside its own box: the region change
+/// with its firmware folder and country code, the lock state warning, or the
+/// security/structure warning of other protected fields.
+fn field_notice<'a>(
+    app: &'a App,
+    editor: &'a Editor,
+    field: &Field,
+) -> Option<Element<'a, Message>> {
+    if editor.unchanged(&field.key) {
+        return None;
+    }
+    if field.key == "region" {
+        region_box(app, editor)
+    } else if LOCK_KEYS.contains(&field.key.as_str()) {
+        Some(note(
+            app.tr("editor_lock_state_values_affect_bootloader_behaviour"),
+            true,
+        ))
+    } else if field.class == Class::Protected && !is_basic(&field.key) {
+        Some(note(
+            app.tr("editor_this_security_structure_field_can_stop"),
+            true,
+        ))
+    } else {
+        None
+    }
 }
 
 /// Changed fields get a red outline so edits stand out.
@@ -562,6 +596,7 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
             short(&editor.original(field))
         )));
     }
+    let content = content.extend(field_notice(app, editor, field));
     container(content)
         .padding(12)
         .width(Fill)
@@ -732,12 +767,6 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
             .push(choice_row(app, editor, LOCK_KEYS[0], &["0", "1"]))
             .push(choice_row(app, editor, LOCK_KEYS[1], &["0", "1"]))
             .push(rollback_row(app, editor));
-        if LOCK_KEYS.iter().any(|key| !editor.unchanged(key)) {
-            list = list.push(note(
-                app.tr("editor_lock_state_values_affect_bootloader_behaviour"),
-                true,
-            ));
-        }
     } else {
         list = list.push(note(
             app.tr("editor_every_field_is_typed_directly_wrong"),
@@ -788,9 +817,6 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
             .height(400),
     ]
     .spacing(14);
-    if let Some(region) = region_box(app, editor) {
-        body = body.push(region);
-    }
     if editor.protected_changed() {
         body = body.push(
             checkbox(editor.protected_ack)
@@ -907,6 +933,27 @@ mod tests {
         app.editor_update(EditorMessage::Tab(Tab::Custom));
         app.editor_update(EditorMessage::Input(rollback_key(7), "5".into()));
         assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Custom);
+    }
+
+    #[test]
+    fn an_invalid_other_field_keeps_the_region_change_and_its_firmware_check() {
+        let (mut app, _rx) = open();
+        app.editor_update(EditorMessage::Input("region".into(), "ROW".into()));
+        app.demo_pick(Picker::EditorFirmware);
+        assert!(editor(&app).firmware_ready());
+        for value in ["", "x"] {
+            app.editor_update(EditorMessage::Input("is_unlocked".into(), value.into()));
+            assert!(editor(&app).region_changed());
+            assert_eq!(editor(&app).target_region(), Some(Region::Row));
+            assert!(editor(&app).firmware_dir.is_some());
+            assert!(editor(&app).firmware_ready());
+            assert_eq!(
+                editor(&app).blocker(&app),
+                Some(app.tr("editor_some_fields_have_invalid_input"))
+            );
+        }
+        app.editor_update(EditorMessage::Input("is_unlocked".into(), "1".into()));
+        assert!(editor(&app).blocker(&app).is_none());
     }
 
     #[test]

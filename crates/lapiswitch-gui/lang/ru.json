@@ -214,6 +214,7 @@
   "editor_search_fields": "Поиск полей",
   "editor_some_fields_have_invalid_input": "В некоторых полях неверный ввод.",
   "editor_the_region_field_must_be_prc": "Поле региона должно быть PRC или ROW.",
+  "editor_this_security_structure_field_can_stop": "Это поле безопасности/структуры. Неверное значение может помешать загрузке устройства или изменить состояние безопасности.",
   "err_active_slot_detect_failed": "Не удалось определить активный слот за {timeout} с. {detail} Подключите устройство с доступным ADB (в Android или режиме восстановления) либо переведите его в режим Fastboot и повторите.",
   "licenses_close": "Закрыть",
   "licenses_no_matching_components": "Подходящие компоненты не найдены.",
