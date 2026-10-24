@@ -1085,7 +1085,7 @@ fn compact_plan_hash_tampering_stops_resume_without_a_second_write() {
     assert!(s.transact().is_err());
     s.state.recovery.attempt.as_mut().unwrap().planned_sha256 = "0".repeat(64);
     s.info.fail_after_apply = false;
-    assert!(s.transact().unwrap_err().contains("write intent"));
+    assert!(s.transact().unwrap_err().contains("write request"));
     assert_eq!(s.info.writes, 1);
 }
 
