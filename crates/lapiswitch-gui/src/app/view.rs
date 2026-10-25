@@ -1501,7 +1501,7 @@ fn loader_row(app: &App) -> Element<'_, Message> {
 /// DeviceInfo parsing: a saved file shown field by field with the map of
 /// its device, read-only.
 fn parse_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
-    use lapiswitch_core::deviceinfo::parse::{self, Source};
+    use lapiswitch_core::deviceinfo::parse::Source;
     let parsed = app.parsed.as_ref();
     let mut rows = vec![path_row(
         app,
@@ -1511,33 +1511,24 @@ fn parse_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         Picker::DeviceInfoFile,
     )];
     if let Some(parsed) = parsed {
-        let current = parsed.view.as_ref().map(|(_, view)| view.layout);
-        let mut models = row![].spacing(8);
-        for layout in parse::layouts() {
-            models = models.push(
-                action(
-                    layout.model(),
-                    Message::ParseModel(layout.model()),
-                    !app.busy(),
-                )
-                .style(if current == Some(layout) {
-                    fluent::accent_style
-                } else {
-                    soft_style
+        // The model is always determined automatically.
+        let model: Element<'_, Message> = match &parsed.view {
+            Some((source, view)) => row![
+                label(view.layout.model()).size(14),
+                small(match source {
+                    Source::Record => app.tr("view_model_from_record"),
+                    Source::Detected => app.tr("view_model_detected"),
                 }),
-            );
-        }
-        let source = match parsed.view.as_ref().map(|(source, _)| *source) {
-            Some(Source::Record) => app.tr("view_model_from_record"),
-            Some(Source::Detected) => app.tr("view_model_detected"),
-            Some(Source::Chosen) => app.tr("view_model_chosen"),
-            None => app.tr("view_model_not_detected"),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .into(),
+            None => label(app.tr("view_not_determined"))
+                .size(14)
+                .color(muted())
+                .into(),
         };
-        rows.push(group_row(
-            app.tr("view_model"),
-            column![models, small(source)].spacing(6).into(),
-            None,
-        ));
+        rows.push(group_row(app.tr("view_model"), model, None));
         rows.push(group_row(
             "SHA-256",
             label(parsed.opened.sha256.clone())
@@ -1554,16 +1545,10 @@ fn parse_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     .spacing(16);
     let mut ready = false;
     if let Some(parsed) = parsed {
-        match &parsed.view {
-            None => content = content.push(note(app.tr("view_model_not_detected"), true)),
-            Some((_, view)) => {
-                ready = true;
-                if !parse::fits(view.layout, &parsed.opened.bytes) {
-                    content = content.push(warning_note(
-                        app.tr("view_this_file_does_not_fit_the_chosen"),
-                    ));
-                }
-            }
+        if parsed.view.is_some() {
+            ready = true;
+        } else {
+            content = content.push(warning_note(app.tr("view_model_not_detected")));
         }
     }
     (
@@ -1581,7 +1566,7 @@ fn parse_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
 }
 /// The fields of the parsed file, read-only, selectable and searchable.
 fn parse_result_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
-    use lapiswitch_core::deviceinfo::parse::{self, Source};
+    use lapiswitch_core::deviceinfo::parse::Source;
     let Some((parsed, (source, view))) = app
         .parsed
         .as_ref()
@@ -1592,7 +1577,6 @@ fn parse_result_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) 
     let source = match source {
         Source::Record => app.tr("view_model_from_record"),
         Source::Detected => app.tr("view_model_detected"),
-        Source::Chosen => app.tr("view_model_chosen"),
     };
     let name = parsed
         .opened
@@ -1609,11 +1593,6 @@ fn parse_result_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) 
         .spacing(4)
     ]
     .spacing(16);
-    if !parse::fits(view.layout, &parsed.opened.bytes) {
-        content = content.push(warning_note(
-            app.tr("view_this_file_does_not_fit_the_chosen"),
-        ));
-    }
     content = content
         .push(
             iced::widget::text_input(app.tr("editor_search_fields"), &view.query)

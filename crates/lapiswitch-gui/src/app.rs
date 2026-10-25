@@ -77,8 +77,6 @@ enum Message {
     Edit,
     Dump,
     Parse,
-    /// Read the parsed file with another device's field map.
-    ParseModel(&'static str),
     /// Show the parsed fields.
     ParseShow,
     Editor(editor::EditorMessage),
@@ -799,7 +797,6 @@ impl App {
                 }
             }
             Message::Editor(message) => self.editor_update(message),
-            Message::ParseModel(model) => self.parse_model(model),
             Message::ParseShow if self.parsed.as_ref().is_some_and(|p| p.view.is_some()) => {
                 self.page = Page::ParseView;
             }
@@ -1936,20 +1933,6 @@ impl App {
             }
         }
     }
-    fn parse_model(&mut self, model: &str) {
-        use lapiswitch_core::deviceinfo::{map::Layout, parse::Source};
-        let (Some(parsed), Some(layout)) = (self.parsed.as_mut(), Layout::find(model)) else {
-            return;
-        };
-        let source = match parsed.opened.layout {
-            Some((found, source)) if found == layout => source,
-            _ => Source::Chosen,
-        };
-        parsed.view = Some((
-            source,
-            editor::Editor::viewer(layout, parsed.opened.bytes.clone()),
-        ));
-    }
 }
 
 /// The demos' DeviceInfo: a real file from `--demo-deviceinfo=PATH` when it
@@ -2145,7 +2128,7 @@ mod tests {
         }
     }
     #[test]
-    fn a_parsed_file_is_detected_and_can_be_read_with_another_model() {
+    fn a_parsed_file_is_detected_and_its_fields_shown_on_confirm() {
         use lapiswitch_core::deviceinfo::parse::Source;
         let mut app = App::base(true);
         app.seed_preview("parse");
@@ -2168,11 +2151,6 @@ mod tests {
         assert_eq!(app.page, Page::ParseView);
         let _ = app.update(Message::Back);
         assert_eq!(app.page, Page::Parse);
-        let _ = app.update(Message::ParseModel("TB522FU"));
-        assert_eq!(view(&app).0, Source::Chosen);
-        assert_eq!(view(&app).1, "TB522FU");
-        let _ = app.update(Message::ParseModel("TB520FU"));
-        assert_eq!(view(&app).0, Source::Detected);
         let _ = app.update(Message::Editor(editor::EditorMessage::Query(
             "region".into(),
         )));

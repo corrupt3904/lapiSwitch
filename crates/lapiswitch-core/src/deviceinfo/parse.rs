@@ -12,8 +12,6 @@ pub enum Source {
     Record,
     /// The only field map whose region and region markers fit the bytes.
     Detected,
-    /// Picked by the user.
-    Chosen,
 }
 
 #[derive(Debug, Clone)]
@@ -60,7 +58,9 @@ pub fn from_bytes(path: &Path, bytes: Vec<u8>) -> Result<Opened, String> {
         ));
     }
     let sha256 = crate::backup::digest_bytes(&bytes);
+    // A record is used only when its map also fits the bytes.
     let layout = recorded(path, &sha256)
+        .filter(|layout| fits(*layout, &bytes))
         .map(|layout| (layout, Source::Record))
         .or_else(|| {
             let fitting: Vec<Layout> = layouts()
