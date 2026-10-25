@@ -9,7 +9,7 @@ pub enum Kind {
     Flag,
     /// Little-endian unsigned integer of 1, 2, 4 or 8 bytes.
     Uint,
-    /// "PRC" or "ROW", NUL padded, 16 bytes.
+    /// "PRC" or "ROW", 3 bytes.
     Region,
     /// Printable ASCII, NUL padded.
     Text,
@@ -19,7 +19,7 @@ pub enum Kind {
     Bytes,
 }
 
-/// Editing tier of a field. Every tier is editable.
+/// Editing tier of a field: how much care a change needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Class {
     Basic,
@@ -36,6 +36,13 @@ pub struct Field {
     pub kind: Kind,
     pub class: Class,
     pub description: &'static str,
+    /// `false` keeps the field as read; the app shows it without an input.
+    pub editable: bool,
+    /// The only values that may be written, as shown (decimal for numbers).
+    /// Empty accepts any value of the kind.
+    pub choices: &'static [&'static str],
+    /// A `uint` shown and entered in decimal only.
+    pub decimal: bool,
 }
 
 /// The logical DeviceInfo structure: fields in offset order, without gaps.

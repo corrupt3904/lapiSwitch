@@ -27,6 +27,7 @@
   "Region record trailer (unidentified)": "Концевая часть записи региона (назначение неизвестно)",
   "Region record version": "Версия записи региона",
   "Region trailer (unidentified)": "Концевая часть данных региона (назначение неизвестно)",
+  "Region zero fill": "Нулевое заполнение после региона",
   "Rollback index": "Индекс отката",
   "Trailing reserved": "Резервная область в конце",
   "User public key": "Пользовательский открытый ключ",

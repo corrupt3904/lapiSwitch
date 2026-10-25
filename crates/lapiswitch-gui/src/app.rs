@@ -1621,7 +1621,8 @@ impl App {
             | "deviceinfo-editor-review"
             | "deviceinfo-editor-notices"
             | "deviceinfo-editor-custom-notices"
-            | "deviceinfo-editor-country" => {
+            | "deviceinfo-editor-country"
+            | "deviceinfo-editor-persistent" => {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
@@ -1630,10 +1631,32 @@ impl App {
                     .supported()
                     .and_then(|device| device.layout())
                     .expect("demo device map");
-                let mut editor = editor::Editor::new(layout, demo_deviceinfo(layout), tx);
+                let mut bytes = demo_deviceinfo(layout);
+                if screen == "deviceinfo-editor-persistent" {
+                    // Sample sets so the summaries show used and unused values.
+                    for (key, value) in [
+                        ("persistent[0].valid", "1"),
+                        ("persistent[0].name_length", "23"),
+                        ("persistent[0].name", "avb.managed_verity_mode"),
+                        ("persistent[0].value_length", "4"),
+                        ("persistent[1].valid", "1"),
+                        ("persistent[1].name_length", "13"),
+                        ("persistent[1].name", "avb.boot_lock"),
+                        ("persistent[1].value_length", "32"),
+                    ] {
+                        if let Ok(field) = layout.field(key)
+                            && let Ok(raw) = lapiswitch_core::deviceinfo::map::encode(&field, value)
+                        {
+                            bytes[field.range()].copy_from_slice(&raw);
+                        }
+                    }
+                }
+                let mut editor = editor::Editor::new(layout, bytes, tx);
                 if matches!(
                     screen,
-                    "deviceinfo-editor-custom" | "deviceinfo-editor-custom-notices"
+                    "deviceinfo-editor-custom"
+                        | "deviceinfo-editor-custom-notices"
+                        | "deviceinfo-editor-persistent"
                 ) {
                     editor.tab = editor::Tab::Custom;
                 }

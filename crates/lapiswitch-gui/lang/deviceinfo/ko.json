@@ -27,6 +27,7 @@
   "Region record trailer (unidentified)": "리전 레코드 끝부분(용도 미확인)",
   "Region record version": "리전 레코드 버전",
   "Region trailer (unidentified)": "리전 데이터 끝부분(용도 미확인)",
+  "Region zero fill": "리전 뒤 0 채움 영역",
   "Rollback index": "롤백 인덱스",
   "Trailing reserved": "끝부분 예약 영역",
   "User public key": "사용자 공개키",

@@ -388,6 +388,36 @@ struct Field {
     kind: &'static str,
     class: &'static str,
     description: String,
+    editable: bool,
+    choices: Vec<String>,
+    decimal: bool,
+}
+
+fn boolean(table: &Table, key: &str, default: bool, place: &str) -> Result<bool> {
+    match table.get(key) {
+        None => Ok(default),
+        Some(item) => item
+            .as_bool()
+            .ok_or_else(|| format!("{place}: `{key}`는 true/false입니다.")),
+    }
+}
+
+fn strings(table: &Table, key: &str, place: &str) -> Result<Vec<String>> {
+    let Some(item) = table.get(key) else {
+        return Ok(vec![]);
+    };
+    let array = item
+        .as_array()
+        .ok_or_else(|| format!("{place}: `{key}`는 문자열 배열입니다."))?;
+    array
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("{place}: `{key}`는 문자열 배열입니다."))
+        })
+        .collect()
 }
 
 fn deviceinfo(doc: &DocumentMut) -> Result<String> {
@@ -420,6 +450,9 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
                 "description",
                 "count",
                 "stride",
+                "editable",
+                "choices",
+                "decimal",
             ],
             &place,
         )?;
@@ -444,7 +477,7 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
         let size_ok = match kind {
             "Kind::Flag" => size == 1,
             "Kind::Uint" => matches!(size, 1 | 2 | 4 | 8),
-            "Kind::Region" => size == 0x10,
+            "Kind::Region" => size == 3,
             "Kind::TextNul" => size >= 2,
             _ => size >= 1,
         };
@@ -452,6 +485,37 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
             return Err(format!("{place}: 이 kind에 맞지 않는 size {size}"));
         }
         let description = string(table, "description", &place)?.to_owned();
+        let editable = boolean(table, "editable", true, &place)?;
+        let decimal = boolean(table, "decimal", false, &place)?;
+        if decimal && kind != "Kind::Uint" {
+            return Err(format!("{place}: `decimal`은 uint에만 씁니다."));
+        }
+        let choices = strings(table, "choices", &place)?;
+        if !choices.is_empty() {
+            if !matches!(kind, "Kind::Flag" | "Kind::Uint") {
+                return Err(format!("{place}: `choices`는 flag·uint에만 씁니다."));
+            }
+            let max = if size == 8 {
+                u64::MAX
+            } else {
+                (1u64 << (size * 8)) - 1
+            };
+            for choice in &choices {
+                let fits = choice
+                    .parse::<u64>()
+                    .is_ok_and(|value| value <= max && value.to_string() == *choice);
+                if !fits || (kind == "Kind::Flag" && !matches!(choice.as_str(), "0" | "1")) {
+                    return Err(format!(
+                        "{place}: `choices`의 `{choice}`가 이 필드에 맞지 않습니다."
+                    ));
+                }
+            }
+            if size > 2 && !decimal {
+                return Err(format!(
+                    "{place}: 2바이트를 넘는 uint의 `choices`는 `decimal = true`와 함께 씁니다."
+                ));
+            }
+        }
         let repeated = table.contains_key("count") || table.contains_key("stride");
         if repeated != key.contains("{n}") {
             return Err(format!(
@@ -474,6 +538,9 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
                 kind,
                 class,
                 description: description.clone(),
+                editable,
+                choices: choices.clone(),
+                decimal,
             });
         }
     }
@@ -513,7 +580,23 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
     }
     require("is_unlocked", "Kind::Uint", Some(1))?;
     require("is_unlock_critical", "Kind::Uint", Some(1))?;
-    require("region", "Kind::Region", None)?;
+    let region = require("region", "Kind::Region", Some(3))?.offset;
+    // The 13 bytes after the region token stay zero and read-only, so a
+    // region is recognized only in its known 16-byte shape.
+    let fill = require("region_fill", "Kind::Bytes", Some(13))?;
+    if fill.offset != region + 3 || fill.editable {
+        return Err(
+            "deviceinfo.toml: `region_fill`은 region 바로 뒤 13바이트이고 editable = false여야 합니다."
+                .into(),
+        );
+    }
+    for key in ["magic", "region_magic_1", "region_magic_2"] {
+        if find(key).is_some_and(|field| field.editable) {
+            return Err(format!(
+                "deviceinfo.toml: `{key}`는 editable = false여야 합니다."
+            ));
+        }
+    }
     let start = require("rollback_index[0]", "Kind::Uint", Some(8))?.offset;
     for n in 0..ROLLBACK_COUNT {
         if require(&format!("rollback_index[{n}]"), "Kind::Uint", Some(8))?.offset
@@ -528,8 +611,8 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
     for f in &fields {
         writeln!(
             code,
-            "            Field {{ key: {:?}, offset: {}, size: {}, kind: {}, class: {}, description: {:?} }},",
-            f.key, f.offset, f.size, f.kind, f.class, f.description
+            "            Field {{ key: {:?}, offset: {}, size: {}, kind: {}, class: {}, description: {:?}, editable: {}, choices: &{:?}, decimal: {} }},",
+            f.key, f.offset, f.size, f.kind, f.class, f.description, f.editable, f.choices, f.decimal
         )
         .unwrap();
     }

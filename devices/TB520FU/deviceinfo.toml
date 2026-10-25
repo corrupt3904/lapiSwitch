@@ -16,6 +16,7 @@ size = 0x0D
 kind = "text"
 class = "protected"
 description = "DeviceInfo magic"
+editable = false
 
 [[field]]
 key = "is_unlocked"
@@ -24,6 +25,7 @@ size = 1
 kind = "uint"
 class = "protected"
 description = "Bootloader unlock state"
+choices = ["0", "1"]
 
 [[field]]
 key = "is_unlock_critical"
@@ -32,6 +34,7 @@ size = 1
 kind = "uint"
 class = "protected"
 description = "Critical unlock state"
+choices = ["0", "1"]
 
 [[field]]
 key = "charger_screen_enabled"
@@ -40,6 +43,7 @@ size = 1
 kind = "flag"
 class = "basic"
 description = "Charger screen enabled"
+choices = ["0", "1"]
 
 [[field]]
 key = "bootloader_version"
@@ -64,6 +68,7 @@ size = 1
 kind = "uint"
 class = "protected"
 description = "Verity mode"
+choices = ["0", "1", "2", "3"]
 
 [[field]]
 key = "reserved_0091"
@@ -98,6 +103,7 @@ stride = 8
 kind = "uint"
 class = "basic"
 description = "Rollback index"
+decimal = true
 
 [[field]]
 key = "persistent[{n}].valid"
@@ -108,6 +114,7 @@ stride = 0x5E
 kind = "uint"
 class = "protected"
 description = "AVB persistent value in use"
+choices = ["0", "1"]
 
 [[field]]
 key = "persistent[{n}].name_length"
@@ -204,6 +211,7 @@ size = 8
 kind = "text"
 class = "protected"
 description = "Region record magic 1"
+editable = false
 
 [[field]]
 key = "oem_reserved_1"
@@ -216,10 +224,19 @@ description = "OEM reserved (unidentified)"
 [[field]]
 key = "region"
 offset = 0x0D10
-size = 0x10
+size = 3
 kind = "region"
 class = "basic"
 description = "Region"
+
+[[field]]
+key = "region_fill"
+offset = 0x0D13
+size = 13
+kind = "bytes"
+class = "protected"
+description = "Region zero fill"
+editable = false
 
 [[field]]
 key = "region_magic_2"
@@ -228,6 +245,7 @@ size = 8
 kind = "text"
 class = "protected"
 description = "Region record magic 2"
+editable = false
 
 [[field]]
 key = "region_padding"
@@ -252,6 +270,7 @@ size = 1
 kind = "uint"
 class = "advanced"
 description = "Fastboot boot mode flag"
+choices = ["0", "1"]
 
 [[field]]
 key = "recovery_mode"
@@ -260,6 +279,7 @@ size = 1
 kind = "uint"
 class = "advanced"
 description = "Recovery boot mode flag"
+choices = ["0", "1"]
 
 [[field]]
 key = "factory_mode"
@@ -268,6 +288,7 @@ size = 1
 kind = "uint"
 class = "advanced"
 description = "Factory boot mode flag"
+choices = ["0", "1"]
 
 [[field]]
 key = "reserved_end"

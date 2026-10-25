@@ -27,6 +27,7 @@
   "Region record trailer (unidentified)": "区域记录尾部（用途未确认）",
   "Region record version": "区域记录版本",
   "Region trailer (unidentified)": "区域数据尾部（用途未确认）",
+  "Region zero fill": "区域后的零填充",
   "Rollback index": "回滚索引",
   "Trailing reserved": "尾部保留区域",
   "User public key": "用户公钥",

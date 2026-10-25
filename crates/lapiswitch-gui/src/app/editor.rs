@@ -45,6 +45,8 @@ pub(crate) enum EditorMessage {
     Query(String),
     Review(bool),
     Ack(bool),
+    /// Opens or closes one persistent value set on the custom tab.
+    Persistent(usize),
     Apply,
     Cancel,
 }
@@ -67,6 +69,8 @@ pub(crate) struct Editor {
     /// Country code applied after a region change installs firmware;
     /// `None` (the default) keeps the current code.
     pub(crate) country: Option<String>,
+    /// Persistent value sets shown open on the custom tab.
+    pub(crate) persistent_open: std::collections::BTreeSet<usize>,
     reply: Option<Sender<Option<EditRequest>>>,
 }
 
@@ -91,6 +95,7 @@ impl Editor {
             firmware: None,
             checking: false,
             country: None,
+            persistent_open: Default::default(),
             reply: Some(reply),
         }
     }
@@ -261,6 +266,11 @@ impl App {
                 return;
             }
             EditorMessage::Ack(ack) => editor.protected_ack = ack,
+            EditorMessage::Persistent(n) => {
+                if !editor.persistent_open.remove(&n) {
+                    editor.persistent_open.insert(n);
+                }
+            }
             EditorMessage::Apply => {
                 if editor.review && ready {
                     let request = editor.request();
@@ -369,66 +379,104 @@ fn choice<'a>(text: String, selected: bool, message: EditorMessage) -> Element<'
     .into()
 }
 
-/// A basic-tab field: its current value and fixed options. A value set on
-/// the custom tab that is none of the options is shown as such.
+/// The values a field may be set to by button; empty for a typed field.
+fn options(field: &Field) -> &'static [&'static str] {
+    if field.kind == Kind::Region {
+        &["PRC", "ROW"]
+    } else {
+        field.choices
+    }
+}
+
+/// A basic-tab field by key.
+fn basic_choice<'a>(app: &'a App, editor: &'a Editor, key: &str) -> Element<'a, Message> {
+    match editor.fields.iter().find(|f| f.key == key) {
+        Some(field) => choice_row(app, editor, field, true),
+        None => space().into(),
+    }
+}
+
+/// A field set by buttons: its current value and the other options. A read
+/// value that is none of the options can only be kept.
 fn choice_row<'a>(
     app: &'a App,
     editor: &'a Editor,
-    key: &'static str,
-    options: &[&'static str],
+    field: &'a Field,
+    basic: bool,
 ) -> Element<'a, Message> {
-    let Some(field) = editor.fields.iter().find(|f| f.key == key) else {
-        return space().into();
-    };
+    let options = options(field);
     let original = editor.original(field);
-    let value = editor.input(field).trim().to_ascii_uppercase();
-    let unchanged = editor.unchanged(key);
+    let value = editor.input(field).trim();
+    let unchanged = editor.unchanged(&field.key);
+    let locked = if field.kind == Kind::Region {
+        editor.layout.region(&editor.before).is_none()
+    } else {
+        !options.contains(&original.as_str())
+    };
     let mut choices = row![choice(
         format!("{} ({})", app.tr("editor_current"), short(&original)),
         unchanged,
-        EditorMessage::Reset(key.into()),
+        EditorMessage::Reset(field.key.clone()),
     )]
     .spacing(8)
     .align_y(Alignment::Center);
-    // An option equal to the current value would duplicate "Current".
-    for option in options
-        .iter()
-        .filter(|option| !original.eq_ignore_ascii_case(option))
-    {
-        choices = choices.push(choice(
-            (*option).into(),
-            !unchanged && value == *option,
-            EditorMessage::Input(key.into(), (*option).into()),
-        ));
+    if !locked {
+        // An option equal to the current value would duplicate "Current".
+        for option in options.iter().filter(|option| original != **option) {
+            choices = choices.push(choice(
+                (*option).into(),
+                !unchanged && value == *option,
+                EditorMessage::Input(field.key.clone(), (*option).into()),
+            ));
+        }
     }
-    if !unchanged && !options.contains(&value.as_str()) {
-        choices = choices.push(small(format!(
-            "{}: {}",
-            app.tr("editor_custom_value"),
-            short(editor.input(field))
-        )));
+    let description = app
+        .preferences
+        .language
+        .field_description(field.description);
+    let place = format!("0x{:04X} · {}B", field.offset, field.size);
+    let head = if basic {
+        row![
+            label(description).size(15),
+            small(format!("{} · {place}", field.key)),
+        ]
+    } else {
+        row![
+            label(field.key.clone()).size(15),
+            small(place),
+            small(description),
+        ]
     }
+    .spacing(10)
+    .align_y(Alignment::Center);
+    let mut content = column![head, choices].spacing(8);
+    if locked {
+        content = content.push(small(app.tr("editor_the_read_value_is_not_one_of")));
+    }
+    basic_box(content.extend(field_notice(app, editor, field)), !unchanged)
+}
+
+/// A read-only field: its value without an input.
+fn read_only_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<'a, Message> {
     basic_box(
         column![
             row![
-                label(
+                label(field.key.clone()).size(15),
+                small(format!("0x{:04X} · {}B", field.offset, field.size)),
+                small(
                     app.preferences
                         .language
                         .field_description(field.description)
-                )
-                .size(15),
-                small(format!(
-                    "{} · 0x{:04X} · {}B",
-                    field.key, field.offset, field.size
-                )),
+                ),
+                space().width(Fill),
+                small(app.tr("editor_read_only")),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
-            choices,
+            label(short(&editor.original(field))).size(14),
         ]
-        .spacing(8)
-        .extend(field_notice(app, editor, field)),
-        !unchanged,
+        .spacing(6),
+        false,
     )
 }
 
@@ -535,6 +583,9 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
 fn kind_hint(app: &App, field: &Field) -> String {
     match field.kind {
         Kind::Flag => app.tr("editor_0_or_1").into(),
+        Kind::Uint if field.decimal => app
+            .tr("editor_bytes_byte_integer_decimal")
+            .replace("{bytes}", &field.size.to_string()),
         Kind::Uint => app
             .tr("editor_bytes_byte_integer_decimal_or_0x")
             .replace("{bytes}", &field.size.to_string()),
@@ -563,6 +614,12 @@ fn short(value: &str) -> String {
 }
 
 fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<'a, Message> {
+    if !field.editable {
+        return read_only_row(app, editor, field);
+    }
+    if !options(field).is_empty() {
+        return choice_row(app, editor, field, false);
+    }
     let value = editor.input(field);
     let changed = value.trim() != editor.original(field);
     let mut head = row![
@@ -612,6 +669,108 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
             ..Default::default()
         })
         .into()
+}
+
+/// The set number of a `persistent[n].…` key.
+fn persistent_index(key: &str) -> Option<usize> {
+    key.strip_prefix("persistent[")?
+        .split_once(']')?
+        .0
+        .parse()
+        .ok()
+}
+
+/// The 8 persistent value sets as one box: a summary line per set that
+/// opens its 5 fields.
+fn persistent_box<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
+    let sets: Vec<usize> = editor
+        .fields
+        .iter()
+        .filter_map(|f| persistent_index(&f.key))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let set_fields = |n: usize| {
+        editor
+            .fields
+            .iter()
+            .filter(move |f| persistent_index(&f.key) == Some(n))
+    };
+    let changed_in = |n: usize| set_fields(n).filter(|f| !editor.unchanged(&f.key)).count();
+    let changed: usize = sets.iter().map(|n| changed_in(*n)).sum();
+    let value = |n: usize, part: &str| {
+        editor
+            .fields
+            .iter()
+            .find(|f| f.key == format!("persistent[{n}].{part}"))
+            .map(|f| editor.input(f).to_owned())
+            .unwrap_or_default()
+    };
+    let mut title = app
+        .tr("editor_avb_persistent_values_count")
+        .replace("{count}", &sets.len().to_string());
+    if changed > 0 {
+        title.push(' ');
+        title.push_str(
+            &app.tr("editor_count_changed")
+                .replace("{count}", &changed.to_string()),
+        );
+    }
+    let mut content = column![
+        row![
+            label(title).size(15),
+            small(format!("persistent[0..{}]", sets.len().saturating_sub(1))),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+    ]
+    .spacing(8);
+    for n in sets {
+        let open = editor.persistent_open.contains(&n) || changed_in(n) > 0;
+        let used = value(n, "valid") != "0";
+        let name = value(n, "name");
+        let summary = format!(
+            "{}  {}",
+            if open { "▾" } else { "▸" },
+            app.tr("editor_persistent_summary")
+                .replace("{n}", &n.to_string())
+                .replace(
+                    "{state}",
+                    if used {
+                        app.tr("editor_in_use")
+                    } else {
+                        app.tr("editor_not_in_use")
+                    }
+                )
+                .replace(
+                    "{name}",
+                    &if name.is_empty() {
+                        app.tr("editor_none").to_owned()
+                    } else {
+                        format!("\"{}\"", short(&name))
+                    }
+                )
+                .replace("{size}", &value(n, "value_length")),
+        );
+        content = content.push(
+            button(label(summary).size(14).color(ink()))
+                .padding([8, 12])
+                .width(Fill)
+                .style(soft_style)
+                .on_press(Message::Editor(EditorMessage::Persistent(n))),
+        );
+        if open {
+            let mut fields = column![].spacing(8).padding([0, 0]);
+            for field in set_fields(n) {
+                fields = fields.push(field_row(app, editor, field));
+            }
+            content = content.push(container(fields).padding(iced::Padding {
+                left: 20.0,
+                ..Default::default()
+            }));
+        }
+    }
+    basic_box(content, changed > 0)
 }
 
 fn region_box<'a>(app: &'a App, editor: &'a Editor) -> Option<Element<'a, Message>> {
@@ -769,9 +928,9 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
     let mut list = column![].spacing(8);
     if editor.tab == Tab::Basic {
         list = list
-            .push(choice_row(app, editor, "region", &["PRC", "ROW"]))
-            .push(choice_row(app, editor, LOCK_KEYS[0], &["0", "1"]))
-            .push(choice_row(app, editor, LOCK_KEYS[1], &["0", "1"]))
+            .push(basic_choice(app, editor, "region"))
+            .push(basic_choice(app, editor, LOCK_KEYS[0]))
+            .push(basic_choice(app, editor, LOCK_KEYS[1]))
             .push(rollback_row(app, editor));
     } else {
         list = list.push(note(
@@ -781,6 +940,11 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
         // The key, the English description and the shown translation all match.
         let query = editor.query.trim().to_lowercase();
         let language = app.preferences.language;
+        // Without a search the rollback indices and the persistent value sets
+        // are one grouped box each.
+        let grouped = query.is_empty();
+        let mut rollback_shown = false;
+        let mut persistent_shown = false;
         for field in editor.fields.iter().filter(|field| {
             query.is_empty()
                 || field.key.to_lowercase().contains(&query)
@@ -790,6 +954,20 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
                     .to_lowercase()
                     .contains(&query)
         }) {
+            if grouped && field.key.starts_with("rollback_index[") {
+                if !rollback_shown {
+                    rollback_shown = true;
+                    list = list.push(rollback_row(app, editor));
+                }
+                continue;
+            }
+            if grouped && persistent_index(&field.key).is_some() {
+                if !persistent_shown {
+                    persistent_shown = true;
+                    list = list.push(persistent_box(app, editor));
+                }
+                continue;
+            }
             list = list.push(field_row(app, editor, field));
         }
     }

@@ -27,6 +27,7 @@
   "Region record trailer (unidentified)": "リージョンレコードの末尾（用途未確認）",
   "Region record version": "リージョンレコードのバージョン",
   "Region trailer (unidentified)": "リージョンデータの末尾（用途未確認）",
+  "Region zero fill": "リージョン後のゼロ埋め領域",
   "Rollback index": "ロールバックインデックス",
   "Trailing reserved": "末尾の予約領域",
   "User public key": "ユーザー公開鍵",

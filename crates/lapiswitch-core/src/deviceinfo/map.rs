@@ -32,7 +32,7 @@ pub enum Kind {
     Flag,
     /// Little-endian unsigned integer of the field's size (1, 2, 4 or 8).
     Uint,
-    /// "PRC" or "ROW", NUL padded.
+    /// "PRC" or "ROW", 3 bytes. No `hex:` input.
     Region,
     /// Printable ASCII, NUL padded. With `nul`, one terminating NUL is kept.
     Text { nul: bool },
@@ -40,7 +40,7 @@ pub enum Kind {
     Bytes,
 }
 
-/// Editing tier of a field. Every tier is editable.
+/// Editing tier of a field: how much care a change needs.
 pub use lapiswitch_devices::Class;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +52,13 @@ pub struct Field {
     pub class: Class,
     /// English meaning from the structure map; the app translates it.
     pub description: &'static str,
+    /// `false`: a plan never changes these bytes.
+    pub editable: bool,
+    /// The only values a plan may write, as `display` shows them; empty
+    /// accepts any value of the kind.
+    pub choices: &'static [&'static str],
+    /// A `uint` shown and entered in decimal only.
+    pub decimal: bool,
 }
 
 impl Field {
@@ -116,6 +123,9 @@ impl Layout {
                 },
                 class: field.class,
                 description: field.description,
+                editable: field.editable,
+                choices: field.choices,
+                decimal: field.decimal,
             })
             .collect()
     }
@@ -135,10 +145,17 @@ impl Layout {
         Ok(())
     }
 
-    /// PRC/ROW when the region field holds one of them, NUL padded.
+    /// PRC/ROW when the 3-byte region field holds one of them and the 13
+    /// bytes of `region_fill` after it are all zero.
     pub fn region(self, bytes: &[u8]) -> Option<Region> {
-        let field = &bytes.get(self.region_offset()..self.region_offset() + 0x10)?;
-        decode_region(field)
+        let start = self.region_offset();
+        let fill = self.offset("region_fill");
+        let region = decode_region(bytes.get(start..start + 3)?)?;
+        bytes
+            .get(fill..fill + 13)?
+            .iter()
+            .all(|b| *b == 0)
+            .then_some(region)
     }
 
     pub fn rollback_indices(self, bytes: &[u8]) -> [u64; ROLLBACK_COUNT] {
@@ -173,7 +190,7 @@ const HEX_PREFIX: &str = "hex:";
 pub fn display(field: &Field, bytes: &[u8]) -> String {
     let value = &bytes[field.range()];
     match field.kind {
-        Kind::Flag | Kind::Uint if field.size <= 2 => {
+        Kind::Flag | Kind::Uint if field.size <= 2 || field.decimal => {
             let mut raw = [0u8; 8];
             raw[..field.size].copy_from_slice(value);
             let number = u64::from_le_bytes(raw);
@@ -221,17 +238,20 @@ fn parse_hex(text: &str, size: usize) -> Result<Vec<u8>, String> {
         .collect())
 }
 
-fn parse_uint(text: &str, size: usize) -> Result<u64, String> {
-    let max = if size == 8 {
-        u64::MAX
-    } else {
-        (1u64 << (size * 8)) - 1
-    };
+fn parse_uint(text: &str, size: usize, decimal: bool) -> Result<u64, String> {
+    let max = uint_max(size);
     let value = match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        Some(_) if decimal => return Err(crate::msg!("core_map_uint_decimal", max = max)),
         Some(digits) => u64::from_str_radix(digits, 16),
         None => text.parse::<u64>(),
     }
-    .map_err(|_| crate::msg!("core_map_uint_range", max = max))?;
+    .map_err(|_| {
+        if decimal {
+            crate::msg!("core_map_uint_decimal", max = max)
+        } else {
+            crate::msg!("core_map_uint_range", max = max)
+        }
+    })?;
     if value > max {
         return Err(crate::msg!(
             "core_map_uint_too_large",
@@ -243,11 +263,23 @@ fn parse_uint(text: &str, size: usize) -> Result<u64, String> {
 }
 
 /// Exactly `field.size` bytes for a user's input, or why it does not fit.
-/// `hex:` followed by exactly `size` bytes is accepted for every field.
+/// `hex:` (any case) followed by exactly `size` bytes is accepted for every
+/// field except the region and decimal integers.
 pub fn encode(field: &Field, input: &str) -> Result<Vec<u8>, String> {
     let text = input.trim();
-    if let Some(raw) = text.strip_prefix(HEX_PREFIX) {
-        return parse_hex(raw, field.size);
+    if let Some(raw) = text
+        .get(..HEX_PREFIX.len())
+        .filter(|prefix| prefix.eq_ignore_ascii_case(HEX_PREFIX))
+        .map(|_| &text[HEX_PREFIX.len()..])
+    {
+        return match field.kind {
+            Kind::Region => Err(crate::msg!("core_map_region")),
+            Kind::Uint if field.decimal => Err(crate::msg!(
+                "core_map_uint_decimal",
+                max = uint_max(field.size)
+            )),
+            _ => parse_hex(raw, field.size),
+        };
     }
     let mut out = vec![0u8; field.size];
     match field.kind {
@@ -256,7 +288,7 @@ pub fn encode(field: &Field, input: &str) -> Result<Vec<u8>, String> {
             _ => return Err(crate::msg!("core_map_flag")),
         },
         Kind::Uint => {
-            let value = parse_uint(text, field.size)?;
+            let value = parse_uint(text, field.size, field.decimal)?;
             out.copy_from_slice(&value.to_le_bytes()[..field.size]);
         }
         Kind::Region => {
@@ -299,8 +331,9 @@ pub fn apply(layout: Layout, before: &[u8], edits: &Edits) -> Result<Vec<u8>, St
     Ok(planned)
 }
 
-/// The only structural rule for any plan: same length and an unchanged
-/// shared-buffer tail. Field values are the user's choice.
+/// The structural rules for any plan: same length, an unchanged
+/// shared-buffer tail, read-only fields kept and choice fields changed only
+/// to one of their choices. Other values are the user's choice.
 pub fn check_plan(layout: Layout, before: &[u8], planned: &[u8]) -> Result<(), String> {
     layout.check_buffer(before)?;
     let logical = layout.logical_size();
@@ -310,7 +343,31 @@ pub fn check_plan(layout: Layout, before: &[u8], planned: &[u8]) -> Result<(), S
             logical = format!("{:X}", logical)
         ));
     }
+    for field in layout.fields() {
+        if before[field.range()] == planned[field.range()] {
+            continue;
+        }
+        if !field.editable {
+            return Err(crate::msg!("core_map_read_only", key = field.key));
+        }
+        if !field.choices.is_empty() && !field.choices.contains(&display(&field, planned).as_str())
+        {
+            return Err(crate::msg!(
+                "core_map_choice",
+                key = field.key,
+                choices = field.choices.join(", ")
+            ));
+        }
+    }
     Ok(())
+}
+
+fn uint_max(size: usize) -> u64 {
+    if size == 8 {
+        u64::MAX
+    } else {
+        (1u64 << (size * 8)) - 1
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -428,7 +485,7 @@ mod tests {
         assert!(encode(&f("is_unlocked"), "256").is_err());
         assert!(encode(&f("persistent[0].valid"), "65536").is_err());
         assert_eq!(
-            encode(&f("rollback_index[2]"), "0x6A727D00").unwrap(),
+            encode(&f("rollback_index[2]"), "1785888000").unwrap(),
             0x6A727D00u64.to_le_bytes()
         );
         assert_eq!(
@@ -507,6 +564,44 @@ mod tests {
         let mut no_magic = b.clone();
         no_magic[0] = b'X';
         assert!(apply(tb520(), &no_magic, &Edits::new()).is_err());
+    }
+
+    #[test]
+    fn read_only_fields_choices_and_decimal_rollbacks_are_enforced() {
+        for layout in [tb520(), tb522()] {
+            let before = sample(layout);
+            let f = |key: &str| layout.field(key).unwrap();
+            // Rollback indices are decimal only; the region takes no hex.
+            assert_eq!(display(&f("rollback_index[1]"), &before), "1");
+            assert!(encode(&f("rollback_index[1]"), "0x10").is_err());
+            assert!(encode(&f("rollback_index[1]"), &format!("hex:{}", "00".repeat(8))).is_err());
+            assert_eq!(
+                encode(&f("rollback_index[1]"), "16").unwrap(),
+                16u64.to_le_bytes()
+            );
+            assert!(encode(&f("region"), "hex:524F57").is_err());
+            assert_eq!(encode(&f("region"), "row").unwrap(), b"ROW");
+            let changed = |key: &str, byte: u8| {
+                let mut planned = before.clone();
+                planned[f(key).offset] = byte;
+                check_plan(layout, &before, &planned)
+            };
+            for key in ["magic", "region_magic_1", "region_magic_2", "region_fill"] {
+                assert!(changed(key, b'X').is_err(), "{layout:?} {key}");
+            }
+            assert!(changed("verity_mode", 3).is_ok());
+            assert!(changed("verity_mode", 4).is_err());
+            assert!(changed("fastboot_mode", 1).is_ok());
+            assert!(changed("fastboot_mode", 2).is_err());
+            assert!(changed("persistent[0].valid", 2).is_err());
+            // A non-zero byte after the region token is not a region.
+            let mut odd = before.clone();
+            odd[f("region_fill").offset + 5] = 1;
+            assert_eq!(layout.region(&odd), None);
+        }
+        for key in ["region_info_version", "deviceinfo_format_version"] {
+            assert!(!tb522().field(key).unwrap().editable, "{key}");
+        }
     }
 
     #[test]

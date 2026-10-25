@@ -47,14 +47,20 @@ devices/
 2. 덤프부터 하려면 `deviceinfo_read = true`, `deviceinfo_write = false`로 두고 `deviceinfo.toml` 없이 시작할 수 있습니다. 필드 맵만 먼저 넣을 때는 둘 다 `false`로 두고 `[firmware]` 등은 넣지 않습니다.
 3. 빌드하면 다음을 자동으로 검사합니다.
    - 필드가 0부터 `logical_size`까지 빈틈·겹침 없이 덮는지, 중복 key가 없는지
-   - 필수 필드(`magic`, `is_unlocked`, `is_unlock_critical`, `region`, `rollback_index[0..31]`)와 형식별 크기
+   - 필수 필드(`magic`, `is_unlocked`, `is_unlock_critical`, `region`, `region_fill`, `rollback_index[0..31]`)와 형식별 크기
+   - `region`은 3바이트(`PRC`/`ROW`)이고, 바로 뒤 13바이트는 `region_fill`(`editable = false`)이어야 합니다. 이 13바이트가 모두 0일 때만 리전으로 인정합니다.
+   - `magic`, `region_magic_1`, `region_magic_2`는 `editable = false`여야 합니다.
    - `deviceinfo_read = true`이면 `codename`, `[firmware]`, `[installed]`, `[twrp]`, `[country]`가 모두 있는지, 알 수 없는 항목이나 값이 없는지
    - `deviceinfo_write = true`이면 `deviceinfo_read = true`이고 `deviceinfo.toml`이 있는지
-4. `deviceinfo.toml`의 `description`은 영어로 씁니다. 화면에 보일 번역은
+4. 필드에는 다음 항목을 더 둘 수 있습니다.
+   - `editable = false`: 수정 불가. 편집 창은 값만 보여 주고, 어떤 작업도 이 바이트를 바꾸지 않습니다.
+   - `choices = ["0", "1"]`: 버튼으로 고를 수 있는 값(`flag`·`uint`). 이 값으로만 바꿀 수 있고, 기기 값이 목록에 없으면 현재 값을 유지만 할 수 있습니다.
+   - `decimal = true`: `uint`를 10진수로만 표시·입력합니다(`0x`·`hex:` 입력 불가).
+5. `deviceinfo.toml`의 `description`은 영어로 씁니다. 화면에 보일 번역은
    `crates/lapiswitch-gui/lang/deviceinfo/`의 `ko.json`·`zh.json`·`ja.json`·`ru.json`에 영어 설명을 키로 추가합니다.
    번역이 없으면 영어로 표시되며, 테스트가 빠진 번역과 쓰지 않는 번역을 알려 줍니다.
-5. TWRP Release의 라이선스 고지를 `crates/lapiswitch-gui/assets/licenses.json`에 추가합니다. 테스트가 모든 기기의 TWRP 고지를 확인합니다.
-6. 실제 덤프가 있으면 `LAPISWITCH_DEVICEINFO_<모델명>` 환경 변수에 경로를 지정하고
+6. TWRP Release의 라이선스 고지를 `crates/lapiswitch-gui/assets/licenses.json`에 추가합니다. 테스트가 모든 기기의 TWRP 고지를 확인합니다.
+7. 실제 덤프가 있으면 `LAPISWITCH_DEVICEINFO_<모델명>` 환경 변수에 경로를 지정하고
    `cargo test -p lapiswitch-core -- --ignored real_dump`로 필드 맵을 덤프와 맞춰 볼 수 있습니다.
 
 실제 DeviceInfo 덤프와 기기 고유 값(FRS/UDS 캐시 등)은 이 폴더에 넣지 마세요.

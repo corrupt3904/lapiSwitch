@@ -2258,13 +2258,13 @@ fn closing_the_editor_cancels_before_any_plan_or_write() {
 #[test]
 fn an_edit_interrupted_after_its_plan_resumes_with_the_recorded_values() {
     let mut s = Setup::edit(Slot::B);
-    s.edit = Some(edit_request(&[("rollback_index[1]", "0x10")], None));
+    s.edit = Some(edit_request(&[("rollback_index[1]", "16")], None));
     s.info.fail_prepare = true;
     assert!(s.transact().is_err());
     assert_eq!(phase(&s), Phase::Planned);
     // A different answer now must not replace the durable plan.
     s.info.fail_prepare = false;
-    s.edit = Some(edit_request(&[("rollback_index[1]", "0x20")], None));
+    s.edit = Some(edit_request(&[("rollback_index[1]", "32")], None));
     s.transact().unwrap();
     assert_eq!(s.edits_shown, 1);
     assert_eq!(s.info.writes, 1);
