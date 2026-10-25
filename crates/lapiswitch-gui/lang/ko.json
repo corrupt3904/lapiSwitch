@@ -179,6 +179,7 @@
   "driver_kernel_unsupported_desc": "커널 드라이버 자동 설치는 데비안 계열 리눅스에서만 지원됩니다. 유저스페이스 모드를 사용하거나 수동으로 설치하세요.",
   "editor_0_or_1": "0 또는 1",
   "editor_32_rollback_indices": "롤백 인덱스 32개",
+  "editor_advanced": "고급",
   "editor_apply": "적용",
   "editor_applying_writes_and_verifies_deviceinfo_restores": "적용하면 DeviceInfo를 쓰고 검증한 뒤 원본 GPT·Recovery를 복구하고 공식 펌웨어를 설치합니다. 사용자 데이터는 모두 삭제됩니다.",
   "editor_applying_writes_and_verifies_deviceinfo_restores_2": "적용하면 DeviceInfo를 쓰고 검증한 뒤 원본 GPT·Recovery를 복구하고 재부팅합니다. 펌웨어는 설치하지 않으며 사용자 데이터는 유지됩니다.",

@@ -1729,7 +1729,7 @@ impl App {
                         | "deviceinfo-editor-persistent"
                         | "deviceinfo-editor-long"
                 ) {
-                    editor.tab = editor::Tab::Custom;
+                    editor.tab = editor::Tab::Advanced;
                 }
                 self.editor = Some(editor);
                 if screen == "deviceinfo-editor-rollback" {

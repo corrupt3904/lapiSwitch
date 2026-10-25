@@ -179,6 +179,7 @@
   "driver_kernel_unsupported_desc": "カーネルドライバーの自動インストールは Debian 系 Linux でのみ対応しています。Userspace モードを使うか、手動でインストールしてください。",
   "editor_0_or_1": "0 または 1",
   "editor_32_rollback_indices": "ロールバックインデックス 32 個",
+  "editor_advanced": "詳細",
   "editor_apply": "適用",
   "editor_applying_writes_and_verifies_deviceinfo_restores": "変更を適用すると、DeviceInfo の書き込みと検証、元の GPT/Recovery の復元を行い、公式ファームウェアをインストールします。ユーザーデータは消去されます。",
   "editor_applying_writes_and_verifies_deviceinfo_restores_2": "変更を適用すると、DeviceInfo の書き込みと検証、元の GPT/Recovery の復元を行い、デバイスを再起動します。ファームウェアはインストールせず、ユーザーデータも消去しません。",

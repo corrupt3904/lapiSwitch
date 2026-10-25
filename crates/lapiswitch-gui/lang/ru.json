@@ -179,6 +179,7 @@
   "driver_kernel_unsupported_desc": "Автоматическая установка драйвера ядра поддерживается только в Linux на базе Debian. Используйте режим Userspace или установите драйвер вручную.",
   "editor_0_or_1": "0 или 1",
   "editor_32_rollback_indices": "32 индекса отката",
+  "editor_advanced": "Расширенные",
   "editor_apply": "Применить",
   "editor_applying_writes_and_verifies_deviceinfo_restores": "После применения изменений приложение запишет и проверит DeviceInfo, восстановит исходные GPT/Recovery и установит официальную прошивку. Пользовательские данные будут удалены.",
   "editor_applying_writes_and_verifies_deviceinfo_restores_2": "После применения изменений приложение запишет и проверит DeviceInfo, восстановит исходные GPT/Recovery и перезагрузит устройство. Прошивка не устанавливается, пользовательские данные сохраняются.",

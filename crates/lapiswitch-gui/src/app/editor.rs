@@ -10,11 +10,11 @@ use lapiswitch_core::deviceinfo::map::{self, Class, Field, Kind, Layout};
 use lapiswitch_core::recovery_flow::EditRequest;
 use std::collections::BTreeMap;
 
-/// Basic: the common fields as choices. Custom: every field typed directly.
+/// Basic: the common fields as choices. Advanced: every field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
     Basic,
-    Custom,
+    Advanced,
 }
 
 /// Rollback choice of the basic tab.
@@ -140,7 +140,7 @@ impl Editor {
         let mut viewer = Self::new(layout, bytes, reply);
         viewer.reply = None;
         viewer.view_only = true;
-        viewer.tab = Tab::Custom;
+        viewer.tab = Tab::Advanced;
         viewer.drafts.clear();
         viewer
     }
@@ -249,6 +249,16 @@ impl Editor {
             RollbackChoice::Custom
         }
     }
+    /// After the 0 choice the indices stay 0 until another choice.
+    fn rollback_locked(&self) -> bool {
+        !self.view_only && self.rollback_choice() == RollbackChoice::Zero
+    }
+    fn reset(&mut self, key: &str) {
+        if let Some(field) = self.fields.iter().find(|f| f.key == key) {
+            let original = self.original(field);
+            self.inputs.insert(key.to_owned(), original);
+        }
+    }
     fn firmware_ready(&self) -> bool {
         matches!(&self.firmware, Some(Ok(report)) if Some(report.region) == self.target_region())
     }
@@ -326,6 +336,14 @@ impl App {
                 editor.rollback_custom = false;
             }
             EditorMessage::Rollback(choice) => {
+                // Custom values start from the read values, also after 0.
+                if choice == RollbackChoice::Custom
+                    && editor.rollback_choice() == RollbackChoice::Zero
+                {
+                    for n in 0..map::ROLLBACK_COUNT {
+                        editor.reset(&rollback_key(n));
+                    }
+                }
                 editor.rollback_custom = choice == RollbackChoice::Custom;
                 // Custom values are typed, so their fields open.
                 if editor.rollback_custom {
@@ -349,7 +367,23 @@ impl App {
                     }
                 }
             }
-            EditorMessage::Tab(tab) => editor.tab = tab,
+            EditorMessage::Tab(tab) => {
+                // Back on the basic tab only its fields keep their changes;
+                // every other field returns to the read value.
+                if tab == Tab::Basic && editor.tab == Tab::Advanced {
+                    let others: Vec<String> = editor
+                        .fields
+                        .iter()
+                        .filter(|f| !is_basic(&f.key))
+                        .map(|f| f.key.clone())
+                        .collect();
+                    for key in others {
+                        editor.reset(&key);
+                    }
+                    editor.protected_ack = false;
+                }
+                editor.tab = tab;
+            }
             EditorMessage::Query(query) => editor.query = query,
             EditorMessage::Review(review) => {
                 editor.review = review && ready;
@@ -460,7 +494,7 @@ impl App {
 fn tab_label(app: &App, tab: Tab) -> &'static str {
     match tab {
         Tab::Basic => app.tr("editor_basic"),
-        Tab::Custom => app.tr("editor_custom"),
+        Tab::Advanced => app.tr("editor_advanced"),
     }
 }
 
@@ -765,7 +799,8 @@ fn short(value: &str) -> String {
 }
 
 fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<'a, Message> {
-    if !field.editable || editor.view_only {
+    let locked = field.key.starts_with("rollback_index[") && editor.rollback_locked();
+    if !field.editable || editor.view_only || locked {
         return read_only_row(app, editor, field);
     }
     if !options(field).is_empty() {
@@ -1100,10 +1135,10 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
     }
     let changes = editor.changes();
     let mut tabs = row![].spacing(8);
-    for tab in [Tab::Basic, Tab::Custom] {
+    for tab in [Tab::Basic, Tab::Advanced] {
         let changed = changes
             .iter()
-            .filter(|change| tab == Tab::Custom || is_basic(&change.field.key))
+            .filter(|change| tab == Tab::Advanced || is_basic(&change.field.key))
             .count();
         let title = if changed > 0 {
             format!("{} ({changed})", tab_label(app, tab))
@@ -1137,7 +1172,7 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
             app.tr("editor_current_values_read_in_twrp_change")
                 .replace("{size}", &format!("{:X}", editor.layout.logical_size()))
         ),
-        if editor.tab == Tab::Custom {
+        if editor.tab == Tab::Advanced {
             row![
                 tabs,
                 space().width(Fill),
@@ -1270,7 +1305,7 @@ mod tests {
         app.editor_update(EditorMessage::Reset("region".into()));
         assert!(!editor(&app).region_changed());
         // A value typed on the custom tab is reflected on the basic tab.
-        app.editor_update(EditorMessage::Tab(Tab::Custom));
+        app.editor_update(EditorMessage::Tab(Tab::Advanced));
         app.editor_update(EditorMessage::Input(rollback_key(7), "5".into()));
         assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Custom);
     }
@@ -1328,6 +1363,53 @@ mod tests {
         // Choosing custom values opens the fields.
         app.editor_update(EditorMessage::Rollback(RollbackChoice::Custom));
         assert!(editor(&app).rollback_open);
+    }
+
+    fn value(app: &App, key: &str) -> String {
+        let field = editor(app).fields.iter().find(|f| f.key == key).unwrap();
+        editor(app).input(field).to_owned()
+    }
+
+    #[test]
+    fn rollback_zero_locks_the_indices_and_custom_starts_from_the_read_values() {
+        let (mut app, _rx) = open();
+        // The sample's index 1 reads 1.
+        assert_eq!(value(&app, "rollback_index[1]"), "1");
+        app.editor_update(EditorMessage::Rollback(RollbackChoice::Zero));
+        assert_eq!(value(&app, "rollback_index[1]"), "0");
+        assert!(editor(&app).rollback_locked());
+        app.editor_update(EditorMessage::Rollback(RollbackChoice::Custom));
+        assert!(!editor(&app).rollback_locked());
+        assert_eq!(value(&app, "rollback_index[1]"), "1");
+        assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Custom);
+        // Custom again keeps typed values.
+        app.editor_update(EditorMessage::Input(rollback_key(2), "7".into()));
+        app.editor_update(EditorMessage::Rollback(RollbackChoice::Custom));
+        assert_eq!(value(&app, "rollback_index[2]"), "7");
+    }
+
+    #[test]
+    fn back_on_the_basic_tab_only_basic_changes_stay() {
+        let (mut app, _rx) = open();
+        app.editor_update(EditorMessage::Input("is_unlocked".into(), "1".into()));
+        // Basic to advanced keeps every change.
+        app.editor_update(EditorMessage::Tab(Tab::Advanced));
+        assert_eq!(value(&app, "is_unlocked"), "1");
+        app.editor_update(EditorMessage::Input("verity_mode".into(), "1".into()));
+        app.editor_update(EditorMessage::Input(
+            "persistent[0].valid".into(),
+            "1".into(),
+        ));
+        app.editor_update(EditorMessage::Input(rollback_key(3), "9".into()));
+        app.editor_update(EditorMessage::Ack(true));
+        // Advanced to basic resets the other fields.
+        app.editor_update(EditorMessage::Tab(Tab::Basic));
+        assert_eq!(value(&app, "is_unlocked"), "1");
+        assert_eq!(value(&app, "rollback_index[3]"), "9");
+        assert_eq!(value(&app, "verity_mode"), "0");
+        assert_eq!(value(&app, "persistent[0].valid"), "0");
+        assert!(!editor(&app).protected_ack);
+        assert!(!editor(&app).protected_changed());
     }
 
     #[test]

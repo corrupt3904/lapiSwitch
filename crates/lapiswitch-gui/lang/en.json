@@ -179,6 +179,7 @@
   "driver_kernel_unsupported_desc": "Automatic kernel driver installation is only supported on Debian-style Linux. Use userspace mode or install it manually.",
   "editor_0_or_1": "0 or 1",
   "editor_32_rollback_indices": "32 rollback indices",
+  "editor_advanced": "Advanced",
   "editor_apply": "Apply",
   "editor_applying_writes_and_verifies_deviceinfo_restores": "When you apply these changes, the app writes and verifies DeviceInfo, restores the original GPT/Recovery, then installs official firmware. User data will be erased.",
   "editor_applying_writes_and_verifies_deviceinfo_restores_2": "When you apply these changes, the app writes and verifies DeviceInfo, restores the original GPT/Recovery, then reboots the device. No firmware is installed and no user data is erased.",
