@@ -1548,7 +1548,7 @@ fn parse_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         if parsed.view.is_some() {
             ready = true;
         } else {
-            content = content.push(warning_note(app.tr("view_model_not_detected")));
+            content = content.push(error_note(app.tr("view_model_not_detected")));
         }
     }
     (

@@ -1636,7 +1636,7 @@ impl App {
                 self.edl_confirmation = Some(tx);
             }
             "confirm" => self.page = Page::Confirm,
-            "parse" | "parse-view" | "parse-view-long" => {
+            "parse" | "parse-view" | "parse-view-long" | "parse-view-rollback" => {
                 self.page = Page::Parse;
                 self.demo_pick(Picker::DeviceInfoFile);
                 if screen != "parse" {
@@ -1646,6 +1646,11 @@ impl App {
                 if screen == "parse-view-long" {
                     let _ = self.update(Message::Editor(editor::EditorMessage::Query(
                         "user_public_key".into(),
+                    )));
+                }
+                if screen == "parse-view-rollback" {
+                    let _ = self.update(Message::Editor(editor::EditorMessage::Query(
+                        "rollback".into(),
                     )));
                 }
             }
@@ -1685,7 +1690,9 @@ impl App {
             | "deviceinfo-editor-notices"
             | "deviceinfo-editor-custom-notices"
             | "deviceinfo-editor-country"
-            | "deviceinfo-editor-persistent" => {
+            | "deviceinfo-editor-persistent"
+            | "deviceinfo-editor-long"
+            | "deviceinfo-editor-rollback-open" => {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
@@ -1720,6 +1727,7 @@ impl App {
                     "deviceinfo-editor-custom"
                         | "deviceinfo-editor-custom-notices"
                         | "deviceinfo-editor-persistent"
+                        | "deviceinfo-editor-long"
                 ) {
                     editor.tab = editor::Tab::Custom;
                 }
@@ -1754,6 +1762,12 @@ impl App {
                         "is_unlocked".into(),
                         unlocked.into(),
                     ));
+                }
+                if screen == "deviceinfo-editor-long" {
+                    self.editor_update(editor::EditorMessage::Query("user_public_key".into()));
+                }
+                if screen == "deviceinfo-editor-rollback-open" {
+                    self.editor_update(editor::EditorMessage::RollbackOpen);
                 }
                 if screen == "deviceinfo-editor-country" {
                     let _ = self.update(Message::CountryOpen);
@@ -2708,6 +2722,9 @@ mod tests {
                 "parse",
                 "parse-view",
                 "parse-view-long",
+                "parse-view-rollback",
+                "deviceinfo-editor-long",
+                "deviceinfo-editor-rollback-open",
                 "deviceinfo-editor-notices",
                 "deviceinfo-editor-custom-notices",
                 "deviceinfo-editor-country",

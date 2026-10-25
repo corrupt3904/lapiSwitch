@@ -49,8 +49,12 @@ pub(crate) enum EditorMessage {
     Ack(bool),
     /// Opens or closes one persistent value set on the custom tab.
     Persistent(usize),
-    /// Selection in a viewer's value text; edits are ignored.
+    /// Selection in a read-only value text; edits are ignored.
     Select(String, text_editor::Action),
+    /// Typing in a long (bytes) field's multi-line input.
+    Draft(String, text_editor::Action),
+    /// Opens or closes the 32 rollback index fields.
+    RollbackOpen,
     Apply,
     Cancel,
 }
@@ -77,18 +81,36 @@ pub(crate) struct Editor {
     pub(crate) persistent_open: std::collections::BTreeSet<usize>,
     /// Shows every field without inputs (DeviceInfo parsing).
     pub(crate) view_only: bool,
-    /// A viewer's full values as selectable text, by field key, and the
-    /// rollback indices under `ROLLBACK_TEXT`.
+    /// The 32 rollback index fields are shown, whatever the rollback choice.
+    pub(crate) rollback_open: bool,
+    /// Every field's read value as selectable text, by field key.
     texts: BTreeMap<String, text_editor::Content>,
+    /// The multi-line inputs of editable bytes fields, kept equal to
+    /// `inputs`.
+    drafts: BTreeMap<String, text_editor::Content>,
     reply: Option<Sender<Option<EditRequest>>>,
 }
 
 impl Editor {
     pub(crate) fn new(layout: Layout, before: Vec<u8>, reply: Sender<Option<EditRequest>>) -> Self {
         let fields = layout.fields();
-        let inputs = fields
+        let inputs: BTreeMap<String, String> = fields
             .iter()
             .map(|field| (field.key.clone(), map::display(field, &before)))
+            .collect();
+        let texts = inputs
+            .iter()
+            .map(|(key, value)| (key.clone(), text_editor::Content::with_text(value)))
+            .collect();
+        let drafts = fields
+            .iter()
+            .filter(|field| field.editable && field.kind == Kind::Bytes)
+            .map(|field| {
+                (
+                    field.key.clone(),
+                    text_editor::Content::with_text(&inputs[&field.key]),
+                )
+            })
             .collect();
         Self {
             layout,
@@ -106,7 +128,9 @@ impl Editor {
             country: None,
             persistent_open: Default::default(),
             view_only: false,
-            texts: BTreeMap::new(),
+            rollback_open: false,
+            texts,
+            drafts,
             reply: Some(reply),
         }
     }
@@ -117,32 +141,7 @@ impl Editor {
         viewer.reply = None;
         viewer.view_only = true;
         viewer.tab = Tab::Custom;
-        let mut texts: BTreeMap<String, text_editor::Content> = viewer
-            .fields
-            .iter()
-            .map(|field| {
-                let value = viewer.original(field);
-                (field.key.clone(), text_editor::Content::with_text(&value))
-            })
-            .collect();
-        let rollback = lapiswitch_core::deviceinfo::indices(viewer.layout, &viewer.before)
-            .chunks(4)
-            .enumerate()
-            .map(|(line, values)| {
-                values
-                    .iter()
-                    .enumerate()
-                    .map(|(i, value)| format!("[{}] {value}", line * 4 + i))
-                    .collect::<Vec<_>>()
-                    .join("    ")
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        texts.insert(
-            ROLLBACK_TEXT.into(),
-            text_editor::Content::with_text(&rollback),
-        );
-        viewer.texts = texts;
+        viewer.drafts.clear();
         viewer
     }
     /// The search and the open persistent sets of a viewer.
@@ -150,13 +149,27 @@ impl Editor {
         match message {
             EditorMessage::Query(query) => self.query = query,
             EditorMessage::Persistent(n) => self.toggle_persistent(n),
-            // Selecting and copying only; the value never changes.
-            EditorMessage::Select(key, action) if !action.is_edit() => {
-                if let Some(content) = self.texts.get_mut(&key) {
-                    content.perform(action);
-                }
-            }
+            EditorMessage::RollbackOpen => self.rollback_open = !self.rollback_open,
+            EditorMessage::Select(key, action) => self.select(&key, action),
             _ => {}
+        }
+    }
+    /// Selecting and copying a read value; the value never changes.
+    fn select(&mut self, key: &str, action: text_editor::Action) {
+        if !action.is_edit()
+            && let Some(content) = self.texts.get_mut(key)
+        {
+            content.perform(action);
+        }
+    }
+    /// Re-fills the multi-line inputs whose field changed elsewhere (a
+    /// reset or a button), so they always show `inputs`.
+    fn sync_drafts(&mut self) {
+        for (key, content) in &mut self.drafts {
+            let input = self.inputs.get(key).map_or("", String::as_str);
+            if content.text().trim_end_matches('\n') != input {
+                *content = text_editor::Content::with_text(input);
+            }
         }
     }
     fn toggle_persistent(&mut self, n: usize) {
@@ -314,6 +327,10 @@ impl App {
             }
             EditorMessage::Rollback(choice) => {
                 editor.rollback_custom = choice == RollbackChoice::Custom;
+                // Custom values are typed, so their fields open.
+                if editor.rollback_custom {
+                    editor.rollback_open = true;
+                }
                 for n in 0..map::ROLLBACK_COUNT {
                     let key = rollback_key(n);
                     match choice {
@@ -340,7 +357,21 @@ impl App {
             }
             EditorMessage::Ack(ack) => editor.protected_ack = ack,
             EditorMessage::Persistent(n) => editor.toggle_persistent(n),
-            EditorMessage::Select(..) => return,
+            EditorMessage::RollbackOpen => editor.rollback_open = !editor.rollback_open,
+            EditorMessage::Select(key, action) => {
+                editor.select(&key, action);
+                return;
+            }
+            EditorMessage::Draft(key, action) => {
+                if let Some(content) = editor.drafts.get_mut(&key) {
+                    let edit = action.is_edit();
+                    content.perform(action);
+                    if edit {
+                        let text = content.text().trim_end_matches('\n').to_owned();
+                        editor.inputs.insert(key, text);
+                    }
+                }
+            }
             EditorMessage::Apply => {
                 if editor.review && ready {
                     let request = editor.request();
@@ -357,6 +388,7 @@ impl App {
         }
         // A different planned region invalidates an earlier firmware check.
         let editor = self.editor.as_mut().expect("still open");
+        editor.sync_drafts();
         if firmware_target(editor) != before_target {
             editor.firmware = None;
             editor.checking = false;
@@ -545,13 +577,9 @@ fn read_only_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Elem
             .push(space().width(Fill))
             .push(small(app.tr("editor_read_only")));
     }
-    if let Some(value) = selectable(editor, &field.key) {
-        return basic_box(column![head, value].spacing(6), false);
-    }
-    basic_box(
-        column![head, label(short(&editor.original(field))).size(14),].spacing(6),
-        false,
-    )
+    let value = selectable(editor, &field.key)
+        .unwrap_or_else(|| label(editor.original(field)).size(14).into());
+    basic_box(column![head, value].spacing(6), false)
 }
 
 /// The notice a changed field shows inside its own box: the region change
@@ -603,10 +631,46 @@ fn basic_box<'a>(content: widget::Column<'a, Message>, changed: bool) -> Element
         .into()
 }
 
+/// The 32 rollback indices: the choices (not in a viewer) and, behind the
+/// arrow, every index field.
 fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
-    if editor.view_only {
-        return rollback_values(app, editor);
+    let open = editor.rollback_open;
+    let head = button(
+        row![
+            label(if open { "▾" } else { "▸" }).size(14),
+            label(app.tr("editor_32_rollback_indices")).size(15),
+            small(format!(
+                "rollback_index[0..31] · 0x{:04X} · 8B × 32",
+                editor.layout.rollback_start()
+            )),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    )
+    .padding(0)
+    .style(|_, _| button::Style {
+        text_color: ink(),
+        ..Default::default()
+    })
+    .on_press(Message::Editor(EditorMessage::RollbackOpen));
+    let mut content = column![head].spacing(8);
+    let mut changed = false;
+    if !editor.view_only {
+        let choices = rollback_choices(app, editor);
+        changed = editor.rollback_choice() != RollbackChoice::Current;
+        content = content.push(choices);
     }
+    if open {
+        for n in 0..map::ROLLBACK_COUNT {
+            if let Some(field) = editor.fields.iter().find(|f| f.key == rollback_key(n)) {
+                content = content.push(field_row(app, editor, field));
+            }
+        }
+    }
+    basic_box(content, changed)
+}
+
+fn rollback_choices<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
     let selected = editor.rollback_choice();
     // "0" duplicates "Current" when every stored index is already 0.
     let all_zero = lapiswitch_core::deviceinfo::indices(editor.layout, &editor.before)
@@ -629,38 +693,16 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
             EditorMessage::Rollback(RollbackChoice::Zero),
         ));
     }
-    choices = choices.push(choice(
-        app.tr("editor_custom").into(),
-        selected == RollbackChoice::Custom,
-        EditorMessage::Rollback(RollbackChoice::Custom),
-    ));
-    let mut content = column![
-        row![
-            label(app.tr("editor_32_rollback_indices")).size(15),
-            small(format!(
-                "rollback_index[0..31] · 0x{:04X} · 8B × 32",
-                editor.layout.rollback_start()
-            )),
-        ]
-        .spacing(10)
-        .align_y(Alignment::Center),
-        choices,
-    ]
-    .spacing(8);
-    if selected == RollbackChoice::Custom {
-        for n in 0..map::ROLLBACK_COUNT {
-            if let Some(field) = editor.fields.iter().find(|f| f.key == rollback_key(n)) {
-                content = content.push(field_row(app, editor, field));
-            }
-        }
-    }
-    basic_box(content, selected != RollbackChoice::Current)
+    choices
+        .push(choice(
+            app.tr("editor_custom").into(),
+            selected == RollbackChoice::Custom,
+            EditorMessage::Rollback(RollbackChoice::Custom),
+        ))
+        .into()
 }
 
-/// The key of a viewer's rollback index text.
-const ROLLBACK_TEXT: &str = "rollback_index[0..31]";
-
-/// A viewer's full value as text that can be selected and copied.
+/// A field's full read value as text that can be selected and copied.
 fn selectable<'a>(editor: &'a Editor, key: &str) -> Option<Element<'a, Message>> {
     let content = editor.texts.get(key)?;
     let key = key.to_owned();
@@ -673,24 +715,16 @@ fn selectable<'a>(editor: &'a Editor, key: &str) -> Option<Element<'a, Message>>
     )
 }
 
-/// The 32 rollback indices as values, for a viewer.
-fn rollback_values<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
-    let grid = selectable(editor, ROLLBACK_TEXT).unwrap_or_else(|| space().into());
-    basic_box(
-        column![
-            row![
-                label(app.tr("editor_32_rollback_indices")).size(15),
-                small(format!(
-                    "rollback_index[0..31] · 0x{:04X} · 8B × 32",
-                    editor.layout.rollback_start()
-                )),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center),
-            grid,
-        ]
-        .spacing(8),
-        false,
+/// A long (bytes) field's input: multi-line so the whole value shows.
+fn draft<'a>(editor: &'a Editor, field: &Field) -> Option<Element<'a, Message>> {
+    let content = editor.drafts.get(&field.key)?;
+    let key = field.key.clone();
+    Some(
+        text_editor(content)
+            .on_action(move |action| Message::Editor(EditorMessage::Draft(key.clone(), action)))
+            .size(14)
+            .wrapping(iced::widget::text::Wrapping::Glyph)
+            .into(),
     )
 }
 
@@ -759,22 +793,21 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
         );
     }
     let key = field.key.clone();
-    let mut content = column![
-        head,
+    let input = draft(editor, field).unwrap_or_else(|| {
         text_input(&kind_hint(app, field), value)
             .on_input(move |text| Message::Editor(EditorMessage::Input(key.clone(), text)))
             .padding(8)
-            .size(14),
-    ]
-    .spacing(6);
+            .size(14)
+            .into()
+    });
+    let mut content = column![head, input].spacing(6);
     if let Some(error) = editor.error(field) {
         content = content.push(small(error).color(danger()));
     } else if changed {
-        content = content.push(small(format!(
-            "{}: {}",
-            app.tr("editor_original"),
-            short(&editor.original(field))
-        )));
+        content = content.push(small(app.tr("editor_original")));
+        if let Some(original) = selectable(editor, &field.key) {
+            content = content.push(original);
+        }
     }
     let content = content.extend(field_notice(app, editor, field));
     container(content)
@@ -960,11 +993,8 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
                 ))
                 .size(14)
                 .color(if risky { danger() } else { ink() }),
-                small(format!(
-                    "{} → {}",
-                    short(&change.before),
-                    short(&change.after)
-                )),
+                small(format!("{} → {}", change.before, change.after))
+                    .wrapping(iced::widget::text::Wrapping::Glyph),
             ]
             .spacing(2),
         );
@@ -1263,6 +1293,41 @@ mod tests {
             .find(|f| f.key == rollback_key(4))
             .unwrap();
         assert!(editor(&app).error(field).is_some());
+    }
+
+    #[test]
+    fn long_fields_keep_their_multi_line_input_equal_to_the_value() {
+        let (mut app, _rx) = open();
+        let key = "persistent[0].value".to_owned();
+        let draft = |app: &App| {
+            editor(app).drafts[&key]
+                .text()
+                .trim_end_matches('\n')
+                .to_owned()
+        };
+        let original = draft(&app);
+        app.editor_update(EditorMessage::Input(key.clone(), "AB".repeat(32)));
+        assert_eq!(draft(&app), "AB".repeat(32));
+        app.editor_update(EditorMessage::Reset(key.clone()));
+        assert_eq!(draft(&app), original);
+        // Read-only and button fields have no multi-line input.
+        assert!(!editor(&app).drafts.contains_key("magic"));
+        assert!(!editor(&app).drafts.contains_key("is_unlocked"));
+    }
+
+    #[test]
+    fn the_rollback_arrow_shows_the_fields_for_any_choice() {
+        let (mut app, _rx) = open();
+        assert!(!editor(&app).rollback_open);
+        app.editor_update(EditorMessage::RollbackOpen);
+        assert!(editor(&app).rollback_open);
+        app.editor_update(EditorMessage::Rollback(RollbackChoice::Zero));
+        assert!(editor(&app).rollback_open);
+        app.editor_update(EditorMessage::RollbackOpen);
+        assert!(!editor(&app).rollback_open);
+        // Choosing custom values opens the fields.
+        app.editor_update(EditorMessage::Rollback(RollbackChoice::Custom));
+        assert!(editor(&app).rollback_open);
     }
 
     #[test]
