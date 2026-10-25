@@ -53,6 +53,10 @@ pub struct Field {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeviceInfoMap {
     pub logical_size: usize,
+    /// Help for the 32 rollback indices as one group, in English.
+    pub rollback_help: &'static str,
+    /// Help for the persistent value sets as one group, in English.
+    pub persistent_help: &'static str,
     pub fields: &'static [Field],
 }
 

@@ -602,19 +602,27 @@ fn choice_row<'a>(
     basic_box(content.extend(field_notice(app, editor, field)), !unchanged)
 }
 
+/// Help keys of the two field groups, apart from field keys.
+const ROLLBACK_HELP: &str = "@rollback";
+const PERSISTENT_HELP: &str = "@persistent";
+
 /// The circled question mark that opens a field's help; only for a field
 /// that has one.
 fn help_button<'a>(field: &Field) -> Option<Element<'a, Message>> {
-    if field.help.is_empty() {
+    help_icon(field.help, &field.key)
+}
+
+/// The circled question mark that opens the help named `key`, when `help`
+/// is written.
+fn help_icon<'a>(help: &str, key: &str) -> Option<Element<'a, Message>> {
+    if help.is_empty() {
         return None;
     }
     Some(
         button(super::fluent::icon('\u{E9CE}').size(14).color(muted()))
             .padding(2)
             .style(|_, _| button::Style::default())
-            .on_press(Message::Editor(EditorMessage::Help(Some(
-                field.key.clone(),
-            ))))
+            .on_press(Message::Editor(EditorMessage::Help(Some(key.to_owned()))))
             .into(),
     )
 }
@@ -625,20 +633,42 @@ pub(super) fn help_modal<'a>(
     editor: &'a Editor,
 ) -> Option<widget::Container<'a, Message>> {
     let key = editor.help.as_ref()?;
-    let field = editor.fields.iter().find(|f| &f.key == key)?;
     let language = app.preferences.language;
+    let persistent_sets = editor
+        .fields
+        .iter()
+        .filter_map(|f| persistent_index(&f.key))
+        .max()
+        .map_or(0, |last| last + 1);
+    let (title, place, help): (String, String, &str) = match key.as_str() {
+        ROLLBACK_HELP => (
+            app.tr("editor_32_rollback_indices").to_owned(),
+            format!(
+                "rollback_index[0..31] · 0x{:04X} · 8B × 32",
+                editor.layout.rollback_start()
+            ),
+            editor.layout.rollback_help(),
+        ),
+        PERSISTENT_HELP => (
+            app.tr("editor_avb_persistent_values_count")
+                .replace("{count}", &persistent_sets.to_string()),
+            format!("persistent[0..{}]", persistent_sets.saturating_sub(1)),
+            editor.layout.persistent_help(),
+        ),
+        _ => {
+            let field = editor.fields.iter().find(|f| &f.key == key)?;
+            (
+                language.field_description(field.description).to_owned(),
+                format!("{} · 0x{:04X} · {}B", field.key, field.offset, field.size),
+                field.help,
+            )
+        }
+    };
     Some(
         panel(
             column![
-                column![
-                    label(language.field_description(field.description)).size(22),
-                    small(format!(
-                        "{} · 0x{:04X} · {}B",
-                        field.key, field.offset, field.size
-                    )),
-                ]
-                .spacing(4),
-                label(language.field_description(field.help)).size(14),
+                column![label(title).size(22), small(place)].spacing(4),
+                label(language.field_description(help)).size(14),
                 row![
                     space().width(Fill),
                     action(
@@ -778,6 +808,10 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
         ..Default::default()
     })
     .on_press(Message::Editor(EditorMessage::RollbackOpen));
+    let head = row![head]
+        .spacing(6)
+        .align_y(Alignment::Center)
+        .extend(help_icon(editor.layout.rollback_help(), ROLLBACK_HELP));
     let mut content = column![head].spacing(8);
     let mut changed = false;
     if !editor.view_only {
@@ -1002,6 +1036,7 @@ fn persistent_box<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> 
         ]
         .spacing(10)
         .align_y(Alignment::Center)
+        .extend(help_icon(editor.layout.persistent_help(), PERSISTENT_HELP))
     ]
     .spacing(8);
     for n in sets {

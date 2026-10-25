@@ -103,6 +103,14 @@ impl Layout {
     pub fn region_offset(self) -> usize {
         self.offset("region")
     }
+    /// Help for the rollback indices as one group; empty when unwritten.
+    pub fn rollback_help(self) -> &'static str {
+        self.map.rollback_help
+    }
+    /// Help for the persistent value sets as one group; empty when unwritten.
+    pub fn persistent_help(self) -> &'static str {
+        self.map.persistent_help
+    }
     pub fn rollback_start(self) -> usize {
         self.offset("rollback_index[0]")
     }

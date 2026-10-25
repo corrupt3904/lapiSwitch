@@ -123,8 +123,13 @@ mod tests {
     fn every_deviceinfo_field_description_is_translated() {
         let english: BTreeSet<String> = lapiswitch_core::device::Device::all()
             .filter_map(|device| device.layout())
-            .flat_map(|layout| layout.fields())
-            .flat_map(|field| [field.description, field.help])
+            .flat_map(|layout| {
+                let mut texts = vec![layout.rollback_help(), layout.persistent_help()];
+                for field in layout.fields() {
+                    texts.extend([field.description, field.help]);
+                }
+                texts
+            })
             .filter(|text| !text.is_empty())
             .map(str::to_owned)
             .collect();

@@ -423,7 +423,19 @@ fn strings(table: &Table, key: &str, place: &str) -> Result<Vec<String>> {
 }
 
 fn deviceinfo(doc: &DocumentMut) -> Result<String> {
-    only(doc, &["logical_size", "field"], "deviceinfo.toml")?;
+    only(
+        doc,
+        &["logical_size", "rollback_help", "persistent_help", "field"],
+        "deviceinfo.toml",
+    )?;
+    let group_help = |key: &str| -> Result<String> {
+        match doc.get(key) {
+            None => Ok(String::new()),
+            Some(_) => Ok(string(doc, key, "deviceinfo.toml")?.to_owned()),
+        }
+    };
+    let rollback_help = group_help("rollback_help")?;
+    let persistent_help = group_help("persistent_help")?;
     let logical = int(doc, "logical_size", "deviceinfo.toml")?;
     if !(0x0D..=SHARED_SIZE).contains(&logical) {
         return Err(format!(
@@ -637,7 +649,9 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
             );
         }
     }
-    let mut code = format!("DeviceInfoMap {{ logical_size: {logical}, fields: &[\n");
+    let mut code = format!(
+        "DeviceInfoMap {{ logical_size: {logical}, rollback_help: {rollback_help:?}, persistent_help: {persistent_help:?}, fields: &[\n"
+    );
     for f in &fields {
         writeln!(
             code,
