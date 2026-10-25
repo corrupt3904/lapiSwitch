@@ -616,6 +616,31 @@ fn read_only_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Elem
     basic_box(column![head, value].spacing(6), false)
 }
 
+/// A rollback index held at 0 by the 0 choice: the value it will be
+/// written as, marked changed with its read value, without an input.
+fn locked_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<'a, Message> {
+    let changed = !editor.unchanged(&field.key);
+    let head = row![
+        label(field.key.clone()).size(15),
+        small(format!("0x{:04X} · {}B", field.offset, field.size)),
+        small(
+            app.preferences
+                .language
+                .field_description(field.description)
+        ),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    let mut content = column![head, label(editor.input(field).to_owned()).size(14)].spacing(6);
+    if changed {
+        content = content.push(small(app.tr("editor_original")));
+        if let Some(original) = selectable(editor, &field.key) {
+            content = content.push(original);
+        }
+    }
+    basic_box(content, changed)
+}
+
 /// The notice a changed field shows inside its own box: the region change
 /// with its firmware folder and country code, the lock state warning, or the
 /// security/structure warning of other protected fields.
@@ -799,8 +824,10 @@ fn short(value: &str) -> String {
 }
 
 fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<'a, Message> {
-    let locked = field.key.starts_with("rollback_index[") && editor.rollback_locked();
-    if !field.editable || editor.view_only || locked {
+    if field.key.starts_with("rollback_index[") && editor.rollback_locked() {
+        return locked_row(app, editor, field);
+    }
+    if !field.editable || editor.view_only {
         return read_only_row(app, editor, field);
     }
     if !options(field).is_empty() {

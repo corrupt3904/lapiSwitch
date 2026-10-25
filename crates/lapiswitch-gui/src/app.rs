@@ -1692,7 +1692,8 @@ impl App {
             | "deviceinfo-editor-country"
             | "deviceinfo-editor-persistent"
             | "deviceinfo-editor-long"
-            | "deviceinfo-editor-rollback-open" => {
+            | "deviceinfo-editor-rollback-open"
+            | "deviceinfo-editor-rollback-zero" => {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
@@ -1767,6 +1768,12 @@ impl App {
                     self.editor_update(editor::EditorMessage::Query("user_public_key".into()));
                 }
                 if screen == "deviceinfo-editor-rollback-open" {
+                    self.editor_update(editor::EditorMessage::RollbackOpen);
+                }
+                if screen == "deviceinfo-editor-rollback-zero" {
+                    self.editor_update(editor::EditorMessage::Rollback(
+                        editor::RollbackChoice::Zero,
+                    ));
                     self.editor_update(editor::EditorMessage::RollbackOpen);
                 }
                 if screen == "deviceinfo-editor-country" {
@@ -2725,6 +2732,7 @@ mod tests {
                 "parse-view-rollback",
                 "deviceinfo-editor-long",
                 "deviceinfo-editor-rollback-open",
+                "deviceinfo-editor-rollback-zero",
                 "deviceinfo-editor-notices",
                 "deviceinfo-editor-custom-notices",
                 "deviceinfo-editor-country",
