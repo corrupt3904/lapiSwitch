@@ -172,6 +172,7 @@
   "core_map_choice": "{key} 只能更改为以下值之一：{choices}",
   "core_map_flag": "请输入 0 或 1。",
   "core_map_hex_exact": "请准确输入 {size} 字节的十六进制（{size2} 位）。",
+  "core_map_max_digits": "最多可输入 {digits} 位数字。",
   "core_map_outside_logical": "无法更改 DeviceInfo 逻辑大小（0x{logical}）之外的共享缓冲区。",
   "core_map_read_only": "{key} 为只读字段，无法更改。",
   "core_map_region": "请输入 PRC 或 ROW。",

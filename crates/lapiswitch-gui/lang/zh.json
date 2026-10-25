@@ -203,6 +203,7 @@
   "editor_current": "当前值",
   "editor_current_values_read_in_twrp_change": "以下是在 TWRP 中读取的当前值。请只修改需要的字段。DeviceInfo 逻辑大小 0x{size} 以外的共享缓冲区不会被更改。",
   "editor_custom": "自定义",
+  "editor_decimal_up_to_digits": "十进制整数，最多 {digits} 位",
   "editor_do_not_change_default": "不更改（默认）",
   "editor_edit_deviceinfo_model": "修改 DeviceInfo · {model}",
   "editor_every_field_is_typed_directly_wrong": "您可以直接编辑所有字段的值。错误的锁定状态、verity 设置、公钥、AVB 值、设备专属缓存或结构标记可能导致设备无法启动，或改变其安全状态。",

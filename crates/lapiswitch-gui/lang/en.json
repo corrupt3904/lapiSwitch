@@ -203,6 +203,7 @@
   "editor_current": "Current",
   "editor_current_values_read_in_twrp_change": "These are the current values read in TWRP. Edit only the fields you need. The shared buffer beyond the DeviceInfo logical size of 0x{size} is left unchanged.",
   "editor_custom": "Custom",
+  "editor_decimal_up_to_digits": "Integer in decimal, up to {digits} digits",
   "editor_do_not_change_default": "Do not change (default)",
   "editor_edit_deviceinfo_model": "Edit DeviceInfo · {model}",
   "editor_every_field_is_typed_directly_wrong": "You can edit all fields directly. Incorrect lock states, verity settings, public keys, AVB values, device-specific caches or structure markers may prevent the device from booting or change its security state.",

@@ -391,6 +391,7 @@ struct Field {
     editable: bool,
     choices: Vec<String>,
     decimal: bool,
+    max_digits: i64,
 }
 
 fn boolean(table: &Table, key: &str, default: bool, place: &str) -> Result<bool> {
@@ -453,6 +454,7 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
                 "editable",
                 "choices",
                 "decimal",
+                "max_digits",
             ],
             &place,
         )?;
@@ -489,6 +491,15 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
         let decimal = boolean(table, "decimal", false, &place)?;
         if decimal && kind != "Kind::Uint" {
             return Err(format!("{place}: `decimal`은 uint에만 씁니다."));
+        }
+        let max_digits = match table.get("max_digits") {
+            None => 0,
+            Some(_) => int(table, "max_digits", &place)?,
+        };
+        if max_digits != 0 && (!decimal || !(1..=20).contains(&max_digits)) {
+            return Err(format!(
+                "{place}: `max_digits`는 `decimal = true`와 함께 1..=20으로 씁니다."
+            ));
         }
         let choices = strings(table, "choices", &place)?;
         if !choices.is_empty() {
@@ -541,6 +552,7 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
                 editable,
                 choices: choices.clone(),
                 decimal,
+                max_digits,
             });
         }
     }
@@ -611,8 +623,8 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
     for f in &fields {
         writeln!(
             code,
-            "            Field {{ key: {:?}, offset: {}, size: {}, kind: {}, class: {}, description: {:?}, editable: {}, choices: &{:?}, decimal: {} }},",
-            f.key, f.offset, f.size, f.kind, f.class, f.description, f.editable, f.choices, f.decimal
+            "            Field {{ key: {:?}, offset: {}, size: {}, kind: {}, class: {}, description: {:?}, editable: {}, choices: &{:?}, decimal: {}, max_digits: {} }},",
+            f.key, f.offset, f.size, f.kind, f.class, f.description, f.editable, f.choices, f.decimal, f.max_digits
         )
         .unwrap();
     }

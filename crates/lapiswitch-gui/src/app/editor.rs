@@ -2,7 +2,9 @@
 //! structure map is editable; inputs are checked for type and exact size.
 use super::view::*;
 use super::*;
-use iced::widget::{self, button, checkbox, column, container, row, scrollable, space, text_input};
+use iced::widget::{
+    self, button, checkbox, column, container, row, scrollable, space, text_editor, text_input,
+};
 use iced::{Alignment, Border, Fill};
 use lapiswitch_core::deviceinfo::map::{self, Class, Field, Kind, Layout};
 use lapiswitch_core::recovery_flow::EditRequest;
@@ -47,6 +49,8 @@ pub(crate) enum EditorMessage {
     Ack(bool),
     /// Opens or closes one persistent value set on the custom tab.
     Persistent(usize),
+    /// Selection in a viewer's value text; edits are ignored.
+    Select(String, text_editor::Action),
     Apply,
     Cancel,
 }
@@ -73,6 +77,9 @@ pub(crate) struct Editor {
     pub(crate) persistent_open: std::collections::BTreeSet<usize>,
     /// Shows every field without inputs (DeviceInfo parsing).
     pub(crate) view_only: bool,
+    /// A viewer's full values as selectable text, by field key, and the
+    /// rollback indices under `ROLLBACK_TEXT`.
+    texts: BTreeMap<String, text_editor::Content>,
     reply: Option<Sender<Option<EditRequest>>>,
 }
 
@@ -99,6 +106,7 @@ impl Editor {
             country: None,
             persistent_open: Default::default(),
             view_only: false,
+            texts: BTreeMap::new(),
             reply: Some(reply),
         }
     }
@@ -109,6 +117,32 @@ impl Editor {
         viewer.reply = None;
         viewer.view_only = true;
         viewer.tab = Tab::Custom;
+        let mut texts: BTreeMap<String, text_editor::Content> = viewer
+            .fields
+            .iter()
+            .map(|field| {
+                let value = viewer.original(field);
+                (field.key.clone(), text_editor::Content::with_text(&value))
+            })
+            .collect();
+        let rollback = lapiswitch_core::deviceinfo::indices(viewer.layout, &viewer.before)
+            .chunks(4)
+            .enumerate()
+            .map(|(line, values)| {
+                values
+                    .iter()
+                    .enumerate()
+                    .map(|(i, value)| format!("[{}] {value}", line * 4 + i))
+                    .collect::<Vec<_>>()
+                    .join("    ")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        texts.insert(
+            ROLLBACK_TEXT.into(),
+            text_editor::Content::with_text(&rollback),
+        );
+        viewer.texts = texts;
         viewer
     }
     /// The search and the open persistent sets of a viewer.
@@ -116,6 +150,12 @@ impl Editor {
         match message {
             EditorMessage::Query(query) => self.query = query,
             EditorMessage::Persistent(n) => self.toggle_persistent(n),
+            // Selecting and copying only; the value never changes.
+            EditorMessage::Select(key, action) if !action.is_edit() => {
+                if let Some(content) = self.texts.get_mut(&key) {
+                    content.perform(action);
+                }
+            }
             _ => {}
         }
     }
@@ -242,9 +282,17 @@ impl App {
         let before_target = firmware_target(editor);
         match message {
             EditorMessage::Input(key, value) => {
-                // The region is typed as the token it is written as.
+                // The region is typed as the token it is written as, and a
+                // digit-limited field takes no more than its digits.
+                let limit = editor
+                    .fields
+                    .iter()
+                    .find(|f| f.key == key)
+                    .map_or(0, |f| f.max_digits);
                 let value = if key == "region" {
                     value.to_ascii_uppercase()
+                } else if limit > 0 {
+                    value.chars().take(limit).collect()
                 } else {
                     value
                 };
@@ -292,6 +340,7 @@ impl App {
             }
             EditorMessage::Ack(ack) => editor.protected_ack = ack,
             EditorMessage::Persistent(n) => editor.toggle_persistent(n),
+            EditorMessage::Select(..) => return,
             EditorMessage::Apply => {
                 if editor.review && ready {
                     let request = editor.request();
@@ -490,10 +539,14 @@ fn read_only_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Elem
     ]
     .spacing(10)
     .align_y(Alignment::Center);
-    if !field.editable {
+    // A viewer is read-only as a whole, so the mark is left out there.
+    if !field.editable && !editor.view_only {
         head = head
             .push(space().width(Fill))
             .push(small(app.tr("editor_read_only")));
+    }
+    if let Some(value) = selectable(editor, &field.key) {
+        return basic_box(column![head, value].spacing(6), false);
     }
     basic_box(
         column![head, label(short(&editor.original(field))).size(14),].spacing(6),
@@ -604,18 +657,25 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
     basic_box(content, selected != RollbackChoice::Current)
 }
 
+/// The key of a viewer's rollback index text.
+const ROLLBACK_TEXT: &str = "rollback_index[0..31]";
+
+/// A viewer's full value as text that can be selected and copied.
+fn selectable<'a>(editor: &'a Editor, key: &str) -> Option<Element<'a, Message>> {
+    let content = editor.texts.get(key)?;
+    let key = key.to_owned();
+    Some(
+        text_editor(content)
+            .on_action(move |action| Message::Editor(EditorMessage::Select(key.clone(), action)))
+            .size(14)
+            .wrapping(iced::widget::text::Wrapping::Glyph)
+            .into(),
+    )
+}
+
 /// The 32 rollback indices as values, for a viewer.
 fn rollback_values<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
-    let indices = lapiswitch_core::deviceinfo::indices(editor.layout, &editor.before);
-    let mut grid = column![].spacing(4);
-    for chunk in indices.chunks(4).enumerate() {
-        let (line, values) = chunk;
-        let mut cells = row![].spacing(8);
-        for (i, value) in values.iter().enumerate() {
-            cells = cells.push(small(format!("[{}] {value}", line * 4 + i)).width(Fill));
-        }
-        grid = grid.push(cells);
-    }
+    let grid = selectable(editor, ROLLBACK_TEXT).unwrap_or_else(|| space().into());
     basic_box(
         column![
             row![
@@ -637,6 +697,9 @@ fn rollback_values<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message>
 fn kind_hint(app: &App, field: &Field) -> String {
     match field.kind {
         Kind::Flag => app.tr("editor_0_or_1").into(),
+        Kind::Uint if field.max_digits > 0 => app
+            .tr("editor_decimal_up_to_digits")
+            .replace("{digits}", &field.max_digits.to_string()),
         Kind::Uint if field.decimal => app
             .tr("editor_bytes_byte_integer_decimal")
             .replace("{bytes}", &field.size.to_string()),
@@ -1180,6 +1243,26 @@ mod tests {
         app.editor_update(EditorMessage::Tab(Tab::Custom));
         app.editor_update(EditorMessage::Input(rollback_key(7), "5".into()));
         assert_eq!(editor(&app).rollback_choice(), RollbackChoice::Custom);
+    }
+
+    #[test]
+    fn rollback_indices_take_at_most_ten_decimal_digits() {
+        let (mut app, _rx) = open();
+        app.editor_update(EditorMessage::Input(rollback_key(4), "123456789012".into()));
+        let field = editor(&app)
+            .fields
+            .iter()
+            .find(|f| f.key == rollback_key(4))
+            .unwrap();
+        assert_eq!(editor(&app).input(field), "1234567890");
+        assert!(editor(&app).error(field).is_none());
+        app.editor_update(EditorMessage::Input(rollback_key(4), "0x10".into()));
+        let field = editor(&app)
+            .fields
+            .iter()
+            .find(|f| f.key == rollback_key(4))
+            .unwrap();
+        assert!(editor(&app).error(field).is_some());
     }
 
     #[test]

@@ -104,6 +104,7 @@ kind = "uint"
 class = "basic"
 description = "Rollback index"
 decimal = true
+max_digits = 10
 
 [[field]]
 key = "persistent[{n}].valid"

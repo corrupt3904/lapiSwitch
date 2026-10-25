@@ -172,6 +172,7 @@
   "core_map_choice": "{key} は次のいずれかの値にのみ変更できます：{choices}",
   "core_map_flag": "0 または 1 を入力してください。",
   "core_map_hex_exact": "16 進数で {size} バイト（{size2} 桁）を正確に入力してください。",
+  "core_map_max_digits": "最大 {digits} 桁まで入力できます。",
   "core_map_outside_logical": "DeviceInfo の論理サイズ（0x{logical}）外の共有バッファーは変更できません。",
   "core_map_read_only": "{key} は読み取り専用のため変更できません。",
   "core_map_region": "PRC または ROW を入力してください。",

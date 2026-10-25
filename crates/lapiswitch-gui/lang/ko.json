@@ -203,6 +203,7 @@
   "editor_current": "현재값",
   "editor_current_values_read_in_twrp_change": "TWRP에서 읽은 현재 값입니다. 필요한 필드만 수정하세요. DeviceInfo의 논리 크기인 0x{size}를 벗어나는 공유 버퍼 영역은 변경하지 않습니다.",
   "editor_custom": "사용자 지정",
+  "editor_decimal_up_to_digits": "10진수 정수, 최대 {digits}자리",
   "editor_do_not_change_default": "변경 안 함 (기본)",
   "editor_edit_deviceinfo_model": "DeviceInfo 수정 · {model}",
   "editor_every_field_is_typed_directly_wrong": "모든 필드의 값을 직접 수정할 수 있습니다. 잠금 상태, verity 설정, 공개키, AVB 값, 기기 고유 캐시나 구조 식별 값을 잘못 변경하면 부팅되지 않거나 보안 상태가 바뀔 수 있습니다.",

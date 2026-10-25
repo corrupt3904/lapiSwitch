@@ -172,6 +172,7 @@
   "core_map_choice": "{key}는 다음 값으로만 변경할 수 있습니다: {choices}",
   "core_map_flag": "0 또는 1을 입력하세요.",
   "core_map_hex_exact": "16진수 {size}바이트({size2}자리)를 정확히 입력하세요.",
+  "core_map_max_digits": "최대 {digits}자리까지 입력할 수 있습니다.",
   "core_map_outside_logical": "DeviceInfo 논리 크기(0x{logical}) 밖의 공유 버퍼는 바꿀 수 없습니다.",
   "core_map_read_only": "{key}는 읽기 전용이라 변경할 수 없습니다.",
   "core_map_region": "PRC 또는 ROW를 입력하세요.",

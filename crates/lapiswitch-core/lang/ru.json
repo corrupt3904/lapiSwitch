@@ -172,6 +172,7 @@
   "core_map_choice": "Поле {key} можно изменить только на одно из значений: {choices}",
   "core_map_flag": "Введите 0 или 1.",
   "core_map_hex_exact": "Введите ровно {size} байт в шестнадцатеричном виде ({size2} цифр).",
+  "core_map_max_digits": "Можно ввести не более {digits} цифр.",
   "core_map_outside_logical": "Общий буфер за пределами логического размера DeviceInfo (0x{logical}) изменить нельзя.",
   "core_map_read_only": "Поле {key} доступно только для чтения и не может быть изменено.",
   "core_map_region": "Введите PRC или ROW.",

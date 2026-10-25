@@ -167,7 +167,7 @@ fn nav_section(app: &App) -> usize {
         Page::Recovery => 3,
         Page::Settings => 4,
         Page::Dump => 5,
-        Page::Parse => 6,
+        Page::Parse | Page::ParseView => 6,
         Page::Progress | Page::Result => match app.run_kind {
             RunKind::Convert => 1,
             RunKind::Edit => 2,
@@ -609,7 +609,7 @@ fn stepper(app: &App) -> Element<'_, Message> {
 /// titles line up with the flashing pages below the step breadcrumb.
 fn deviceinfo_task(app: &App) -> bool {
     match app.page {
-        Page::Edit | Page::Dump | Page::Parse | Page::Recovery => true,
+        Page::Edit | Page::Dump | Page::Parse | Page::ParseView | Page::Recovery => true,
         Page::Progress | Page::Result => matches!(
             app.run_kind,
             RunKind::Edit | RunKind::Dump | RunKind::Restore
@@ -678,6 +678,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Page::Edit => edit(app),
         Page::Dump => dump(app),
         Page::Parse => parse_page(app),
+        Page::ParseView => parse_result_page(app),
         Page::Firmware => firmware(app),
         Page::Confirm => confirm(app),
         Page::Progress => progress(app),
@@ -1551,27 +1552,75 @@ fn parse_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         group(rows),
     ]
     .spacing(16);
+    let mut ready = false;
     if let Some(parsed) = parsed {
         match &parsed.view {
             None => content = content.push(note(app.tr("view_model_not_detected"), true)),
             Some((_, view)) => {
+                ready = true;
                 if !parse::fits(view.layout, &parsed.opened.bytes) {
                     content = content.push(warning_note(
                         app.tr("view_this_file_does_not_fit_the_chosen"),
                     ));
                 }
-                content = content
-                    .push(
-                        iced::widget::text_input(app.tr("editor_search_fields"), &view.query)
-                            .on_input(|text| {
-                                Message::Editor(super::editor::EditorMessage::Query(text))
-                            })
-                            .padding(8),
-                    )
-                    .push(super::editor::field_list(app, view));
             }
         }
     }
+    (
+        content.into(),
+        issue_footer(
+            None,
+            [
+                action(app.tr("editor_back"), Message::Back, !app.busy())
+                    .style(soft_style)
+                    .into(),
+                action(app.tr("archive_confirm"), Message::ParseShow, ready).into(),
+            ],
+        ),
+    )
+}
+/// The fields of the parsed file, read-only, selectable and searchable.
+fn parse_result_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
+    use lapiswitch_core::deviceinfo::parse::{self, Source};
+    let Some((parsed, (source, view))) = app
+        .parsed
+        .as_ref()
+        .and_then(|parsed| parsed.view.as_ref().map(|view| (parsed, view)))
+    else {
+        return (space().into(), footer(app, None));
+    };
+    let source = match source {
+        Source::Record => app.tr("view_model_from_record"),
+        Source::Detected => app.tr("view_model_detected"),
+        Source::Chosen => app.tr("view_model_chosen"),
+    };
+    let name = parsed
+        .opened
+        .path
+        .file_name()
+        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+    let mut content = column![
+        column![
+            label(app.tr("view_parse_deviceinfo")).size(28),
+            label(format!("{name} · {} · {source}", view.layout.model()))
+                .size(14)
+                .color(muted()),
+        ]
+        .spacing(4)
+    ]
+    .spacing(16);
+    if !parse::fits(view.layout, &parsed.opened.bytes) {
+        content = content.push(warning_note(
+            app.tr("view_this_file_does_not_fit_the_chosen"),
+        ));
+    }
+    content = content
+        .push(
+            iced::widget::text_input(app.tr("editor_search_fields"), &view.query)
+                .on_input(|text| Message::Editor(super::editor::EditorMessage::Query(text)))
+                .padding(8),
+        )
+        .push(super::editor::field_list(app, view));
     (content.into(), footer(app, None))
 }
 /// DeviceInfo dump setup: EDL loader, save location and consent.

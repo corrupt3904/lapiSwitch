@@ -203,6 +203,7 @@
   "editor_current": "Текущее",
   "editor_current_values_read_in_twrp_change": "Это текущие значения, считанные в TWRP. Меняйте только нужные поля. Область общего буфера за пределами логического размера DeviceInfo 0x{size} останется без изменений.",
   "editor_custom": "Вручную",
+  "editor_decimal_up_to_digits": "Десятичное целое число, не более {digits} цифр",
   "editor_do_not_change_default": "Не менять (по умолчанию)",
   "editor_edit_deviceinfo_model": "Изменить DeviceInfo · {model}",
   "editor_every_field_is_typed_directly_wrong": "Значения всех полей можно редактировать вручную. Ошибки в состоянии блокировки, настройках verity, открытом ключе, значениях AVB, уникальных кэшах устройства или маркерах структуры могут помешать загрузке или изменить состояние безопасности.",

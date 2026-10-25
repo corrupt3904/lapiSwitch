@@ -28,8 +28,10 @@ enum Page {
     Edit,
     /// DeviceInfo dump setup: EDL loader, save location and consent.
     Dump,
-    /// A saved DeviceInfo file shown field by field.
+    /// DeviceInfo parsing setup: the file and its device's field map.
     Parse,
+    /// The parsed file's fields.
+    ParseView,
     Firmware,
     Confirm,
     Progress,
@@ -77,6 +79,8 @@ enum Message {
     Parse,
     /// Read the parsed file with another device's field map.
     ParseModel(&'static str),
+    /// Show the parsed fields.
+    ParseShow,
     Editor(editor::EditorMessage),
     Recovery,
     Settings,
@@ -796,6 +800,9 @@ impl App {
             }
             Message::Editor(message) => self.editor_update(message),
             Message::ParseModel(model) => self.parse_model(model),
+            Message::ParseShow if self.parsed.as_ref().is_some_and(|p| p.view.is_some()) => {
+                self.page = Page::ParseView;
+            }
             Message::ConfirmRecoveryReboot => {
                 if let Some(confirmation) = self.reboot_confirmation.take() {
                     let delivered = confirmation.send(());
@@ -904,6 +911,7 @@ impl App {
                     Page::Firmware => Page::Dashboard,
                     Page::Confirm => Page::Firmware,
                     Page::Settings => self.return_page,
+                    Page::ParseView => Page::Parse,
                     _ => Page::Dashboard,
                 };
             }
@@ -1631,9 +1639,18 @@ impl App {
                 self.edl_confirmation = Some(tx);
             }
             "confirm" => self.page = Page::Confirm,
-            "parse" => {
+            "parse" | "parse-view" | "parse-view-long" => {
                 self.page = Page::Parse;
                 self.demo_pick(Picker::DeviceInfoFile);
+                if screen != "parse" {
+                    self.page = Page::ParseView;
+                }
+                // The longest value: the 2048-byte public key.
+                if screen == "parse-view-long" {
+                    let _ = self.update(Message::Editor(editor::EditorMessage::Query(
+                        "user_public_key".into(),
+                    )));
+                }
             }
             "deviceinfo-edit" => {
                 self.page = Page::Edit;
@@ -2137,6 +2154,11 @@ mod tests {
             view(&app),
             (Source::Detected, "TB520FU", String::new(), true)
         );
+        // Confirm shows the fields; Back returns to the file.
+        let _ = app.update(Message::ParseShow);
+        assert_eq!(app.page, Page::ParseView);
+        let _ = app.update(Message::Back);
+        assert_eq!(app.page, Page::Parse);
         let _ = app.update(Message::ParseModel("TB522FU"));
         assert_eq!(view(&app).0, Source::Chosen);
         assert_eq!(view(&app).1, "TB522FU");
@@ -2697,6 +2719,8 @@ mod tests {
                 "deviceinfo-editor-rollback",
                 "deviceinfo-editor-review",
                 "parse",
+                "parse-view",
+                "parse-view-long",
                 "deviceinfo-editor-notices",
                 "deviceinfo-editor-custom-notices",
                 "deviceinfo-editor-country",

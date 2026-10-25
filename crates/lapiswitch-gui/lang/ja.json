@@ -203,6 +203,7 @@
   "editor_current": "現在値",
   "editor_current_values_read_in_twrp_change": "TWRP で読み取った現在の値です。必要なフィールドだけを変更してください。DeviceInfo の論理サイズ 0x{size} を超える共有バッファー領域は変更しません。",
   "editor_custom": "カスタム",
+  "editor_decimal_up_to_digits": "10 進数の整数、最大 {digits} 桁",
   "editor_do_not_change_default": "変更しない（既定）",
   "editor_edit_deviceinfo_model": "DeviceInfo を編集 · {model}",
   "editor_every_field_is_typed_directly_wrong": "すべてのフィールドの値を直接編集できます。ロック状態、verity の設定、公開鍵、AVB 値、デバイス固有のキャッシュ、構造マーカーを誤って変更すると、起動できなくなったり、セキュリティ状態が変わったりする可能性があります。",

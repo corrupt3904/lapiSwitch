@@ -43,6 +43,8 @@ pub struct Field {
     pub choices: &'static [&'static str],
     /// A `uint` shown and entered in decimal only.
     pub decimal: bool,
+    /// Most decimal digits a new value may have; 0 for no limit.
+    pub max_digits: usize,
 }
 
 /// The logical DeviceInfo structure: fields in offset order, without gaps.

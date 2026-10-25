@@ -59,6 +59,8 @@ pub struct Field {
     pub choices: &'static [&'static str],
     /// A `uint` shown and entered in decimal only.
     pub decimal: bool,
+    /// Most decimal digits a new value may have; 0 for no limit.
+    pub max_digits: usize,
 }
 
 impl Field {
@@ -126,6 +128,7 @@ impl Layout {
                 editable: field.editable,
                 choices: field.choices,
                 decimal: field.decimal,
+                max_digits: field.max_digits,
             })
             .collect()
     }
@@ -288,6 +291,12 @@ pub fn encode(field: &Field, input: &str) -> Result<Vec<u8>, String> {
             _ => return Err(crate::msg!("core_map_flag")),
         },
         Kind::Uint => {
+            if field.max_digits > 0 && text.len() > field.max_digits {
+                return Err(crate::msg!(
+                    "core_map_max_digits",
+                    digits = field.max_digits
+                ));
+            }
             let value = parse_uint(text, field.size, field.decimal)?;
             out.copy_from_slice(&value.to_le_bytes()[..field.size]);
         }
@@ -489,10 +498,10 @@ pub(crate) mod tests {
             0x6A727D00u64.to_le_bytes()
         );
         assert_eq!(
-            encode(&f("rollback_index[3]"), "18446744073709551615").unwrap(),
-            [0xFF; 8]
+            encode(&f("user_public_key_length"), "4294967295").unwrap(),
+            [0xFF; 4]
         );
-        assert!(encode(&f("rollback_index[3]"), "18446744073709551616").is_err());
+        assert!(encode(&f("rollback_index[3]"), "18446744073709551615").is_err());
         assert!(encode(&f("rollback_index[3]"), "-1").is_err());
         assert!(encode(&f("user_public_key_length"), "0x100000000").is_err());
         // Region.
@@ -579,6 +588,9 @@ pub(crate) mod tests {
                 encode(&f("rollback_index[1]"), "16").unwrap(),
                 16u64.to_le_bytes()
             );
+            // At most 10 digits.
+            assert!(encode(&f("rollback_index[1]"), "9999999999").is_ok());
+            assert!(encode(&f("rollback_index[1]"), "10000000000").is_err());
             assert!(encode(&f("region"), "hex:524F57").is_err());
             assert_eq!(encode(&f("region"), "row").unwrap(), b"ROW");
             let changed = |key: &str, byte: u8| {

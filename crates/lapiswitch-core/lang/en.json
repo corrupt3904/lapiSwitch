@@ -172,6 +172,7 @@
   "core_map_choice": "{key} can only be changed to one of: {choices}",
   "core_map_flag": "Enter 0 or 1.",
   "core_map_hex_exact": "Enter exactly {size} bytes of hex ({size2} digits).",
+  "core_map_max_digits": "Enter at most {digits} digits.",
   "core_map_outside_logical": "The shared buffer outside the DeviceInfo logical size (0x{logical}) cannot be changed.",
   "core_map_read_only": "{key} is read-only and cannot be changed.",
   "core_map_region": "Enter PRC or ROW.",
