@@ -198,6 +198,7 @@
   "core_original_region_mismatch": "原始区域记录不一致",
   "core_originals_no_firmware": "已恢复原始 GPT 和 Recovery。将在不安装固件的情况下请求启动系统。",
   "core_originals_restored": "原始 GPT 和 {rec} 已恢复并回读验证。已保留原始 misc 转储。",
+  "core_parse_not_deviceinfo": "{path} 不是 DeviceInfo 文件。文件大小必须为 4096 字节，并以 ANDROID-BOOT! 开头。",
   "core_path_no_ancestor": "找不到该路径已存在的上级文件夹。",
   "core_pc_backup_verify_failed": "写入前 PC 上的 DeviceInfo 原始备份验证失败",
   "core_phase_not_resumable": "这是无法继续的 Recovery 阶段。请检查任务记录。",

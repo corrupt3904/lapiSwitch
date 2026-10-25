@@ -167,6 +167,7 @@ fn nav_section(app: &App) -> usize {
         Page::Recovery => 3,
         Page::Settings => 4,
         Page::Dump => 5,
+        Page::Parse => 6,
         Page::Progress | Page::Result => match app.run_kind {
             RunKind::Convert => 1,
             RunKind::Edit => 2,
@@ -301,6 +302,15 @@ fn navigation(app: &App) -> Element<'_, Message> {
             app.tr("view_dump_deviceinfo"),
             Message::Dump,
             idle && supported,
+            false
+        ),
+        // Reads a saved file only, so it needs no connected device.
+        item(
+            6,
+            glyph::DOCUMENT,
+            app.tr("view_parse_deviceinfo"),
+            Message::Parse,
+            idle,
             false
         ),
         space().height(Fill),
@@ -599,7 +609,7 @@ fn stepper(app: &App) -> Element<'_, Message> {
 /// titles line up with the flashing pages below the step breadcrumb.
 fn deviceinfo_task(app: &App) -> bool {
     match app.page {
-        Page::Edit | Page::Dump | Page::Recovery => true,
+        Page::Edit | Page::Dump | Page::Parse | Page::Recovery => true,
         Page::Progress | Page::Result => matches!(
             app.run_kind,
             RunKind::Edit | RunKind::Dump | RunKind::Restore
@@ -667,6 +677,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Page::Dashboard => dashboard_view::dashboard(app),
         Page::Edit => edit(app),
         Page::Dump => dump(app),
+        Page::Parse => parse_page(app),
         Page::Firmware => firmware(app),
         Page::Confirm => confirm(app),
         Page::Progress => progress(app),
@@ -1485,6 +1496,83 @@ fn loader_row(app: &App) -> Element<'_, Message> {
         app.tr("view_choose_file"),
         Picker::Loader,
     )
+}
+/// DeviceInfo parsing: a saved file shown field by field with the map of
+/// its device, read-only.
+fn parse_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
+    use lapiswitch_core::deviceinfo::parse::{self, Source};
+    let parsed = app.parsed.as_ref();
+    let mut rows = vec![path_row(
+        app,
+        app.tr("view_deviceinfo_file"),
+        parsed.map(|p| p.opened.path.as_path()),
+        app.tr("view_choose_file"),
+        Picker::DeviceInfoFile,
+    )];
+    if let Some(parsed) = parsed {
+        let current = parsed.view.as_ref().map(|(_, view)| view.layout);
+        let mut models = row![].spacing(8);
+        for layout in parse::layouts() {
+            models = models.push(
+                action(
+                    layout.model(),
+                    Message::ParseModel(layout.model()),
+                    !app.busy(),
+                )
+                .style(if current == Some(layout) {
+                    fluent::accent_style
+                } else {
+                    soft_style
+                }),
+            );
+        }
+        let source = match parsed.view.as_ref().map(|(source, _)| *source) {
+            Some(Source::Record) => app.tr("view_model_from_record"),
+            Some(Source::Detected) => app.tr("view_model_detected"),
+            Some(Source::Chosen) => app.tr("view_model_chosen"),
+            None => app.tr("view_model_not_detected"),
+        };
+        rows.push(group_row(
+            app.tr("view_model"),
+            column![models, small(source)].spacing(6).into(),
+            None,
+        ));
+        rows.push(group_row(
+            "SHA-256",
+            label(parsed.opened.sha256.clone())
+                .size(13)
+                .color(muted())
+                .into(),
+            None,
+        ));
+    }
+    let mut content = column![
+        title(app, "view_parse_deviceinfo", "view_parse_description"),
+        group(rows),
+    ]
+    .spacing(16);
+    if let Some(parsed) = parsed {
+        match &parsed.view {
+            None => content = content.push(note(app.tr("view_model_not_detected"), true)),
+            Some((_, view)) => {
+                if !parse::fits(view.layout, &parsed.opened.bytes) {
+                    content = content.push(warning_note(
+                        app.tr("view_this_file_does_not_fit_the_chosen"),
+                    ));
+                }
+                content = content
+                    .push(
+                        iced::widget::text_input(app.tr("editor_search_fields"), &view.query)
+                            .on_input(|text| {
+                                Message::Editor(super::editor::EditorMessage::Query(text))
+                            })
+                            .padding(8),
+                    )
+                    .push(super::editor::field_list(app, view));
+            }
+        }
+    }
+    (content.into(), footer(app, None))
 }
 /// DeviceInfo dump setup: EDL loader, save location and consent.
 fn dump(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {

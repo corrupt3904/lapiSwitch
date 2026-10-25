@@ -198,6 +198,7 @@
   "core_original_region_mismatch": "원래 리전 기록 불일치",
   "core_originals_no_firmware": "원본 GPT·Recovery를 복구했습니다. 펌웨어 설치 없이 시스템 부팅을 요청합니다.",
   "core_originals_restored": "원본 GPT·{rec} 복구 및 재읽기 검증 완료. misc 원본 덤프는 보존했습니다.",
+  "core_parse_not_deviceinfo": "{path}는 DeviceInfo 파일이 아닙니다. 크기가 4096바이트이고 ANDROID-BOOT!로 시작해야 합니다.",
   "core_path_no_ancestor": "경로의 상위 폴더 없음",
   "core_pc_backup_verify_failed": "쓰기 전 PC DeviceInfo 원본 백업 검증 실패",
   "core_phase_not_resumable": "이어갈 수 없는 Recovery 단계입니다. 작업 기록을 확인하세요.",

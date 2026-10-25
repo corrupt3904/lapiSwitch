@@ -400,7 +400,7 @@ pub fn edits_between(layout: Layout, before: &[u8], planned: &[u8]) -> Edits {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn tb520() -> Layout {

@@ -1,6 +1,7 @@
 //! QSEECom DeviceInfo of the running model, independent of transport. Field
 //! layouts live in `map`; plans are field edits applied to the live buffer.
 pub mod map;
+pub mod parse;
 use crate::region::Region;
 use serde::{Deserialize, Serialize};
 

@@ -71,6 +71,8 @@ pub(crate) struct Editor {
     pub(crate) country: Option<String>,
     /// Persistent value sets shown open on the custom tab.
     pub(crate) persistent_open: std::collections::BTreeSet<usize>,
+    /// Shows every field without inputs (DeviceInfo parsing).
+    pub(crate) view_only: bool,
     reply: Option<Sender<Option<EditRequest>>>,
 }
 
@@ -96,7 +98,30 @@ impl Editor {
             checking: false,
             country: None,
             persistent_open: Default::default(),
+            view_only: false,
             reply: Some(reply),
+        }
+    }
+    /// The fields of a saved DeviceInfo file, shown read-only.
+    pub(crate) fn viewer(layout: Layout, bytes: Vec<u8>) -> Self {
+        let (reply, _) = std::sync::mpsc::channel();
+        let mut viewer = Self::new(layout, bytes, reply);
+        viewer.reply = None;
+        viewer.view_only = true;
+        viewer.tab = Tab::Custom;
+        viewer
+    }
+    /// The search and the open persistent sets of a viewer.
+    pub(crate) fn view_update(&mut self, message: EditorMessage) {
+        match message {
+            EditorMessage::Query(query) => self.query = query,
+            EditorMessage::Persistent(n) => self.toggle_persistent(n),
+            _ => {}
+        }
+    }
+    fn toggle_persistent(&mut self, n: usize) {
+        if !self.persistent_open.remove(&n) {
+            self.persistent_open.insert(n);
         }
     }
     fn original(&self, field: &Field) -> String {
@@ -266,11 +291,7 @@ impl App {
                 return;
             }
             EditorMessage::Ack(ack) => editor.protected_ack = ack,
-            EditorMessage::Persistent(n) => {
-                if !editor.persistent_open.remove(&n) {
-                    editor.persistent_open.insert(n);
-                }
-            }
+            EditorMessage::Persistent(n) => editor.toggle_persistent(n),
             EditorMessage::Apply => {
                 if editor.review && ready {
                     let request = editor.request();
@@ -458,24 +479,24 @@ fn choice_row<'a>(
 
 /// A read-only field: its value without an input.
 fn read_only_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<'a, Message> {
+    let mut head = row![
+        label(field.key.clone()).size(15),
+        small(format!("0x{:04X} · {}B", field.offset, field.size)),
+        small(
+            app.preferences
+                .language
+                .field_description(field.description)
+        ),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    if !field.editable {
+        head = head
+            .push(space().width(Fill))
+            .push(small(app.tr("editor_read_only")));
+    }
     basic_box(
-        column![
-            row![
-                label(field.key.clone()).size(15),
-                small(format!("0x{:04X} · {}B", field.offset, field.size)),
-                small(
-                    app.preferences
-                        .language
-                        .field_description(field.description)
-                ),
-                space().width(Fill),
-                small(app.tr("editor_read_only")),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center),
-            label(short(&editor.original(field))).size(14),
-        ]
-        .spacing(6),
+        column![head, label(short(&editor.original(field))).size(14),].spacing(6),
         false,
     )
 }
@@ -530,6 +551,9 @@ fn basic_box<'a>(content: widget::Column<'a, Message>, changed: bool) -> Element
 }
 
 fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
+    if editor.view_only {
+        return rollback_values(app, editor);
+    }
     let selected = editor.rollback_choice();
     // "0" duplicates "Current" when every stored index is already 0.
     let all_zero = lapiswitch_core::deviceinfo::indices(editor.layout, &editor.before)
@@ -580,6 +604,36 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
     basic_box(content, selected != RollbackChoice::Current)
 }
 
+/// The 32 rollback indices as values, for a viewer.
+fn rollback_values<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
+    let indices = lapiswitch_core::deviceinfo::indices(editor.layout, &editor.before);
+    let mut grid = column![].spacing(4);
+    for chunk in indices.chunks(4).enumerate() {
+        let (line, values) = chunk;
+        let mut cells = row![].spacing(8);
+        for (i, value) in values.iter().enumerate() {
+            cells = cells.push(small(format!("[{}] {value}", line * 4 + i)).width(Fill));
+        }
+        grid = grid.push(cells);
+    }
+    basic_box(
+        column![
+            row![
+                label(app.tr("editor_32_rollback_indices")).size(15),
+                small(format!(
+                    "rollback_index[0..31] · 0x{:04X} · 8B × 32",
+                    editor.layout.rollback_start()
+                )),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+            grid,
+        ]
+        .spacing(8),
+        false,
+    )
+}
+
 fn kind_hint(app: &App, field: &Field) -> String {
     match field.kind {
         Kind::Flag => app.tr("editor_0_or_1").into(),
@@ -614,7 +668,7 @@ fn short(value: &str) -> String {
 }
 
 fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<'a, Message> {
-    if !field.editable {
+    if !field.editable || editor.view_only {
         return read_only_row(app, editor, field);
     }
     if !options(field).is_empty() {
@@ -907,6 +961,46 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
     .max_width(820)
 }
 
+/// Every field of the custom tab, filtered by the search; without a search
+/// the rollback indices and the persistent value sets are one box each.
+pub(super) fn field_list<'a>(app: &'a App, editor: &'a Editor) -> widget::Column<'a, Message> {
+    let mut list = column![].spacing(8);
+    // The key, the English description and the shown translation all match.
+    let query = editor.query.trim().to_lowercase();
+    let language = app.preferences.language;
+    // Without a search the rollback indices and the persistent value sets
+    // are one grouped box each.
+    let grouped = query.is_empty();
+    let mut rollback_shown = false;
+    let mut persistent_shown = false;
+    for field in editor.fields.iter().filter(|field| {
+        query.is_empty()
+            || field.key.to_lowercase().contains(&query)
+            || field.description.to_lowercase().contains(&query)
+            || language
+                .field_description(field.description)
+                .to_lowercase()
+                .contains(&query)
+    }) {
+        if grouped && field.key.starts_with("rollback_index[") {
+            if !rollback_shown {
+                rollback_shown = true;
+                list = list.push(rollback_row(app, editor));
+            }
+            continue;
+        }
+        if grouped && persistent_index(&field.key).is_some() {
+            if !persistent_shown {
+                persistent_shown = true;
+                list = list.push(persistent_box(app, editor));
+            }
+            continue;
+        }
+        list = list.push(field_row(app, editor, field));
+    }
+    list
+}
+
 pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message> {
     if editor.review {
         return review(app, editor);
@@ -933,43 +1027,12 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
             .push(basic_choice(app, editor, LOCK_KEYS[1]))
             .push(rollback_row(app, editor));
     } else {
-        list = list.push(note(
-            app.tr("editor_every_field_is_typed_directly_wrong"),
-            true,
-        ));
-        // The key, the English description and the shown translation all match.
-        let query = editor.query.trim().to_lowercase();
-        let language = app.preferences.language;
-        // Without a search the rollback indices and the persistent value sets
-        // are one grouped box each.
-        let grouped = query.is_empty();
-        let mut rollback_shown = false;
-        let mut persistent_shown = false;
-        for field in editor.fields.iter().filter(|field| {
-            query.is_empty()
-                || field.key.to_lowercase().contains(&query)
-                || field.description.to_lowercase().contains(&query)
-                || language
-                    .field_description(field.description)
-                    .to_lowercase()
-                    .contains(&query)
-        }) {
-            if grouped && field.key.starts_with("rollback_index[") {
-                if !rollback_shown {
-                    rollback_shown = true;
-                    list = list.push(rollback_row(app, editor));
-                }
-                continue;
-            }
-            if grouped && persistent_index(&field.key).is_some() {
-                if !persistent_shown {
-                    persistent_shown = true;
-                    list = list.push(persistent_box(app, editor));
-                }
-                continue;
-            }
-            list = list.push(field_row(app, editor, field));
-        }
+        list = list
+            .push(note(
+                app.tr("editor_every_field_is_typed_directly_wrong"),
+                true,
+            ))
+            .push(field_list(app, editor));
     }
     let mut body = column![
         label(

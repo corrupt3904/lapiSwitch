@@ -198,6 +198,7 @@
   "core_original_region_mismatch": "元のリージョンの記録が一致しません",
   "core_originals_no_firmware": "元の GPT・Recovery を復元しました。ファームウェアをインストールせずにシステム起動を要求します。",
   "core_originals_restored": "元の GPT・{rec} の復元と再読み取り検証が完了しました。元の misc ダンプは保持しました。",
+  "core_parse_not_deviceinfo": "{path} は DeviceInfo ファイルではありません。4096 バイトで、ANDROID-BOOT! で始まる必要があります。",
   "core_path_no_ancestor": "このパスに対して、存在する上位フォルダーが見つかりません。",
   "core_pc_backup_verify_failed": "書き込み前の PC 上の DeviceInfo 元バックアップの検証に失敗しました",
   "core_phase_not_resumable": "再開できない Recovery の段階です。作業記録を確認してください。",

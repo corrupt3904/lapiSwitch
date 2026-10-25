@@ -28,6 +28,8 @@ enum Page {
     Edit,
     /// DeviceInfo dump setup: EDL loader, save location and consent.
     Dump,
+    /// A saved DeviceInfo file shown field by field.
+    Parse,
     Firmware,
     Confirm,
     Progress,
@@ -61,6 +63,7 @@ enum Picker {
     EditorFirmware,
     Export,
     DumpRoot,
+    DeviceInfoFile,
 }
 #[derive(Debug, Clone)]
 enum Message {
@@ -71,6 +74,9 @@ enum Message {
     Convert,
     Edit,
     Dump,
+    Parse,
+    /// Read the parsed file with another device's field map.
+    ParseModel(&'static str),
     Editor(editor::EditorMessage),
     Recovery,
     Settings,
@@ -194,6 +200,8 @@ struct App {
     rollback_confirmation: Option<(String, Sender<bool>)>,
     /// The live DeviceInfo editor while the tablet waits in TWRP.
     editor: Option<editor::Editor>,
+    /// The DeviceInfo file opened on the parsing page.
+    parsed: Option<Parsed>,
     /// The country picker opened by Continue on the firmware page: Select
     /// moves on to the final check, Cancel stays.
     choosing_from_next: bool,
@@ -286,6 +294,7 @@ impl App {
             firmware_confirmation: None,
             rollback_confirmation: None,
             editor: None,
+            parsed: None,
             choosing_from_next: false,
             system_dark: false,
             logs: VecDeque::new(),
@@ -778,7 +787,15 @@ impl App {
                     let _ = tx.send(reset);
                 }
             }
+            // The editor is open only during a run; otherwise the parsing
+            // page's viewer takes the search and the persistent sets.
+            Message::Editor(message) if self.editor.is_none() => {
+                if let Some((_, view)) = self.parsed.as_mut().and_then(|p| p.view.as_mut()) {
+                    view.view_update(message);
+                }
+            }
             Message::Editor(message) => self.editor_update(message),
+            Message::ParseModel(model) => self.parse_model(model),
             Message::ConfirmRecoveryReboot => {
                 if let Some(confirmation) = self.reboot_confirmation.take() {
                     let delivered = confirmation.send(());
@@ -908,6 +925,11 @@ impl App {
             }
             Message::Dump if !self.device.unsupported_model() => {
                 self.page = Page::Dump;
+                self.agreed = false;
+                self.error = None;
+            }
+            Message::Parse => {
+                self.page = Page::Parse;
                 self.agreed = false;
                 self.error = None;
             }
@@ -1071,6 +1093,11 @@ impl App {
                                 .pick_file()
                                 .await
                                 .map(|f| f.path().to_owned()),
+                            Picker::DeviceInfoFile => dialog
+                                .add_filter("DeviceInfo", &["bin"])
+                                .pick_file()
+                                .await
+                                .map(|f| f.path().to_owned()),
                             Picker::Export => dialog
                                 .set_file_name("tb520-session.log")
                                 .save_file()
@@ -1132,6 +1159,10 @@ impl App {
                 self.agreed = false;
             }
             Picker::EditorFirmware => self.editor_firmware_picked(Some(path)),
+            Picker::DeviceInfoFile => {
+                let opened = lapiswitch_core::deviceinfo::parse::open(&path);
+                self.parse_opened(opened);
+            }
             Picker::Export => {
                 if let Some(source) = self.log_path.clone() {
                     self.activity = Some(Activity::Dialog);
@@ -1371,6 +1402,20 @@ impl App {
             }
             Picker::Loader => self.loader = Some("Demo/loader.melf".into()),
             Picker::DumpRoot => self.preferences.dump_root = Some("Demo/dumps".into()),
+            Picker::DeviceInfoFile => {
+                let layout = self
+                    .device
+                    .supported()
+                    .and_then(|device| device.layout())
+                    .expect("demo device map");
+                let opened = lapiswitch_core::deviceinfo::parse::from_bytes(
+                    std::path::Path::new(
+                        r"Demo\dumps\Deviceinfo_dump_TB520FU_1792800000\deviceinfo.bin",
+                    ),
+                    demo_deviceinfo(layout),
+                );
+                self.parse_opened(opened);
+            }
             Picker::EditorFirmware => {
                 if let Some(editor) = self.editor.as_mut()
                     && let Some(region) = editor.target_region()
@@ -1586,6 +1631,10 @@ impl App {
                 self.edl_confirmation = Some(tx);
             }
             "confirm" => self.page = Page::Confirm,
+            "parse" => {
+                self.page = Page::Parse;
+                self.demo_pick(Picker::DeviceInfoFile);
+            }
             "deviceinfo-edit" => {
                 self.page = Page::Edit;
                 self.loader = Some("Demo/loader.melf".into());
@@ -1848,6 +1897,44 @@ impl App {
     }
 }
 /// Synthetic DeviceInfo shaped like a device's map (no real dump data).
+/// A DeviceInfo file opened for parsing and its viewer.
+struct Parsed {
+    opened: lapiswitch_core::deviceinfo::parse::Opened,
+    /// The field map in use and how it was chosen; `None` until one is.
+    view: Option<(lapiswitch_core::deviceinfo::parse::Source, editor::Editor)>,
+}
+
+impl App {
+    fn parse_opened(&mut self, opened: Result<lapiswitch_core::deviceinfo::parse::Opened, String>) {
+        match opened {
+            Ok(opened) => {
+                let view = opened.layout.map(|(layout, source)| {
+                    (source, editor::Editor::viewer(layout, opened.bytes.clone()))
+                });
+                self.parsed = Some(Parsed { opened, view });
+            }
+            Err(error) => {
+                self.parsed = None;
+                self.error = Some(error);
+            }
+        }
+    }
+    fn parse_model(&mut self, model: &str) {
+        use lapiswitch_core::deviceinfo::{map::Layout, parse::Source};
+        let (Some(parsed), Some(layout)) = (self.parsed.as_mut(), Layout::find(model)) else {
+            return;
+        };
+        let source = match parsed.opened.layout {
+            Some((found, source)) if found == layout => source,
+            _ => Source::Chosen,
+        };
+        parsed.view = Some((
+            source,
+            editor::Editor::viewer(layout, parsed.opened.bytes.clone()),
+        ));
+    }
+}
+
 fn demo_deviceinfo(layout: lapiswitch_core::deviceinfo::map::Layout) -> Vec<u8> {
     use lapiswitch_core::deviceinfo::SHARED_SIZE;
     let mut b = vec![0u8; SHARED_SIZE];
@@ -2030,6 +2117,37 @@ mod tests {
             assert!(app.deferred.is_none());
             assert_eq!(app.activity == Some(Activity::Run), connected);
         }
+    }
+    #[test]
+    fn a_parsed_file_is_detected_and_can_be_read_with_another_model() {
+        use lapiswitch_core::deviceinfo::parse::Source;
+        let mut app = App::base(true);
+        app.seed_preview("parse");
+        assert_eq!(app.page, Page::Parse);
+        let view = |app: &App| {
+            let (source, view) = app.parsed.as_ref().unwrap().view.as_ref().unwrap();
+            (
+                *source,
+                view.layout.model(),
+                view.query.clone(),
+                view.view_only,
+            )
+        };
+        assert_eq!(
+            view(&app),
+            (Source::Detected, "TB520FU", String::new(), true)
+        );
+        let _ = app.update(Message::ParseModel("TB522FU"));
+        assert_eq!(view(&app).0, Source::Chosen);
+        assert_eq!(view(&app).1, "TB522FU");
+        let _ = app.update(Message::ParseModel("TB520FU"));
+        assert_eq!(view(&app).0, Source::Detected);
+        let _ = app.update(Message::Editor(editor::EditorMessage::Query(
+            "region".into(),
+        )));
+        assert_eq!(view(&app).2, "region");
+        // Parsing needs no device and changes nothing.
+        assert!(app.editor.is_none());
     }
     #[test]
     fn installer_waits_for_poll_and_cancellation_does_not_mark_drivers_present() {
@@ -2578,6 +2696,7 @@ mod tests {
                 "deviceinfo-editor-custom",
                 "deviceinfo-editor-rollback",
                 "deviceinfo-editor-review",
+                "parse",
                 "deviceinfo-editor-notices",
                 "deviceinfo-editor-custom-notices",
                 "deviceinfo-editor-country",

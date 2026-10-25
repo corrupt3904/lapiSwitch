@@ -198,6 +198,7 @@
   "core_original_region_mismatch": "The original region record does not match",
   "core_originals_no_firmware": "The original GPT and Recovery are restored. Requesting a system boot without installing firmware.",
   "core_originals_restored": "Original GPT and {rec} restored and verified by readback. The original misc dump is kept.",
+  "core_parse_not_deviceinfo": "{path} is not a DeviceInfo file. It must be 4096 bytes and start with ANDROID-BOOT!.",
   "core_path_no_ancestor": "No existing parent folder could be found for this path.",
   "core_pc_backup_verify_failed": "Verifying the PC DeviceInfo original backup before writing failed",
   "core_phase_not_resumable": "This Recovery phase cannot be resumed. Check the run record.",

@@ -198,6 +198,7 @@
   "core_original_region_mismatch": "Запись исходного региона не совпадает",
   "core_originals_no_firmware": "Исходные GPT и Recovery восстановлены. Запрос загрузки системы без установки прошивки.",
   "core_originals_restored": "Исходные GPT и {rec} восстановлены и проверены повторным чтением. Исходный дамп misc сохранён.",
+  "core_parse_not_deviceinfo": "{path} не является файлом DeviceInfo. Размер должен быть 4096 байт, а начало — ANDROID-BOOT!.",
   "core_path_no_ancestor": "У пути нет существующей родительской папки",
   "core_pc_backup_verify_failed": "Проверка исходной резервной копии DeviceInfo на ПК перед записью не пройдена",
   "core_phase_not_resumable": "Эту фазу Recovery нельзя продолжить. Проверьте запись операции.",
