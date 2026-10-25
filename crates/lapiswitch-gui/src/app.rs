@@ -1952,8 +1952,17 @@ impl App {
     }
 }
 
+/// The demos' DeviceInfo: a real file from `--demo-deviceinfo=PATH` when it
+/// is a complete buffer for `layout`, else a synthetic one.
 fn demo_deviceinfo(layout: lapiswitch_core::deviceinfo::map::Layout) -> Vec<u8> {
     use lapiswitch_core::deviceinfo::SHARED_SIZE;
+    if let Some(bytes) = std::env::args()
+        .find_map(|arg| arg.strip_prefix("--demo-deviceinfo=").map(PathBuf::from))
+        .and_then(|path| std::fs::read(path).ok())
+        .filter(|bytes| layout.check_buffer(bytes).is_ok())
+    {
+        return bytes;
+    }
     let mut b = vec![0u8; SHARED_SIZE];
     b[..13].copy_from_slice(b"ANDROID-BOOT!");
     b[0xCC8..0xCD0].copy_from_slice(b"deadbeef");
