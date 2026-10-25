@@ -5,6 +5,8 @@
   "AVB persistent value name": "AVB 영구 저장 값의 이름",
   "AVB persistent value name length": "AVB 영구 저장 값의 이름 길이",
   "Alignment/reserved": "정렬용/예약 영역",
+  "Allows the key combination at power-on that enters Fastboot. 0 = allowed, 1 = blocked. It is not the current mode and does not block other ways into Fastboot.": "전원을 켤 때 키 조합으로 Fastboot에 들어가는 경로를 허용할지 정합니다. 0 = 허용, 1 = 차단. 현재 모드를 나타내는 값이 아니며, 다른 Fastboot 진입 경로는 막지 않습니다.",
+  "Allows the key combination at power-on that enters Fastboot. 0 = blocked, 1 = allowed. It is not the current mode and does not block other ways into Fastboot.": "전원을 켤 때 키 조합으로 Fastboot에 들어가는 경로를 허용할지 정합니다. 0 = 차단, 1 = 허용. 현재 모드를 나타내는 값이 아니며, 다른 Fastboot 진입 경로는 막지 않습니다.",
   "Audio framework buffer": "오디오 프레임워크 버퍼",
   "Bootloader unlock state": "부트로더 잠금 해제 상태",
   "Bootloader version string": "부트로더 버전 문자열",

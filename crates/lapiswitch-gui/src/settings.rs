@@ -124,7 +124,9 @@ mod tests {
         let english: BTreeSet<String> = lapiswitch_core::device::Device::all()
             .filter_map(|device| device.layout())
             .flat_map(|layout| layout.fields())
-            .map(|field| field.description.to_owned())
+            .flat_map(|field| [field.description, field.help])
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
             .collect();
         assert!(english.len() > 20, "{english:?}");
         for language in [

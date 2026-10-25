@@ -5,6 +5,8 @@
   "AVB persistent value name": "AVB 永続値の名前",
   "AVB persistent value name length": "AVB 永続値の名前の長さ",
   "Alignment/reserved": "アライメント用／予約領域",
+  "Allows the key combination at power-on that enters Fastboot. 0 = allowed, 1 = blocked. It is not the current mode and does not block other ways into Fastboot.": "電源投入時のキー操作で Fastboot に入る経路を許可するかを決めます。0 = 許可、1 = 禁止。現在のモードを示す値ではなく、他の Fastboot 進入経路は妨げません。",
+  "Allows the key combination at power-on that enters Fastboot. 0 = blocked, 1 = allowed. It is not the current mode and does not block other ways into Fastboot.": "電源投入時のキー操作で Fastboot に入る経路を許可するかを決めます。0 = 禁止、1 = 許可。現在のモードを示す値ではなく、他の Fastboot 進入経路は妨げません。",
   "Audio framework buffer": "オーディオフレームワークのバッファー",
   "Bootloader unlock state": "ブートローダーのアンロック状態",
   "Bootloader version string": "ブートローダーのバージョン文字列",

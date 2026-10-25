@@ -803,9 +803,24 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             .max_width(660),
         )
     } else if let Some(editor) = &app.editor {
-        // The country picker opens over the editor for a region change; the
-        // editor stays visible behind it.
-        Some(if app.country_open {
+        // The country picker and a field's help open over the editor, which
+        // stays visible behind them.
+        let over = if app.country_open {
+            Some(country_view::modal(app))
+        } else {
+            super::editor::help_modal(app, editor)
+        };
+        Some(if let Some(over) = over {
+            container(stack![
+                container(super::editor::modal(app, editor)).center(Fill),
+                opaque(container(over).center(Fill).style(|_| container::Style {
+                    background: Some(Background::Color(fluent::p().scrim)),
+                    ..Default::default()
+                })),
+            ])
+            .width(Fill)
+            .height(Fill)
+        } else if app.country_open {
             container(stack![
                 container(super::editor::modal(app, editor)).center(Fill),
                 opaque(container(country_view::modal(app)).center(Fill).style(|_| {
@@ -877,6 +892,13 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Some(conflicts::modal(app))
     } else if app.country_open {
         Some(country_view::modal(app))
+    } else if let Some(help) = app
+        .parsed
+        .as_ref()
+        .and_then(|parsed| parsed.view.as_ref())
+        .and_then(|(_, view)| super::editor::help_modal(app, view))
+    {
+        Some(help)
     } else if app.rollback_open {
         Some(rollback_modal(app))
     } else if app.region_notice_open {

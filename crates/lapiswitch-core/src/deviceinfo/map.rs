@@ -61,6 +61,8 @@ pub struct Field {
     pub decimal: bool,
     /// Most decimal digits a new value may have; 0 for no limit.
     pub max_digits: usize,
+    /// What the field does on this device, in English; empty when unwritten.
+    pub help: &'static str,
 }
 
 impl Field {
@@ -129,6 +131,7 @@ impl Layout {
                 choices: field.choices,
                 decimal: field.decimal,
                 max_digits: field.max_digits,
+                help: field.help,
             })
             .collect()
     }
@@ -533,7 +536,7 @@ pub(crate) mod tests {
                 ("region".into(), "ROW".into()),
                 ("rollback_index[2]".into(), "0".into()),
                 ("is_unlocked".into(), "1".into()),
-                ("frs_uds_cache".into(), "00".repeat(32)),
+                ("persistent[0].value".into(), "AB".repeat(32)),
             ]);
             let planned = apply(layout, &before, &edits).unwrap();
             let changes = diff(layout, &before, &planned);
@@ -543,7 +546,7 @@ pub(crate) mod tests {
                 [
                     "is_unlocked",
                     "rollback_index[2]",
-                    "frs_uds_cache",
+                    "persistent[0].value",
                     "region"
                 ]
             );
@@ -598,11 +601,32 @@ pub(crate) mod tests {
                 planned[f(key).offset] = byte;
                 check_plan(layout, &before, &planned)
             };
-            for key in ["magic", "region_magic_1", "region_magic_2", "region_fill"] {
+            for key in [
+                "magic",
+                "region_magic_1",
+                "region_magic_2",
+                "region_fill",
+                "fdr_frs_uds_flag",
+                "frs_uds_cache_length",
+                "frs_uds_cache",
+            ] {
                 assert!(changed(key, b'X').is_err(), "{layout:?} {key}");
             }
-            assert!(changed("verity_mode", 3).is_ok());
-            assert!(changed("verity_mode", 4).is_err());
+            assert!(changed("verity_mode", 1).is_ok());
+            assert!(changed("verity_mode", 2).is_err());
+            // Only the recognized audio framework names and golden values.
+            let audio = f("audio_framework");
+            let with = |field: &Field, raw: &[u8]| {
+                let mut planned = before.clone();
+                planned[field.range()].fill(0);
+                planned[field.offset..field.offset + raw.len()].copy_from_slice(raw);
+                check_plan(layout, &before, &planned)
+            };
+            assert!(with(&audio, b"elite").is_ok());
+            assert!(with(&audio, b"dolby").is_err());
+            let golden = f("golden_snapshot");
+            assert!(with(&golden, &0x575757u64.to_le_bytes()).is_ok());
+            assert!(with(&golden, &1u64.to_le_bytes()).is_err());
             assert!(changed("fastboot_mode", 1).is_ok());
             assert!(changed("fastboot_mode", 2).is_err());
             assert!(changed("persistent[0].valid", 2).is_err());

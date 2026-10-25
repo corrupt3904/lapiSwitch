@@ -5,6 +5,8 @@
   "AVB persistent value name": "AVB 持久化值的名称",
   "AVB persistent value name length": "AVB 持久化值的名称长度",
   "Alignment/reserved": "对齐填充/保留区域",
+  "Allows the key combination at power-on that enters Fastboot. 0 = allowed, 1 = blocked. It is not the current mode and does not block other ways into Fastboot.": "设置开机时是否允许通过组合键进入 Fastboot。0 = 允许，1 = 禁止。该值不表示当前模式，也不会阻止其他进入 Fastboot 的方式。",
+  "Allows the key combination at power-on that enters Fastboot. 0 = blocked, 1 = allowed. It is not the current mode and does not block other ways into Fastboot.": "设置开机时是否允许通过组合键进入 Fastboot。0 = 禁止，1 = 允许。该值不表示当前模式，也不会阻止其他进入 Fastboot 的方式。",
   "Audio framework buffer": "音频框架缓冲区",
   "Bootloader unlock state": "引导加载程序解锁状态",
   "Bootloader version string": "引导加载程序版本字符串",

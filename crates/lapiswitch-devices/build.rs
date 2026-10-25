@@ -392,6 +392,7 @@ struct Field {
     choices: Vec<String>,
     decimal: bool,
     max_digits: i64,
+    help: String,
 }
 
 fn boolean(table: &Table, key: &str, default: bool, place: &str) -> Result<bool> {
@@ -455,6 +456,7 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
                 "choices",
                 "decimal",
                 "max_digits",
+                "help",
             ],
             &place,
         )?;
@@ -502,31 +504,46 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
             ));
         }
         let choices = strings(table, "choices", &place)?;
-        if !choices.is_empty() {
-            if !matches!(kind, "Kind::Flag" | "Kind::Uint") {
-                return Err(format!("{place}: `choices`는 flag·uint에만 씁니다."));
-            }
-            let max = if size == 8 {
-                u64::MAX
-            } else {
-                (1u64 << (size * 8)) - 1
-            };
-            for choice in &choices {
-                let fits = choice
-                    .parse::<u64>()
-                    .is_ok_and(|value| value <= max && value.to_string() == *choice);
-                if !fits || (kind == "Kind::Flag" && !matches!(choice.as_str(), "0" | "1")) {
-                    return Err(format!(
-                        "{place}: `choices`의 `{choice}`가 이 필드에 맞지 않습니다."
-                    ));
+        for choice in &choices {
+            // Each choice is written exactly as the app shows the value.
+            let fits = match kind {
+                "Kind::Flag" => matches!(choice.as_str(), "0" | "1"),
+                "Kind::Uint" => {
+                    let max = if size == 8 {
+                        u64::MAX
+                    } else {
+                        (1u64 << (size * 8)) - 1
+                    };
+                    if size <= 2 || decimal {
+                        choice
+                            .parse::<u64>()
+                            .is_ok_and(|value| value <= max && value.to_string() == *choice)
+                    } else {
+                        choice.strip_prefix("0x").is_some_and(|digits| {
+                            u64::from_str_radix(digits, 16).is_ok_and(|value| {
+                                value <= max && format!("0x{value:X}") == *choice
+                            })
+                        })
+                    }
                 }
-            }
-            if size > 2 && !decimal {
+                "Kind::Text" | "Kind::TextNul" => {
+                    let room = size - i64::from(kind == "Kind::TextNul");
+                    !choice.is_empty()
+                        && choice.len() as i64 <= room
+                        && choice.bytes().all(|b| (0x20..=0x7E).contains(&b))
+                }
+                _ => false,
+            };
+            if !fits {
                 return Err(format!(
-                    "{place}: 2바이트를 넘는 uint의 `choices`는 `decimal = true`와 함께 씁니다."
+                    "{place}: `choices`의 `{choice}`가 이 필드에 맞지 않습니다."
                 ));
             }
         }
+        let help = match table.get("help") {
+            None => String::new(),
+            Some(_) => string(table, "help", &place)?.to_owned(),
+        };
         let repeated = table.contains_key("count") || table.contains_key("stride");
         if repeated != key.contains("{n}") {
             return Err(format!(
@@ -553,6 +570,7 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
                 choices: choices.clone(),
                 decimal,
                 max_digits,
+                help: help.clone(),
             });
         }
     }
@@ -623,8 +641,8 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
     for f in &fields {
         writeln!(
             code,
-            "            Field {{ key: {:?}, offset: {}, size: {}, kind: {}, class: {}, description: {:?}, editable: {}, choices: &{:?}, decimal: {}, max_digits: {} }},",
-            f.key, f.offset, f.size, f.kind, f.class, f.description, f.editable, f.choices, f.decimal, f.max_digits
+            "            Field {{ key: {:?}, offset: {}, size: {}, kind: {}, class: {}, description: {:?}, editable: {}, choices: &{:?}, decimal: {}, max_digits: {}, help: {:?} }},",
+            f.key, f.offset, f.size, f.kind, f.class, f.description, f.editable, f.choices, f.decimal, f.max_digits, f.help
         )
         .unwrap();
     }

@@ -55,6 +55,8 @@ pub(crate) enum EditorMessage {
     Draft(String, text_editor::Action),
     /// Opens or closes the 32 rollback index fields.
     RollbackOpen,
+    /// Shows a field's help in its own window; `None` closes it.
+    Help(Option<String>),
     Apply,
     Cancel,
 }
@@ -83,6 +85,8 @@ pub(crate) struct Editor {
     pub(crate) view_only: bool,
     /// The 32 rollback index fields are shown, whatever the rollback choice.
     pub(crate) rollback_open: bool,
+    /// The field whose help window is open.
+    pub(crate) help: Option<String>,
     /// Every field's read value as selectable text, by field key.
     texts: BTreeMap<String, text_editor::Content>,
     /// The multi-line inputs of editable bytes fields, kept equal to
@@ -129,6 +133,7 @@ impl Editor {
             persistent_open: Default::default(),
             view_only: false,
             rollback_open: false,
+            help: None,
             texts,
             drafts,
             reply: Some(reply),
@@ -150,6 +155,7 @@ impl Editor {
             EditorMessage::Query(query) => self.query = query,
             EditorMessage::Persistent(n) => self.toggle_persistent(n),
             EditorMessage::RollbackOpen => self.rollback_open = !self.rollback_open,
+            EditorMessage::Help(key) => self.help = key,
             EditorMessage::Select(key, action) => self.select(&key, action),
             _ => {}
         }
@@ -392,6 +398,7 @@ impl App {
             EditorMessage::Ack(ack) => editor.protected_ack = ack,
             EditorMessage::Persistent(n) => editor.toggle_persistent(n),
             EditorMessage::RollbackOpen => editor.rollback_open = !editor.rollback_open,
+            EditorMessage::Help(key) => editor.help = key,
             EditorMessage::Select(key, action) => {
                 editor.select(&key, action);
                 return;
@@ -547,7 +554,9 @@ fn choice_row<'a>(
     let locked = if field.kind == Kind::Region {
         editor.layout.region(&editor.before).is_none()
     } else {
-        !options.contains(&original.as_str())
+        // An empty text field (nothing set yet) may take one of the choices.
+        let unset_text = matches!(field.kind, Kind::Text { .. }) && original.is_empty();
+        !(options.contains(&original.as_str()) || unset_text)
     };
     let mut choices = row![choice(
         format!("{} ({})", app.tr("editor_current"), short(&original)),
@@ -584,12 +593,65 @@ fn choice_row<'a>(
         ]
     }
     .spacing(10)
-    .align_y(Alignment::Center);
+    .align_y(Alignment::Center)
+    .extend(help_button(field));
     let mut content = column![head, choices].spacing(8);
     if locked {
         content = content.push(small(app.tr("editor_the_read_value_is_not_one_of")));
     }
     basic_box(content.extend(field_notice(app, editor, field)), !unchanged)
+}
+
+/// The circled question mark that opens a field's help; only for a field
+/// that has one.
+fn help_button<'a>(field: &Field) -> Option<Element<'a, Message>> {
+    if field.help.is_empty() {
+        return None;
+    }
+    Some(
+        button(super::fluent::icon('\u{E9CE}').size(14).color(muted()))
+            .padding(2)
+            .style(|_, _| button::Style::default())
+            .on_press(Message::Editor(EditorMessage::Help(Some(
+                field.key.clone(),
+            ))))
+            .into(),
+    )
+}
+
+/// The help window of the field `editor.help` names.
+pub(super) fn help_modal<'a>(
+    app: &'a App,
+    editor: &'a Editor,
+) -> Option<widget::Container<'a, Message>> {
+    let key = editor.help.as_ref()?;
+    let field = editor.fields.iter().find(|f| &f.key == key)?;
+    let language = app.preferences.language;
+    Some(
+        panel(
+            column![
+                column![
+                    label(language.field_description(field.description)).size(22),
+                    small(format!(
+                        "{} · 0x{:04X} · {}B",
+                        field.key, field.offset, field.size
+                    )),
+                ]
+                .spacing(4),
+                label(language.field_description(field.help)).size(14),
+                row![
+                    space().width(Fill),
+                    action(
+                        app.tr("licenses_close"),
+                        Message::Editor(EditorMessage::Help(None)),
+                        true
+                    ),
+                ],
+            ]
+            .spacing(18),
+        )
+        .max_width(620),
+    )
 }
 
 /// A read-only field: its value without an input.
@@ -604,7 +666,8 @@ fn read_only_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Elem
         ),
     ]
     .spacing(10)
-    .align_y(Alignment::Center);
+    .align_y(Alignment::Center)
+    .extend(help_button(field));
     // A viewer is read-only as a whole, so the mark is left out there.
     if !field.editable && !editor.view_only {
         head = head
@@ -630,7 +693,8 @@ fn locked_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element
         ),
     ]
     .spacing(10)
-    .align_y(Alignment::Center);
+    .align_y(Alignment::Center)
+    .extend(help_button(field));
     // The same box as a typed field, without input.
     let value = text_input("", editor.input(field)).padding(8).size(14);
     let mut content = column![head, value].spacing(6);
@@ -847,7 +911,8 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
         ),
     ]
     .spacing(10)
-    .align_y(Alignment::Center);
+    .align_y(Alignment::Center)
+    .extend(help_button(field));
     if changed {
         head = head.push(space().width(Fill)).push(
             button(small(app.tr("editor_original")))

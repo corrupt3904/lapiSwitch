@@ -45,6 +45,8 @@ pub struct Field {
     pub decimal: bool,
     /// Most decimal digits a new value may have; 0 for no limit.
     pub max_digits: usize,
+    /// What the field does on this device, in English; empty when unwritten.
+    pub help: &'static str,
 }
 
 /// The logical DeviceInfo structure: fields in offset order, without gaps.
