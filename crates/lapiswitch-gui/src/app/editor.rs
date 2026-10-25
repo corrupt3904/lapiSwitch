@@ -631,7 +631,9 @@ fn locked_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element
     ]
     .spacing(10)
     .align_y(Alignment::Center);
-    let mut content = column![head, label(editor.input(field).to_owned()).size(14)].spacing(6);
+    // The same box as a typed field, without input.
+    let value = text_input("", editor.input(field)).padding(8).size(14);
+    let mut content = column![head, value].spacing(6);
     if changed {
         content = content.push(small(app.tr("editor_original")));
         if let Some(original) = selectable(editor, &field.key) {
