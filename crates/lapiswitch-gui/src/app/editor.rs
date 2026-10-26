@@ -1229,7 +1229,9 @@ fn original_line<'a>(
         .spacing(8)
         .align_y(Alignment::Start)
         .into(),
-        None => space().height(0).into(),
+        // A container, not a bare space, so the slot exists in the widget
+        // tree either way and the input below keeps its state and focus.
+        None => container(space().height(0)).into(),
     }
 }
 
@@ -1652,13 +1654,17 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
             .height(400),
     ]
     .spacing(14);
-    if editor.protected_changed() {
-        body = body.push(
+    // Always a slot, so the widgets after it keep their state when the
+    // checkbox comes and goes.
+    body = body.push(if editor.protected_changed() {
+        container(
             checkbox(editor.protected_ack)
                 .label(app.tr("editor_i_understand_that_changing_security_structure"))
                 .on_toggle(|ack| Message::Editor(EditorMessage::Ack(ack))),
-        );
-    }
+        )
+    } else {
+        container(space().height(0))
+    });
     let blocker = editor.blocker(app);
     body = body.push(
         row![
@@ -2032,5 +2038,54 @@ mod tests {
         // Short values are compared in the original and new lines alone.
         app.editor_update(EditorMessage::Input("rollback_index[1]".into(), "3".into()));
         assert!(byte_diff(&app, editor(&app), &field("rollback_index[1]")).is_none());
+    }
+
+    #[test]
+    fn changing_and_reverting_a_field_keeps_every_input_and_its_focus() {
+        use iced::advanced::widget::Tree;
+        use iced::advanced::widget::tree::State;
+        type Input = iced::widget::text_input::State<
+            <iced::Renderer as iced::advanced::text::Renderer>::Paragraph,
+        >;
+        // Every widget state in the tree, by address, and whether the
+        // text inputs among them are focused.
+        fn states(tree: &mut Tree, focus: bool, out: &mut Vec<(*const (), bool)>) {
+            if let State::Some(state) = &mut tree.state {
+                let mut focused = false;
+                if let Some(input) = state.downcast_mut::<Input>() {
+                    if focus {
+                        input.focus();
+                    }
+                    focused = input.is_focused();
+                }
+                out.push((&**state as *const dyn std::any::Any as *const (), focused));
+            }
+            for child in &mut tree.children {
+                states(child, focus, out);
+            }
+        }
+        for key in ["rollback_index[1]", "persistent[0].value"] {
+            let (mut app, _rx) = open();
+            app.editor_update(EditorMessage::Tab(Tab::Advanced));
+            app.editor_update(EditorMessage::Query(key.into()));
+            let mut tree = Tree::new(Element::from(modal(&app, editor(&app))));
+            let mut before = Vec::new();
+            states(&mut tree, true, &mut before);
+            let original = value(&app, key);
+            let changed = if key.starts_with("rollback") {
+                "7".to_owned()
+            } else {
+                format!("AB{}", &original[2..])
+            };
+            for value in [changed, original] {
+                app.editor_update(EditorMessage::Input(key.into(), value));
+                tree.diff(Element::from(modal(&app, editor(&app))));
+                let mut after = Vec::new();
+                states(&mut tree, false, &mut after);
+                for state in &before {
+                    assert!(after.contains(state), "{key}: a widget lost its state");
+                }
+            }
+        }
     }
 }

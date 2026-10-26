@@ -12,7 +12,7 @@ path = "src/main.rs"
 lapiswitch-core = { workspace = true }
 ltbox-core = { workspace = true }
 ltbox-device = { workspace = true }
-iced = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "svg", "image-without-codecs", "tokio", "x11", "wayland"] }
+iced = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "svg", "image-without-codecs", "tokio", "x11", "wayland", "advanced"] }
 nusb = { workspace = true }
 tokio = { version = "1", features = ["rt"] }
 rfd = "0.17"
