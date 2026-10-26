@@ -155,7 +155,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             Language::Korean.field_text(field.names),
-            "부트로더 잠금 해제 상태"
+            "부트로더 Unlock 플래그"
         );
         assert_eq!(
             Language::English.field_text(field.names),
