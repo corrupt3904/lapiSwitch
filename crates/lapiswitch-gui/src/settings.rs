@@ -165,6 +165,23 @@ mod tests {
             Language::Korean.field_text(["Only English", "", "", "", ""]),
             "Only English"
         );
+        // One shared file: help.<MODEL> gives each tablet its own text.
+        let help = |model: &str| {
+            let field = lapiswitch_core::deviceinfo::map::Layout::find(model)
+                .unwrap()
+                .field("fastboot_mode")
+                .unwrap();
+            Language::Korean.field_text(field.helps)
+        };
+        assert!(help("TB520FU").starts_with("0 = 허용"));
+        assert!(help("TB522FU").starts_with("0 = 차단"));
+        // A field only TB522FU has.
+        assert!(
+            lapiswitch_core::deviceinfo::map::Layout::find("TB520FU")
+                .unwrap()
+                .field("deviceinfo_format_version")
+                .is_err()
+        );
     }
 
     #[test]

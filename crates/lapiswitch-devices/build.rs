@@ -25,12 +25,11 @@ fn main() {
 }
 
 fn generate(root: &Path) -> Result<String> {
-    let mut folders: Vec<PathBuf> = std::fs::read_dir(root)
-        .map_err(|e| format!("{}: {e}", root.display()))?
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .filter(|path| path.is_dir())
-        .collect();
-    folders.sort();
+    let folders = model_folders(root)?;
+    for lang in TEXT_LANGUAGES {
+        let text = root.join("text").join(format!("{lang}.toml"));
+        println!("cargo:rerun-if-changed={}", text.display());
+    }
     let mut code = String::from(
         "/// Every folder in `devices/`, sorted by model.\npub static DEVICES: &[Device] = &[\n",
     );
@@ -38,10 +37,6 @@ fn generate(root: &Path) -> Result<String> {
     for folder in &folders {
         for name in ["device.toml", "deviceinfo.toml", "image.png"] {
             println!("cargo:rerun-if-changed={}", folder.join(name).display());
-        }
-        for lang in TEXT_LANGUAGES {
-            let text = folder.join("text").join(format!("{lang}.toml"));
-            println!("cargo:rerun-if-changed={}", text.display());
         }
         let model = folder.file_name().unwrap().to_string_lossy().into_owned();
         let (device, read) = device(folder, &model).map_err(|e| format!("{model}: {e}"))?;
@@ -410,10 +405,48 @@ struct Texts {
     helps: [String; 5],
 }
 
-/// Reads `text/<lang>.toml`: a table per field key (repeated fields keep
-/// `{n}`) or group, with `name` and `help`. English names every field;
-/// another language may leave an entry out, which shows the English one.
+/// Model folders under `devices/`; `text/` holds the shared texts.
+fn model_folders(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut folders: Vec<PathBuf> = std::fs::read_dir(root)
+        .map_err(|e| format!("{}: {e}", root.display()))?
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.is_dir() && !path.ends_with("text"))
+        .collect();
+    folders.sort();
+    Ok(folders)
+}
+
+/// The field keys (repeated fields keep `{n}`) of a device map.
+fn map_keys(doc: &DocumentMut) -> Vec<String> {
+    doc.get("field")
+        .and_then(Item::as_array_of_tables)
+        .map(|tables| {
+            tables
+                .iter()
+                .filter_map(|table| table.get("key").and_then(Item::as_str).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Reads `devices/text/<lang>.toml`, shared by every device: a table per
+/// field key or group with `name` and `help`. Either is one string for every
+/// device, or `name.<MODEL>` / `help.<MODEL>` for one device, which wins over
+/// the shared one. English names every field of the device; another language
+/// may leave an entry out, which shows the English one.
 fn texts(folder: &Path, keys: &[String]) -> Result<std::collections::BTreeMap<String, Texts>> {
+    let root = folder.parent().expect("devices/<MODEL>");
+    let model = folder.file_name().unwrap().to_string_lossy().into_owned();
+    let mut models = vec![];
+    let mut known: std::collections::BTreeSet<String> =
+        GROUP_KEYS.iter().map(|key| (*key).to_owned()).collect();
+    for other in model_folders(root)? {
+        models.push(other.file_name().unwrap().to_string_lossy().into_owned());
+        let map = other.join("deviceinfo.toml");
+        if map.is_file() {
+            known.extend(map_keys(&read(&map)?));
+        }
+    }
     let mut all: std::collections::BTreeMap<String, Texts> = keys
         .iter()
         .map(String::as_str)
@@ -421,7 +454,7 @@ fn texts(folder: &Path, keys: &[String]) -> Result<std::collections::BTreeMap<St
         .map(|key| (key.to_owned(), Texts::default()))
         .collect();
     for (index, lang) in TEXT_LANGUAGES.iter().enumerate() {
-        let path = folder.join("text").join(format!("{lang}.toml"));
+        let path = root.join("text").join(format!("{lang}.toml"));
         if !path.is_file() {
             if index == 0 {
                 return Err(format!("{}이(가) 필요합니다.", path.display()));
@@ -430,10 +463,12 @@ fn texts(folder: &Path, keys: &[String]) -> Result<std::collections::BTreeMap<St
         }
         let doc = read(&path)?;
         for (key, item) in doc.iter() {
-            let place = format!("text/{lang}.toml [{key}]");
-            let Some(texts) = all.get_mut(key) else {
-                return Err(format!("{place}: deviceinfo.toml에 없는 key입니다."));
-            };
+            let place = format!("devices/text/{lang}.toml [{key}]");
+            if !known.contains(key) {
+                return Err(format!(
+                    "{place}: 어느 기기의 deviceinfo.toml에도 없는 key입니다."
+                ));
+            }
             let table = item
                 .as_table()
                 .ok_or_else(|| format!("{place}: 표([key])여야 합니다."))?;
@@ -443,17 +478,50 @@ fn texts(folder: &Path, keys: &[String]) -> Result<std::collections::BTreeMap<St
                 if group { &["help"] } else { &["name", "help"] },
                 &place,
             )?;
-            if table.contains_key("name") {
-                texts.names[index] = string(table, "name", &place)?.trim().to_owned();
+            let mut values = [String::new(), String::new()];
+            for (slot, part) in ["name", "help"].iter().enumerate() {
+                let Some(item) = table.get(part) else {
+                    continue;
+                };
+                if let Some(text) = item.as_str() {
+                    values[slot] = text.trim().to_owned();
+                    continue;
+                }
+                let per_model = item.as_table_like().ok_or_else(|| {
+                    format!("{place}: `{part}`는 문자열이거나 `{part}.<모델>` 문자열이어야 합니다.")
+                })?;
+                for (name, value) in per_model.iter() {
+                    if !models.iter().any(|m| m == name) {
+                        return Err(format!(
+                            "{place}: `{part}.{name}`의 모델 `{name}`이 devices/에 없습니다."
+                        ));
+                    }
+                    let text = value.as_str().ok_or_else(|| {
+                        format!("{place}: `{part}.{name}`는 문자열이어야 합니다.")
+                    })?;
+                    if name == model {
+                        values[slot] = text.trim().to_owned();
+                    }
+                }
             }
-            if table.contains_key("help") {
-                texts.helps[index] = string(table, "help", &place)?.trim().to_owned();
+            // A key another device has, or a value for another model only.
+            let Some(texts) = all.get_mut(key) else {
+                continue;
+            };
+            let [name, help] = values;
+            if !name.is_empty() {
+                texts.names[index] = name;
+            }
+            if !help.is_empty() {
+                texts.helps[index] = help;
             }
         }
     }
     for key in keys {
         if all[key].names[0].is_empty() {
-            return Err(format!("text/en.toml: [{key}]의 name이 필요합니다."));
+            return Err(format!(
+                "devices/text/en.toml: [{key}]의 name이 {model}에 필요합니다."
+            ));
         }
     }
     Ok(all)

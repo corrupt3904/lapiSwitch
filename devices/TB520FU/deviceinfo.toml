@@ -9,7 +9,7 @@
 # decimal = true: a uint shown and entered in decimal only; max_digits limits its digits.
 # Required fields: magic, is_unlocked, is_unlock_critical, region, region_fill (13 bytes after
 # region, read-only), rollback_index[0..31]
-# Names and help shown in the app: text/<lang>.toml in this folder.
+# Names and help shown in the app: devices/text/<lang>.toml, shared by every device.
 
 logical_size = 0x0EA8
 

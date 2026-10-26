@@ -1,8 +1,11 @@
-# TB522FU DeviceInfo: field names and help, 简体中文.
+# DeviceInfo field names and help, 简体中文, for every device.
 #
-# [field key] as in deviceinfo.toml (repeated fields keep {n}).
+# [field key] as in devices/<MODEL>/deviceinfo.toml (repeated fields keep {n});
+# ["@rollback"] and ["@persistent"] are the two group boxes.
 # name = shown name; help = the help window text, line breaks as written.
-# A missing or empty entry falls back to en.toml.
+# Where a device differs, give it its own text: help.<MODEL> = """..."""
+# (name.<MODEL> likewise). A field only one device has is shown only there.
+# A missing entry falls back to en.toml.
 
 ["@rollback"]
 help = """
@@ -12,6 +15,7 @@ AVB 防回滚基准值，共 32 个，每项为 64 位整数。
 引导加载程序可能在启动过程中提高并保存该值。
 即使看起来像日期，它也不是发布日期，而是安全基准值。
 （已确认）
+
 """
 
 ["@persistent"]
@@ -21,6 +25,7 @@ AVB 在多次启动之间保存状态的存储区，由 8 条名称/值记录组
 为空并不表示 AVB 已关闭。
 它与 persist.img 分区是不同的区域。
 （已确认）
+
 """
 
 [magic]
@@ -30,6 +35,7 @@ DeviceInfo 格式标识，为 13 字节的 ANDROID-BOOT!。
 启动时若此值不同，引导加载程序会将整个 DeviceInfo 清零并重建默认值，公钥、回滚索引、AVB 持久化值和区域也会一并丢失。
 它不是签名或校验和，因此值正确并不代表其余内容正常。
 （已确认）
+
 """
 
 [is_unlocked]
@@ -42,6 +48,7 @@ help = """
 AVB 用它决定是否允许验证错误，它还与 Fastboot 锁定显示以及刷写、擦除限制相关联，是实际的安全判断值。
 正式的锁定更改流程会同时更新安全状态并请求清除数据，这与只修改此字节不同。
 （已确认）
+
 """
 
 [is_unlock_critical]
@@ -54,11 +61,22 @@ help = """
 为 0 时，归类为关键分区的目标将拒绝刷写和擦除。
 即使 is_unlocked = 1，只要此值为 0，关键分区的限制仍然存在。
 （已确认）
+
 """
 
 [charger_screen_enabled]
 name = "是否显示充电画面"
-help = """
+help.TB520FU = """
+0 = 启用
+1 = 不启用
+
+关机状态下连接充电器时的充电启动策略（off-mode-charge）的保存值。
+是否实际进入充电画面还会结合充电器检测和其他启动请求一起判断。
+它不表示当前是否正在充电。
+（已确认）
+
+"""
+help.TB522FU = """
 0 = 不启用
 1 = 启用
 
@@ -66,6 +84,7 @@ help = """
 是否实际进入充电画面还会结合充电器检测和其他启动请求一起判断。
 它不表示当前是否正在充电。
 （已确认）
+
 """
 
 [bootloader_version]
@@ -75,6 +94,7 @@ Fastboot version-bootloader 显示的引导加载程序版本字符串。
 修改它不会改变实际的引导加载程序代码或安全补丁状态。
 它作为字符串使用，因此末尾必须保留结束符（0）。
 （已确认）
+
 """
 
 [radio_version]
@@ -83,6 +103,7 @@ help = """
 Fastboot version-baseband 显示的 Radio/基带版本字符串。
 修改它不会改变实际的通信固件。
 （已确认）
+
 """
 
 [verity_mode]
@@ -96,6 +117,7 @@ help = """
 最终的错误处理方式（重启/EIO）由 AVB 持久化值（avb.managed_verity_mode）和镜像设置共同决定。
 2 及以上不是正常模式，会导致引导加载程序错误读取相邻的表（启动颜色字符串）。
 （已确认）
+
 """
 
 [reserved_0091]
@@ -105,6 +127,7 @@ verity_mode 之后的 3 个字节，看起来是为对齐下一个 4 字节整�
 尚未确认其有独立功能。
 没有依据表明“未使用因此可以随意修改”。
 （未确认）
+
 """
 
 [user_public_key_length]
@@ -115,16 +138,26 @@ help = """
 它不是 RSA 位数或算法编号。
 长度与内容不一致时，公钥信任判断可能出现问题。
 （已确认）
+
 """
 
 [user_public_key]
 name = "用户公钥"
-help = """
+help.TB520FU = """
+用户注册的 AVB 公钥。
+引导加载程序比较镜像公钥的长度和内容是否与之相同来决定是否信任；不一致时再与厂商内置密钥比较。
+修改它会影响 AVB 信任判断。
+它不是私钥，仅凭此值无法生成签名。
+（已确认）
+
+"""
+help.TB522FU = """
 用户注册的 AVB 公钥。
 引导加载程序比较镜像公钥的长度和内容是否与之相同来决定是否信任；不一致时再与厂商内置密钥比较。
 修改它会影响 AVB 信任判断。
 它不是私钥，仅凭此值无法生成签名。
 （已确认。TB522FU 的注册命令路径未确认）
+
 """
 
 ["rollback_index[{n}]"]
@@ -136,6 +169,7 @@ AVB 防回滚基准值，共 32 个，每项为 64 位整数。
 引导加载程序可能在启动过程中提高并保存该值。
 即使看起来像日期，它也不是发布日期，而是安全基准值。
 （已确认）
+
 """
 
 ["persistent[{n}].valid"]
@@ -144,6 +178,7 @@ help = """
 表示该记录是否正在使用。
 只有恰好为 1 时才视为使用中，2 及以上按空记录处理。
 （已确认）
+
 """
 
 ["persistent[{n}].name_length"]
@@ -151,6 +186,7 @@ name = "AVB 持久化值的名称长度"
 help = """
 用于比较名称的字节数（最多 56）。
 （已确认）
+
 """
 
 ["persistent[{n}].value_length"]
@@ -158,6 +194,7 @@ name = "AVB 持久化值的数据长度"
 help = """
 值的有效长度（最多 32）。
 （已确认）
+
 """
 
 ["persistent[{n}].name"]
@@ -166,6 +203,7 @@ help = """
 条目名称。
 其范围由长度字段决定，因此末尾可能没有结束符。
 （已确认）
+
 """
 
 ["persistent[{n}].value"]
@@ -174,6 +212,7 @@ help = """
 与名称对应的原始数据。
 不能统一解释为字符串或整数。
 （已确认）
+
 """
 
 [golden_snapshot]
@@ -184,6 +223,7 @@ help = """
 名称来自外部结构体，官方名称尚未确认。
 在分析的两个引导加载程序中，相关显示路径（Erase swap on restore）均已关闭，也未确认实际的快照恢复或 swap 删除功能。
 （部分确认）
+
 """
 
 [audio_framework]
@@ -194,6 +234,7 @@ help = """
 填入其他值时，会在启动过程中被清理为空字符串并保存。
 它不是音频固件版本或音质设置。
 （已确认）
+
 """
 
 [fdr_frs_uds_flag]
@@ -206,6 +247,7 @@ help = """
 它不会直接清除 userdata，但与安全密钥派生相关联。
 它不是 IPC 日志设置。
 （已确认）
+
 """
 
 [reserved_0CA1]
@@ -214,6 +256,7 @@ help = """
 FDR 标志与缓存长度之间的 3 个字节，看起来是对齐空间。
 尚未确认其有独立功能。
 （未确认）
+
 """
 
 [frs_uds_cache_length]
@@ -223,6 +266,7 @@ help = """
 正常值为 32，Keymint 会拒绝超过 32 的长度。
 0 表示没有缓存；是否生成新的密钥值由存储状态和 FDR 标志共同决定。
 （已确认）
+
 """
 
 [frs_uds_cache]
@@ -232,6 +276,7 @@ help = """
 Keymint 的部分密钥加密会使用由此值得出的 FRS，因此不得复制其他设备的值或恢复为旧值。
 它可能因恢复出厂设置等而改变，因此也不是固定的设备 ID。
 （已确认。内部含义以 TB520FU Keymint 为准）
+
 """
 
 [region_magic_1]
@@ -241,6 +286,7 @@ help = """
 只有两个标记都正确时，引导加载程序才会在检查中使用已保存的区域；标记不正确时会转入重新创建区域记录的路径。
 它不是签名或校验和。
 （已确认）
+
 """
 
 [region_info_version]
@@ -249,15 +295,35 @@ help = """
 区域记录版本。
 正常值为 1，2 及以上按版本不一致处理。
 （已确认）
+
+"""
+
+[oem_reserved_1]
+name = "OEM 保留区域（用途未确认）"
+help = """
+逻辑 DeviceInfo 中的未确认区域。
+尚未确认各个字节的功能。
+在以整个结构或区域记录为单位读取和保存时会一并处理。
+没有依据表明“没有任何功能因此可以设为 0”。
+（未确认）
+
 """
 
 [region]
 name = "区域"
-help = """
+help.TB520FU = """
+设备区域，为 PRC 或 ROW 共 3 个字节。
+启动时与固件 DTB 中的区域（region_country）比较，若不同，会显示“不兼容的系统”提示并停止启动。
+它与国家代码无关。
+（已确认）
+
+"""
+help.TB522FU = """
 设备区域，为 PRC 或 ROW 共 3 个字节。
 启动时与固件 DTB 中的区域（/product_region 的 build_region）比较，若不同，会显示“不兼容的系统”提示并停止启动。
 它与国家代码无关。
 （已确认）
+
 """
 
 [region_fill]
@@ -267,6 +333,7 @@ help = """
 正常状态下全部为 0。
 它不是单独的国家代码字段。
 （已确认）
+
 """
 
 [region_magic_2]
@@ -275,6 +342,7 @@ help = """
 区域记录的结束标记，为 ASCII beefdead。
 作用与 region_magic_1 相同。
 （已确认）
+
 """
 
 [region_reserved]
@@ -285,11 +353,44 @@ help = """
 在以整个结构或区域记录为单位读取和保存时会一并处理。
 没有依据表明“没有任何功能因此可以设为 0”。
 （未确认）
+
+"""
+
+[region_padding]
+name = "区域数据尾部（用途未确认）"
+help = """
+逻辑 DeviceInfo 中的未确认区域。
+尚未确认各个字节的功能。
+在以整个结构或区域记录为单位读取和保存时会一并处理。
+没有依据表明“没有任何功能因此可以设为 0”。
+（未确认）
+
+"""
+
+[oem_reserved_2]
+name = "OEM 保留区域（用途未确认）"
+help = """
+逻辑 DeviceInfo 中的未确认区域。
+尚未确认各个字节的功能。
+在以整个结构或区域记录为单位读取和保存时会一并处理。
+没有依据表明“没有任何功能因此可以设为 0”。
+（未确认）
+
 """
 
 [fastboot_mode]
 name = "Fastboot 启动模式标志"
-help = """
+help.TB520FU = """
+0 = 允许
+1 = 禁止
+
+设置开机时是否允许通过特定组合键进入 Fastboot（快捷键）。
+它不表示当前是否处于 Fastboot 模式，也不是指定下次启动进入 Fastboot 的请求。
+它不会阻止重启命令等其他进入方式。
+（已确认）
+
+"""
+help.TB522FU = """
 0 = 禁止
 1 = 允许
 
@@ -297,25 +398,44 @@ help = """
 它不表示当前是否处于 Fastboot 模式，也不是指定下次启动进入 Fastboot 的请求。
 它不会阻止重启命令等其他进入方式。
 （已确认）
+
 """
 
 [recovery_mode]
 name = "Recovery 启动模式标志"
-help = """
+help.TB520FU = """
+0 = 允许
+1 = 禁止
+
+设置是否允许通过组合键进入 Recovery（快捷键）。
+它与 misc 中的 boot-recovery 请求无关，因此不会阻止所有进入 Recovery 的方式。
+（已确认）
+
+"""
+help.TB522FU = """
 0 = 禁止
 1 = 允许
 
 设置是否允许通过组合键进入 Recovery（快捷键）。
 它与 misc 中的 boot-recovery 请求无关，因此不会阻止所有进入 Recovery 的方式。
 （已确认）
+
 """
 
 [factory_mode]
 name = "工厂模式启动标志"
-help = """
+help.TB520FU = """
+与工厂、诊断模式相关的保存值，不是执行恢复出厂设置的标志。
+为 0 时允许传递工厂模式启动参数（androidboot.mode=、ffbm-00）。
+需要同时存在其他模式请求才会生效。
+（已确认）
+
+"""
+help.TB522FU = """
 与工厂、诊断模式相关的保存值，不是执行恢复出厂设置的标志。
 已确认可以读取和保存，但未确认其控制进入 FFBM 的效果。
 （部分确认）
+
 """
 
 [deviceinfo_format_version]
@@ -325,6 +445,7 @@ DeviceInfo 格式版本字符串，正常值为 1.0。
 若此值不同，启动时会将 fastboot_mode、recovery_mode、factory_mode 全部重写为 1，并将版本改为 1.0。
 它不是用于显示，而是决定另外 3 项设置的判断值。
 （已确认）
+
 """
 
 [reserved_end]
@@ -333,4 +454,5 @@ help = """
 结构末尾未确认的 5 个字节。
 尚未确认其功能。
 （未确认）
+
 """
