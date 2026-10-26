@@ -677,7 +677,7 @@ pub(super) fn help_modal<'a>(
             ]
             .spacing(18),
         )
-        .max_width(620),
+        .max_width(960),
     )
 }
 
