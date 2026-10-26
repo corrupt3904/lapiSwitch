@@ -5,6 +5,7 @@
 # name = shown name; help = the help window text, line breaks as written.
 # Where a device differs, give it its own text: help.<MODEL> = """..."""
 # (name.<MODEL> likewise). A field only one device has is shown only there.
+# In a repeated field {n} becomes the entry number; ["rollback_index[2]"] gives one entry its own text.
 # A missing entry falls back to en.toml.
 
 ["@rollback"]
@@ -164,13 +165,42 @@ help.TB522FU = """
 ["rollback_index[{n}]"]
 name = "Индекс отката"
 help = """
-Опорные значения защиты от отката AVB: 32 записи, каждая — 64-битное целое.
-Номер — это rollback_index_location AVB, а не слот A/B.
-Если индекс отката образа ниже этого значения, возникает ошибка отката; прервётся ли загрузка, зависит также от состояния блокировки.
-Загрузчик может повышать и сохранять значение во время загрузки.
-Даже если оно похоже на дату, это не дата выпуска, а опорное значение безопасности.
-(Подтверждено)
+Rollback Index Location: {n} - не используется
 
+Индекс отката вводится только в десятичном виде, не более 10 цифр.
+Введённое значение преобразуется в 8-байтовое целое и сохраняется в порядке little-endian.
+"""
+
+["rollback_index[0]"]
+help = """
+Rollback Index Location: 0 - vbmeta
+
+Индекс отката вводится только в десятичном виде, не более 10 цифр.
+Введённое значение преобразуется в 8-байтовое целое и сохраняется в порядке little-endian.
+"""
+
+["rollback_index[1]"]
+help = """
+Rollback Index Location: 1 - recovery
+
+Индекс отката вводится только в десятичном виде, не более 10 цифр.
+Введённое значение преобразуется в 8-байтовое целое и сохраняется в порядке little-endian.
+"""
+
+["rollback_index[2]"]
+help = """
+Rollback Index Location: 2 - vbmeta_system
+
+Индекс отката вводится только в десятичном виде, не более 10 цифр.
+Введённое значение преобразуется в 8-байтовое целое и сохраняется в порядке little-endian.
+"""
+
+["rollback_index[3]"]
+help = """
+Rollback Index Location: 3 - boot
+
+Индекс отката вводится только в десятичном виде, не более 10 цифр.
+Введённое значение преобразуется в 8-байтовое целое и сохраняется в порядке little-endian.
 """
 
 ["persistent[{n}].valid"]

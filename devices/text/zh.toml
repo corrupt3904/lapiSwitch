@@ -5,6 +5,7 @@
 # name = shown name; help = the help window text, line breaks as written.
 # Where a device differs, give it its own text: help.<MODEL> = """..."""
 # (name.<MODEL> likewise). A field only one device has is shown only there.
+# In a repeated field {n} becomes the entry number; ["rollback_index[2]"] gives one entry its own text.
 # A missing entry falls back to en.toml.
 
 ["@rollback"]
@@ -163,13 +164,42 @@ help.TB522FU = """
 ["rollback_index[{n}]"]
 name = "回滚索引"
 help = """
-AVB 防回滚基准值，共 32 个，每项为 64 位整数。
-编号不是 A/B 槽位，而是 AVB 的 rollback_index_location。
-镜像的回滚索引低于此值时会产生回滚错误，是否真正中止启动还取决于锁定状态。
-引导加载程序可能在启动过程中提高并保存该值。
-即使看起来像日期，它也不是发布日期，而是安全基准值。
-（已确认）
+Rollback Index Location: {n} - 未使用
 
+回滚索引只能以十进制输入，最多 10 位。
+输入的值会转换为 8 字节整数，并以小端序（Little-endian）格式保存。
+"""
+
+["rollback_index[0]"]
+help = """
+Rollback Index Location: 0 - vbmeta
+
+回滚索引只能以十进制输入，最多 10 位。
+输入的值会转换为 8 字节整数，并以小端序（Little-endian）格式保存。
+"""
+
+["rollback_index[1]"]
+help = """
+Rollback Index Location: 1 - recovery
+
+回滚索引只能以十进制输入，最多 10 位。
+输入的值会转换为 8 字节整数，并以小端序（Little-endian）格式保存。
+"""
+
+["rollback_index[2]"]
+help = """
+Rollback Index Location: 2 - vbmeta_system
+
+回滚索引只能以十进制输入，最多 10 位。
+输入的值会转换为 8 字节整数，并以小端序（Little-endian）格式保存。
+"""
+
+["rollback_index[3]"]
+help = """
+Rollback Index Location: 3 - boot
+
+回滚索引只能以十进制输入，最多 10 位。
+输入的值会转换为 8 字节整数，并以小端序（Little-endian）格式保存。
 """
 
 ["persistent[{n}].valid"]

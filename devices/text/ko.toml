@@ -5,6 +5,7 @@
 # name = shown name; help = the help window text, line breaks as written.
 # Where a device differs, give it its own text: help.<MODEL> = """..."""
 # (name.<MODEL> likewise). A field only one device has is shown only there.
+# In a repeated field {n} becomes the entry number; ["rollback_index[2]"] gives one entry its own text.
 # A missing entry falls back to en.toml.
 
 ["@rollback"]
@@ -20,12 +21,10 @@ AVB(Android Verified Boot)의 롤백 방지를 위한 기준값을 저장하는 
 
 ["@persistent"]
 help = """
-AVB가 부팅 사이에 상태를 기억하는 저장소입니다.
-이름/값 레코드 8개로 되어 있고, 예를 들어 avb.managed_verity_mode가 여기에 저장됩니다.
-부팅 중 AVB가 내용을 바꿀 수 있습니다.
-비어 있어도 AVB가 꺼졌다는 뜻은 아닙니다.
-persist.img 파티션과는 다른 영역입니다.
-(확정)
+AVB(Android Verified Boot)가 부팅 간 상태 정보를 유지하기 위해 사용하는 영속 저장 영역(Persistent Storage)입니다.
+총 8개의 이름(Name)과 값(Value)으로 구성된 레코드를 저장할 수 있습니다.
+부팅 과정에서 AVB가 필요에 따라 저장된 영속값을 읽거나 변경할 수 있습니다.
+해당 영역에 저장된 데이터가 없더라도 AVB 기능이 비활성화된 것을 의미하지는 않습니다.
 
 """
 
@@ -157,13 +156,42 @@ Locked 상태에서 사용자 지정 AVB 공개키를 통해 AVB 검증이 이�
 ["rollback_index[{n}]"]
 name = "롤백 인덱스"
 help = """
-AVB(Android Verified Boot)의 롤백 방지를 위한 기준값을 저장하는 영역으로, 총 32개의 8바이트 정수로 구성됩니다.
-각 항목의 번호는 AVB의 `rollback_index_location`을 나타냅니다.
-이미지의 롤백 인덱스가 저장된 기준값보다 낮을 경우 롤백 검증 오류가 발생하며, 실제 부팅 차단 여부는 부트로더의 Locked/Unlocked 상태에 따라 달라질 수 있습니다.
-부팅 과정에서 부트로더가 롤백 인덱스를 더 높은 값으로 갱신하여 저장할 수 있습니다.
+Rollback Index Location: {n} - 미사용
+
 롤백 인덱스는 10진수로만 입력할 수 있으며, 최대 10자리까지 허용됩니다.
 입력된 값은 8바이트 정수로 변환되어 리틀 엔디언(Little-endian) 형식으로 저장됩니다.
+"""
 
+["rollback_index[0]"]
+help = """
+Rollback Index Location: 0 - vbmeta
+
+롤백 인덱스는 10진수로만 입력할 수 있으며, 최대 10자리까지 허용됩니다.
+입력된 값은 8바이트 정수로 변환되어 리틀 엔디언(Little-endian) 형식으로 저장됩니다.
+"""
+
+["rollback_index[1]"]
+help = """
+Rollback Index Location: 1 - recovery
+
+롤백 인덱스는 10진수로만 입력할 수 있으며, 최대 10자리까지 허용됩니다.
+입력된 값은 8바이트 정수로 변환되어 리틀 엔디언(Little-endian) 형식으로 저장됩니다.
+"""
+
+["rollback_index[2]"]
+help = """
+Rollback Index Location: 2 - vbmeta_system
+
+롤백 인덱스는 10진수로만 입력할 수 있으며, 최대 10자리까지 허용됩니다.
+입력된 값은 8바이트 정수로 변환되어 리틀 엔디언(Little-endian) 형식으로 저장됩니다.
+"""
+
+["rollback_index[3]"]
+help = """
+Rollback Index Location: 3 - boot
+
+롤백 인덱스는 10진수로만 입력할 수 있으며, 최대 10자리까지 허용됩니다.
+입력된 값은 8바이트 정수로 변환되어 리틀 엔디언(Little-endian) 형식으로 저장됩니다.
 """
 
 ["persistent[{n}].valid"]
@@ -470,7 +498,7 @@ help.TB522FU = """
 공장(Factory) 모드 관련 설정값입니다.
 Fastboot의 factory-mode 조회 및 변경 처리에서 사용되며, 저장된 0 또는 1을 그대로 반환합니다.
 DeviceInfo를 새로 초기화하거나 형식 버전을 복구하는 경로에서는 이 값을 1로 설정합니다.
-다만, 분석한 057 부트로더의 FFBM 메뉴 처리와 androidboot.mode= 부팅 인자 구성 경로에서는 이 값으로 처리를 허용하거나 차단하는 검사가 확인되지 않았습니다.
+다만, FFBM 메뉴 처리와 androidboot.mode= 부팅 인자 구성 경로에서는 이 값으로 처리를 허용하거나 차단하는 검사가 확인되지 않았습니다.
 따라서 0 또는 1을 설정했을 때 실제 공장 모드 부팅이 허용되거나 차단된다고 단정할 수 없습니다.
 공장 초기화(FDR)를 실행하거나 사용자 데이터를 삭제하는 플래그는 아닙니다.
 

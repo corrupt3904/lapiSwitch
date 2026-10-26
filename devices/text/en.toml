@@ -5,6 +5,7 @@
 # name = shown name; help = the help window text, line breaks as written.
 # Where a device differs, give it its own text: help.<MODEL> = """..."""
 # (name.<MODEL> likewise). A field only one device has is shown only there.
+# In a repeated field {n} becomes the entry number; ["rollback_index[2]"] gives one entry its own text.
 # A missing entry falls back to en.toml.
 
 ["@rollback"]
@@ -164,13 +165,42 @@ It is not a private key, so it cannot make signatures on its own.
 ["rollback_index[{n}]"]
 name = "Rollback index"
 help = """
-AVB anti-rollback reference values: 32 entries, each a 64-bit integer.
-The number is the AVB rollback_index_location, not an A/B slot.
-An image whose rollback index is lower than this value gives a rollback error, and whether boot actually stops also depends on the lock state.
-The bootloader can raise and store the value during boot.
-Even if it looks like a date, it is a security reference value, not a release date.
-(Confirmed)
+Rollback Index Location: {n} - unused
 
+Rollback indices can be entered in decimal only, up to 10 digits.
+The value is converted to an 8-byte integer and stored in little-endian order.
+"""
+
+["rollback_index[0]"]
+help = """
+Rollback Index Location: 0 - vbmeta
+
+Rollback indices can be entered in decimal only, up to 10 digits.
+The value is converted to an 8-byte integer and stored in little-endian order.
+"""
+
+["rollback_index[1]"]
+help = """
+Rollback Index Location: 1 - recovery
+
+Rollback indices can be entered in decimal only, up to 10 digits.
+The value is converted to an 8-byte integer and stored in little-endian order.
+"""
+
+["rollback_index[2]"]
+help = """
+Rollback Index Location: 2 - vbmeta_system
+
+Rollback indices can be entered in decimal only, up to 10 digits.
+The value is converted to an 8-byte integer and stored in little-endian order.
+"""
+
+["rollback_index[3]"]
+help = """
+Rollback Index Location: 3 - boot
+
+Rollback indices can be entered in decimal only, up to 10 digits.
+The value is converted to an 8-byte integer and stored in little-endian order.
 """
 
 ["persistent[{n}].valid"]

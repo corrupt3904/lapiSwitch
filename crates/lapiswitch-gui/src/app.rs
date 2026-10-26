@@ -1695,7 +1695,8 @@ impl App {
             | "deviceinfo-editor-rollback-open"
             | "deviceinfo-editor-rollback-zero"
             | "deviceinfo-editor-rollback-zero-field"
-            | "deviceinfo-editor-help" => {
+            | "deviceinfo-editor-help"
+            | "deviceinfo-editor-help-rollback" => {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
@@ -1789,6 +1790,12 @@ impl App {
                     self.editor_update(editor::EditorMessage::Tab(editor::Tab::Advanced));
                     self.editor_update(editor::EditorMessage::Query("mode".into()));
                     self.editor_update(editor::EditorMessage::Help(Some("fastboot_mode".into())));
+                }
+                if screen == "deviceinfo-editor-help-rollback" {
+                    self.editor_update(editor::EditorMessage::RollbackOpen);
+                    self.editor_update(editor::EditorMessage::Help(Some(
+                        "rollback_index[2]".into(),
+                    )));
                 }
                 if screen == "deviceinfo-editor-country" {
                     let _ = self.update(Message::CountryOpen);
@@ -2749,6 +2756,7 @@ mod tests {
                 "deviceinfo-editor-rollback-zero",
                 "deviceinfo-editor-rollback-zero-field",
                 "deviceinfo-editor-help",
+                "deviceinfo-editor-help-rollback",
                 "deviceinfo-editor-notices",
                 "deviceinfo-editor-custom-notices",
                 "deviceinfo-editor-country",

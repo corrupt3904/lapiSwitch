@@ -416,6 +416,21 @@ fn model_folders(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(folders)
 }
 
+/// The template (`rollback_index[{n}]`) a numbered key such as
+/// `rollback_index[3]` belongs to, among `templates`.
+fn template_of<'a>(
+    key: &str,
+    templates: impl IntoIterator<Item = &'a String>,
+) -> Option<&'a String> {
+    templates.into_iter().find(|template| {
+        template.split_once("{n}").is_some_and(|(head, tail)| {
+            key.strip_prefix(head)
+                .and_then(|rest| rest.strip_suffix(tail))
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        })
+    })
+}
+
 /// The field keys (repeated fields keep `{n}`) of a device map.
 fn map_keys(doc: &DocumentMut) -> Vec<String> {
     doc.get("field")
@@ -464,7 +479,13 @@ fn texts(folder: &Path, keys: &[String]) -> Result<std::collections::BTreeMap<St
         let doc = read(&path)?;
         for (key, item) in doc.iter() {
             let place = format!("devices/text/{lang}.toml [{key}]");
-            if !known.contains(key) {
+            // A numbered key (`rollback_index[3]`) gives one entry of a
+            // repeated field its own text.
+            let numbered = template_of(key, &known).is_some();
+            if numbered && template_of(key, keys).is_some() {
+                all.entry(key.to_owned()).or_default();
+            }
+            if !known.contains(key) && !numbered {
                 return Err(format!(
                     "{place}: 어느 기기의 deviceinfo.toml에도 없는 key입니다."
                 ));
@@ -691,18 +712,33 @@ fn deviceinfo(doc: &DocumentMut, folder: &Path) -> Result<String> {
             return Err(format!("{place}: count ≥ 1, stride ≥ size여야 합니다."));
         }
         for i in 0..count {
+            let n = i.to_string();
+            let numbered = key.replace("{n}", &n);
+            // A numbered entry wins over the repeated one, per language,
+            // and {n} in either becomes the entry's number.
+            let pick = |own: Option<&[String; 5]>, shared: &[String; 5]| -> [String; 5] {
+                std::array::from_fn(|lang| {
+                    own.map(|own| own[lang].as_str())
+                        .filter(|text| !text.is_empty())
+                        .unwrap_or(&shared[lang])
+                        .replace("{n}", &n)
+                })
+            };
+            let own = texts.get(&numbered);
+            let names = pick(own.map(|t| &t.names), &text.names);
+            let helps = pick(own.map(|t| &t.helps), &text.helps);
             fields.push(Field {
-                key: key.replace("{n}", &i.to_string()),
+                key: numbered.clone(),
                 offset: offset + i * stride,
                 size,
                 kind,
                 class,
-                names: text.names.clone(),
+                names,
                 editable,
                 choices: choices.clone(),
                 decimal,
                 max_digits,
-                helps: text.helps.clone(),
+                helps,
             });
         }
     }

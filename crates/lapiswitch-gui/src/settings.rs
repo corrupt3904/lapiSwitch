@@ -175,6 +175,23 @@ mod tests {
         };
         assert!(help("TB520FU").starts_with("0 = 허용"));
         assert!(help("TB522FU").starts_with("0 = 차단"));
+        // A numbered entry gives one rollback index its own help; the
+        // repeated entry covers the rest, with {n} as the index.
+        let rollback = |n: usize| {
+            let field = lapiswitch_core::deviceinfo::map::Layout::find("TB520FU")
+                .unwrap()
+                .field(&format!("rollback_index[{n}]"))
+                .unwrap();
+            Language::Korean.field_text(field.helps)
+        };
+        assert!(rollback(0).starts_with(
+            "Rollback Index Location: 0 - vbmeta
+"
+        ));
+        assert!(rollback(2).starts_with("Rollback Index Location: 2 - vbmeta_system"));
+        assert!(rollback(3).starts_with("Rollback Index Location: 3 - boot"));
+        assert!(rollback(7).starts_with("Rollback Index Location: 7 - 미사용"));
+        assert!(rollback(31).starts_with("Rollback Index Location: 31 - 미사용"));
         // A field only TB522FU has.
         assert!(
             lapiswitch_core::deviceinfo::map::Layout::find("TB520FU")

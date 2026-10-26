@@ -5,6 +5,7 @@
 # name = shown name; help = the help window text, line breaks as written.
 # Where a device differs, give it its own text: help.<MODEL> = """..."""
 # (name.<MODEL> likewise). A field only one device has is shown only there.
+# In a repeated field {n} becomes the entry number; ["rollback_index[2]"] gives one entry its own text.
 # A missing entry falls back to en.toml.
 
 ["@rollback"]
@@ -168,14 +169,42 @@ help.TB522FU = """
 ["rollback_index[{n}]"]
 name = "ロールバックインデックス"
 help = """
-AVB のロールバック防止基準値 32 個です。
-各項目は 64 ビット整数です。
-番号は A/B スロットではなく、AVB の rollback_index_location です。
-イメージのロールバックインデックスがこの値より低いとロールバックエラーになり、実際に起動を止めるかはロック状態もあわせて決まります。
-起動中にブートローダーが値を上げて保存することがあります。
-日付のように見えても発売日ではなく、セキュリティ上の基準値です。
-（確定）
+Rollback Index Location: {n} - 未使用
 
+ロールバックインデックスは 10 進数でのみ入力でき、最大 10 桁まで入力できます。
+入力した値は 8 バイト整数に変換され、リトルエンディアン（Little-endian）形式で保存されます。
+"""
+
+["rollback_index[0]"]
+help = """
+Rollback Index Location: 0 - vbmeta
+
+ロールバックインデックスは 10 進数でのみ入力でき、最大 10 桁まで入力できます。
+入力した値は 8 バイト整数に変換され、リトルエンディアン（Little-endian）形式で保存されます。
+"""
+
+["rollback_index[1]"]
+help = """
+Rollback Index Location: 1 - recovery
+
+ロールバックインデックスは 10 進数でのみ入力でき、最大 10 桁まで入力できます。
+入力した値は 8 バイト整数に変換され、リトルエンディアン（Little-endian）形式で保存されます。
+"""
+
+["rollback_index[2]"]
+help = """
+Rollback Index Location: 2 - vbmeta_system
+
+ロールバックインデックスは 10 進数でのみ入力でき、最大 10 桁まで入力できます。
+入力した値は 8 バイト整数に変換され、リトルエンディアン（Little-endian）形式で保存されます。
+"""
+
+["rollback_index[3]"]
+help = """
+Rollback Index Location: 3 - boot
+
+ロールバックインデックスは 10 進数でのみ入力でき、最大 10 桁まで入力できます。
+入力した値は 8 バイト整数に変換され、リトルエンディアン（Little-endian）形式で保存されます。
 """
 
 ["persistent[{n}].valid"]

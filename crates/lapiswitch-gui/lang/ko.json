@@ -184,7 +184,7 @@
   "editor_applying_writes_and_verifies_deviceinfo_restores": "적용하면 DeviceInfo를 쓰고 검증한 뒤 원본 GPT·Recovery를 복구하고 공식 펌웨어를 설치합니다. 사용자 데이터는 모두 삭제됩니다.",
   "editor_applying_writes_and_verifies_deviceinfo_restores_2": "적용하면 DeviceInfo를 쓰고 검증한 뒤 원본 GPT·Recovery를 복구하고 재부팅합니다. 펌웨어는 설치하지 않으며 사용자 데이터는 유지됩니다.",
   "editor_ascii_up_to_chars_characters": "ASCII 최대 {chars}자",
-  "editor_avb_persistent_values_count": "AVB 영구 저장 값 {count}개",
+  "editor_avb_persistent_values_count": "AVB 영속값 {count}개",
   "editor_back": "이전",
   "editor_basic": "기본",
   "editor_bytes_byte_integer_decimal": "{bytes}바이트 정수 (10진수)",
