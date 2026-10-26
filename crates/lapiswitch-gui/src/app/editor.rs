@@ -5,10 +5,14 @@ use super::*;
 use iced::widget::{
     self, button, checkbox, column, container, row, scrollable, space, text_editor, text_input,
 };
-use iced::{Alignment, Border, Fill};
+use iced::{Alignment, Border, Color, Fill};
 use lapiswitch_core::deviceinfo::map::{self, Class, Field, Kind, Layout};
 use lapiswitch_core::recovery_flow::EditRequest;
 use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
+
+/// How long the lock icon is held before the unlock agreement opens.
+pub(crate) const UNLOCK_HOLD: Duration = Duration::from_secs(3);
 
 /// Basic: the common fields as choices. Advanced: every field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +61,16 @@ pub(crate) enum EditorMessage {
     RollbackOpen,
     /// Shows a field's help in its own window; `None` closes it.
     Help(Option<String>),
+    /// The lock icon is pressed: a hold starts, or open fields lock again.
+    LockPress,
+    /// The lock icon is let go or left before the hold completed.
+    LockRelease,
+    /// A frame while the lock icon is held.
+    LockFrame(Instant),
+    /// The risk agreement checkbox of the unlock dialog.
+    UnlockAgree(bool),
+    /// Unlocks read-only fields (`true`, once agreed) or keeps them locked.
+    Unlock(bool),
     Apply,
     Cancel,
 }
@@ -87,6 +101,15 @@ pub(crate) struct Editor {
     pub(crate) rollback_open: bool,
     /// The field whose help window is open.
     pub(crate) help: Option<String>,
+    /// Read-only fields can be edited: unlocked by holding the lock icon
+    /// and agreeing to the risk.
+    pub(crate) unlocked: bool,
+    /// When the lock icon was pressed, while it is held.
+    pub(crate) hold: Option<Instant>,
+    /// How far the hold has come, 0 to 1; the lock fills clockwise.
+    pub(crate) hold_progress: f32,
+    /// The unlock dialog after a full hold, with its agreement checkbox.
+    pub(crate) unlock_prompt: Option<bool>,
     /// Every field's read value as selectable text, by field key.
     texts: BTreeMap<String, text_editor::Content>,
     /// The multi-line inputs of editable bytes fields, kept equal to
@@ -108,7 +131,7 @@ impl Editor {
             .collect();
         let drafts = fields
             .iter()
-            .filter(|field| field.editable && field.kind == Kind::Bytes)
+            .filter(|field| field.kind == Kind::Bytes)
             .map(|field| {
                 (
                     field.key.clone(),
@@ -134,6 +157,10 @@ impl Editor {
             view_only: false,
             rollback_open: false,
             help: None,
+            unlocked: false,
+            hold: None,
+            hold_progress: 0.0,
+            unlock_prompt: None,
             texts,
             drafts,
             reply: Some(reply),
@@ -206,7 +233,7 @@ impl Editor {
             .filter(|field| self.input(field).trim() != self.original(field))
             .map(|field| (field.key.clone(), self.input(field).to_owned()))
             .collect();
-        map::apply(self.layout, &self.before, &edits).ok()
+        map::apply(self.layout, &self.before, &edits, self.unlocked).ok()
     }
     pub(crate) fn changes(&self) -> Vec<map::Change> {
         self.planned()
@@ -218,7 +245,7 @@ impl Editor {
     pub(crate) fn target_region(&self) -> Option<Region> {
         let field = self.fields.iter().find(|f| f.key == "region")?;
         let edits = map::Edits::from([(field.key.clone(), self.input(field).to_owned())]);
-        map::apply(self.layout, &self.before, &edits)
+        map::apply(self.layout, &self.before, &edits, false)
             .ok()
             .and_then(|planned| self.layout.region(&planned))
     }
@@ -259,6 +286,26 @@ impl Editor {
     fn rollback_locked(&self) -> bool {
         !self.view_only && self.rollback_choice() == RollbackChoice::Zero
     }
+    /// Read-only fields lock again and return to their read values.
+    fn lock(&mut self) {
+        self.unlocked = false;
+        self.hold = None;
+        self.hold_progress = 0.0;
+        self.unlock_prompt = None;
+        let read_only: Vec<String> = self
+            .fields
+            .iter()
+            .filter(|f| !f.editable)
+            .map(|f| f.key.clone())
+            .collect();
+        for key in read_only {
+            self.reset(&key);
+        }
+    }
+    /// A read-only field changed after unlocking.
+    fn read_only_changed(&self) -> bool {
+        self.changes().iter().any(|change| !change.field.editable)
+    }
     fn reset(&mut self, key: &str) {
         if let Some(field) = self.fields.iter().find(|f| f.key == key) {
             let original = self.original(field);
@@ -297,6 +344,7 @@ impl Editor {
             edits: map::edits_between(self.layout, &self.before, &planned),
             firmware_dir: flash.then(|| self.firmware_dir.clone()).flatten(),
             country: flash.then(|| self.country.clone()).flatten(),
+            unlocked: self.unlocked && self.read_only_changed(),
         })
     }
 }
@@ -340,6 +388,7 @@ impl App {
                 }
                 editor.protected_ack = false;
                 editor.rollback_custom = false;
+                editor.lock();
             }
             EditorMessage::Rollback(choice) => {
                 // Custom values start from the read values, also after 0.
@@ -387,6 +436,7 @@ impl App {
                         editor.reset(&key);
                     }
                     editor.protected_ack = false;
+                    editor.lock();
                 }
                 editor.tab = tab;
             }
@@ -399,6 +449,43 @@ impl App {
             EditorMessage::Persistent(n) => editor.toggle_persistent(n),
             EditorMessage::RollbackOpen => editor.rollback_open = !editor.rollback_open,
             EditorMessage::Help(key) => editor.help = key,
+            EditorMessage::LockPress => {
+                if editor.unlocked {
+                    editor.lock();
+                } else if editor.unlock_prompt.is_none() {
+                    editor.hold = Some(Instant::now());
+                    editor.hold_progress = 0.0;
+                }
+            }
+            EditorMessage::LockRelease => {
+                editor.hold = None;
+                editor.hold_progress = 0.0;
+                return;
+            }
+            EditorMessage::LockFrame(now) => {
+                if let Some(start) = editor.hold {
+                    let held = now.saturating_duration_since(start);
+                    editor.hold_progress =
+                        (held.as_secs_f32() / UNLOCK_HOLD.as_secs_f32()).min(1.0);
+                    // A full hold asks for the agreement before unlocking.
+                    if held >= UNLOCK_HOLD {
+                        editor.hold = None;
+                        editor.hold_progress = 0.0;
+                        editor.unlock_prompt = Some(false);
+                    }
+                }
+                return;
+            }
+            EditorMessage::UnlockAgree(agree) => {
+                if editor.unlock_prompt.is_some() {
+                    editor.unlock_prompt = Some(agree);
+                }
+                return;
+            }
+            EditorMessage::Unlock(unlock) => {
+                editor.unlocked = unlock && editor.unlock_prompt == Some(true);
+                editor.unlock_prompt = None;
+            }
             EditorMessage::Select(key, action) => {
                 editor.select(&key, action);
                 return;
@@ -681,6 +768,108 @@ pub(super) fn help_modal<'a>(
     )
 }
 
+/// The lock of the advanced tab. Held for 3 seconds it fills clockwise and
+/// opens the unlock agreement; open, one press locks it again.
+fn lock_button<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
+    let icon = iced::widget::svg(iced::widget::svg::Handle::from_memory(
+        lock_svg(editor.unlocked, editor.hold_progress, muted(), danger()).into_bytes(),
+    ))
+    .width(26)
+    .height(26);
+    let hint = if editor.unlocked {
+        small(app.tr("editor_unlocked_press_to_lock")).color(danger())
+    } else {
+        small(app.tr("editor_hold_to_unlock"))
+    };
+    iced::widget::mouse_area(row![icon, hint].spacing(6).align_y(Alignment::Center))
+        .interaction(iced::mouse::Interaction::Pointer)
+        .on_press(Message::Editor(EditorMessage::LockPress))
+        .on_release(Message::Editor(EditorMessage::LockRelease))
+        .on_exit(Message::Editor(EditorMessage::LockRelease))
+        .into()
+}
+
+/// The lock icon as SVG: closed or open, drawn in `base`, with the part a
+/// clockwise sweep from 12 o'clock has passed (`progress`, 0 to 1) in `fill`.
+/// An open lock is all `fill`.
+pub(super) fn lock_svg(open: bool, progress: f32, base: Color, fill: Color) -> String {
+    let hex = |color: Color| {
+        let [r, g, b, _] = color.into_rgba8();
+        format!("#{r:02X}{g:02X}{b:02X}")
+    };
+    let shackle = if open {
+        "M8 10.5V7.5a4 4 0 0 1 7.8-1.3"
+    } else {
+        "M8 10.5V7.5a4 4 0 0 1 8 0v3"
+    };
+    let lock = |color: &str, clip: &str| {
+        format!(
+            r#"<g{clip}><path d="{shackle}" fill="none" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/><path fill-rule="evenodd" fill="{color}" d="M7 10.5h10a2.5 2.5 0 0 1 2.5 2.5v6a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 19v-6A2.5 2.5 0 0 1 7 10.5zM13.5 15.5a1.5 1.5 0 1 0-3 0a1.5 1.5 0 1 0 3 0z"/></g>"#
+        )
+    };
+    // Held in steps, so a hold renders a bounded set of images.
+    let progress = (progress.clamp(0.0, 1.0) * 120.0).round() / 120.0;
+    let body = if open || progress >= 1.0 {
+        lock(&hex(fill), "")
+    } else if progress <= 0.0 {
+        lock(&hex(base), "")
+    } else {
+        let angle = progress * std::f32::consts::TAU;
+        let (x, y) = (12.0 + 30.0 * angle.sin(), 12.0 - 30.0 * angle.cos());
+        let large = u8::from(angle > std::f32::consts::PI);
+        format!(
+            r#"<defs><clipPath id="sweep"><path d="M12 12L12 -18A30 30 0 {large} 1 {x:.3} {y:.3}Z"/></clipPath></defs>{}{}"#,
+            lock(&hex(base), ""),
+            lock(&hex(fill), r#" clip-path="url(#sweep)""#),
+        )
+    };
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">{body}</svg>"#
+    )
+}
+
+/// The agreement a full hold of the lock opens: read-only fields unlock
+/// only after the risk is agreed to and confirmed.
+pub(super) fn unlock_modal<'a>(
+    app: &'a App,
+    editor: &'a Editor,
+) -> Option<widget::Container<'a, Message>> {
+    let agreed = editor.unlock_prompt?;
+    Some(
+        panel(
+            column![
+                label(app.tr("editor_unlock_read_only_fields"))
+                    .size(25)
+                    .color(danger()),
+                label(app.tr("editor_unlock_read_only_risk")).color(danger()),
+                label(app.tr("editor_unlock_read_only_scope")),
+                checkbox(agreed)
+                    .label(app.tr("editor_unlock_read_only_agree"))
+                    .on_toggle(|agree| Message::Editor(EditorMessage::UnlockAgree(agree))),
+                row![
+                    space().width(Fill),
+                    action(
+                        app.tr("archive_cancel"),
+                        Message::Editor(EditorMessage::Unlock(false)),
+                        true
+                    )
+                    .style(soft_style),
+                    action(
+                        app.tr("editor_unlock"),
+                        Message::Editor(EditorMessage::Unlock(true)),
+                        agreed
+                    )
+                    .style(super::fluent::danger_style),
+                ]
+                .spacing(12),
+            ]
+            .spacing(20),
+        )
+        .style(super::fluent::warning_dialog_style)
+        .max_width(660),
+    )
+}
+
 /// A read-only field: its value without an input.
 fn read_only_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<'a, Message> {
     let mut head = row![
@@ -737,7 +926,9 @@ fn field_notice<'a>(
     if editor.unchanged(&field.key) {
         return None;
     }
-    if field.key == "region" {
+    if !field.editable {
+        Some(note(app.tr("editor_read_only_field_changed"), true))
+    } else if field.key == "region" {
         region_box(app, editor)
     } else if LOCK_KEYS.contains(&field.key.as_str()) {
         Some(note(
@@ -916,7 +1107,7 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
     if field.key.starts_with("rollback_index[") && editor.rollback_locked() {
         return locked_row(app, editor, field);
     }
-    if !field.editable || editor.view_only {
+    if (!field.editable && !editor.unlocked) || editor.view_only {
         return read_only_row(app, editor, field);
     }
     if !options(field).is_empty() {
@@ -932,6 +1123,10 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
     .spacing(10)
     .align_y(Alignment::Center)
     .extend(help_button(field));
+    // An unlocked read-only field says so.
+    if !field.editable {
+        head = head.push(small(app.tr("editor_read_only_unlocked")).color(danger()));
+    }
     if changed {
         head = head.push(space().width(Fill)).push(
             button(small(app.tr("editor_original")))
@@ -1136,15 +1331,20 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
     let changes = editor.changes();
     let mut list = column![].spacing(6);
     for change in &changes {
-        let risky = change.field.class == Class::Protected;
+        let read_only = !change.field.editable;
+        let risky = change.field.class == Class::Protected || read_only;
+        let mut place = format!(
+            "{} · 0x{:04X} · {}B",
+            change.field.key, change.field.offset, change.field.size
+        );
+        if read_only {
+            place = format!("{place} · {}", app.tr("editor_read_only_unlocked"));
+        }
         list = list.push(
             column![
-                label(format!(
-                    "{} · 0x{:04X} · {}B",
-                    change.field.key, change.field.offset, change.field.size
-                ))
-                .size(14)
-                .color(if risky { danger() } else { ink() }),
+                label(place)
+                    .size(14)
+                    .color(if risky { danger() } else { ink() }),
                 small(format!("{} → {}", change.before, change.after))
                     .wrapping(iced::widget::text::Wrapping::Glyph),
             ]
@@ -1193,11 +1393,13 @@ fn review<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'a, Message
                     Message::Editor(EditorMessage::Apply),
                     true
                 )
-                .style(if editor.protected_changed() || flash {
-                    super::fluent::danger_style
-                } else {
-                    super::fluent::accent_style
-                }),
+                .style(
+                    if editor.protected_changed() || editor.read_only_changed() || flash {
+                        super::fluent::danger_style
+                    } else {
+                        super::fluent::accent_style
+                    }
+                ),
             ]
             .spacing(12),
         ]
@@ -1293,6 +1495,7 @@ pub(super) fn modal<'a>(app: &'a App, editor: &'a Editor) -> widget::Container<'
             row![
                 tabs,
                 space().width(Fill),
+                lock_button(app, editor),
                 text_input(app.tr("editor_search_fields"), &editor.query)
                     .on_input(|text| Message::Editor(EditorMessage::Query(text)))
                     .padding(8)
@@ -1598,5 +1801,81 @@ mod tests {
         app.editor_update(EditorMessage::Reset("region".into()));
         app.editor_update(EditorMessage::Input("rollback_index[1]".into(), "3".into()));
         assert_eq!(editor(&app).request().unwrap().country, None);
+    }
+
+    #[test]
+    fn read_only_fields_unlock_after_a_full_hold_and_the_agreement_and_lock_again() {
+        let (mut app, _rx) = open();
+        app.editor_update(EditorMessage::Tab(Tab::Advanced));
+        // Read-only before unlocking: the plan rejects a change.
+        app.editor_update(EditorMessage::Input("reserved_end".into(), "AA".repeat(5)));
+        assert!(editor(&app).planned().is_none());
+        app.editor_update(EditorMessage::Reset("reserved_end".into()));
+        // A short hold fills part of the lock and opens nothing.
+        app.editor_update(EditorMessage::LockPress);
+        let start = editor(&app).hold.unwrap();
+        app.editor_update(EditorMessage::LockFrame(start + UNLOCK_HOLD / 2));
+        assert!((editor(&app).hold_progress - 0.5).abs() < 0.01);
+        app.editor_update(EditorMessage::LockRelease);
+        assert_eq!(editor(&app).hold, None);
+        assert_eq!(editor(&app).hold_progress, 0.0);
+        assert_eq!(editor(&app).unlock_prompt, None);
+        // A full hold asks for the agreement; confirming without it keeps
+        // the fields locked.
+        app.editor_update(EditorMessage::LockPress);
+        let start = editor(&app).hold.unwrap();
+        app.editor_update(EditorMessage::LockFrame(start + UNLOCK_HOLD));
+        assert_eq!(editor(&app).unlock_prompt, Some(false));
+        assert!(unlock_modal(&app, editor(&app)).is_some());
+        app.editor_update(EditorMessage::Unlock(true));
+        assert!(!editor(&app).unlocked);
+        assert_eq!(editor(&app).unlock_prompt, None);
+        // Agreed and confirmed, read-only fields can be changed.
+        app.editor_update(EditorMessage::LockPress);
+        let start = editor(&app).hold.unwrap();
+        app.editor_update(EditorMessage::LockFrame(start + UNLOCK_HOLD));
+        app.editor_update(EditorMessage::UnlockAgree(true));
+        app.editor_update(EditorMessage::Unlock(true));
+        assert!(editor(&app).unlocked);
+        app.editor_update(EditorMessage::Input("reserved_end".into(), "AA".repeat(5)));
+        let request = editor(&app).request().unwrap();
+        assert!(request.unlocked);
+        assert_eq!(request.edits["reserved_end"], "AA".repeat(5));
+        // Unlocked without a read-only change, the plan stays a normal one.
+        app.editor_update(EditorMessage::Reset("reserved_end".into()));
+        app.editor_update(EditorMessage::Input("rollback_index[1]".into(), "3".into()));
+        assert!(!editor(&app).request().unwrap().unlocked);
+        // One press locks again and returns read-only fields to the read
+        // values; other changes stay.
+        app.editor_update(EditorMessage::Input("reserved_end".into(), "AA".repeat(5)));
+        app.editor_update(EditorMessage::LockPress);
+        assert!(!editor(&app).unlocked);
+        assert_ne!(value(&app, "reserved_end"), "AA".repeat(5));
+        assert_eq!(value(&app, "rollback_index[1]"), "3");
+        assert_eq!(editor(&app).hold, None);
+        // The basic tab locks them as well.
+        app.editor_update(EditorMessage::LockPress);
+        let start = editor(&app).hold.unwrap();
+        app.editor_update(EditorMessage::LockFrame(start + UNLOCK_HOLD));
+        app.editor_update(EditorMessage::UnlockAgree(true));
+        app.editor_update(EditorMessage::Unlock(true));
+        app.editor_update(EditorMessage::Tab(Tab::Basic));
+        assert!(!editor(&app).unlocked);
+    }
+
+    #[test]
+    fn the_lock_fills_clockwise_from_twelve_and_opens_in_the_fill_color() {
+        let (base, fill) = (
+            Color::from_rgb8(0x11, 0x22, 0x33),
+            Color::from_rgb8(0xCC, 0, 0),
+        );
+        let closed = lock_svg(false, 0.0, base, fill);
+        assert!(closed.contains("#112233") && !closed.contains("#CC0000"));
+        let half = lock_svg(false, 0.5, base, fill);
+        assert!(half.contains("#112233") && half.contains("#CC0000"));
+        // Half way the sweep ends at 6 o'clock, not past it.
+        assert!(half.contains("A30 30 0 0 1 12.000 42.000Z"), "{half}");
+        let open = lock_svg(true, 0.0, base, fill);
+        assert!(!open.contains("#112233") && open.contains("#CC0000"));
     }
 }

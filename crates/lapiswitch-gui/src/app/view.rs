@@ -809,7 +809,8 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         let over = if app.country_open {
             Some(country_view::modal(app))
         } else {
-            super::editor::help_modal(app, editor)
+            super::editor::unlock_modal(app, editor)
+                .or_else(|| super::editor::help_modal(app, editor))
         };
         Some(
             container(stack![

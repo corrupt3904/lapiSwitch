@@ -341,8 +341,14 @@ pub fn encode(field: &Field, input: &str) -> Result<Vec<u8>, String> {
 pub type Edits = BTreeMap<String, String>;
 
 /// Apply edits to the read buffer. Bytes outside the edited fields, and the
-/// shared tail after the logical structure, stay exactly as read.
-pub fn apply(layout: Layout, before: &[u8], edits: &Edits) -> Result<Vec<u8>, String> {
+/// shared tail after the logical structure, stay exactly as read. `unlocked`
+/// lets read-only fields change too (see [`check_plan`]).
+pub fn apply(
+    layout: Layout,
+    before: &[u8],
+    edits: &Edits,
+    unlocked: bool,
+) -> Result<Vec<u8>, String> {
     layout.check_buffer(before)?;
     let mut planned = before.to_vec();
     for (key, value) in edits {
@@ -350,14 +356,21 @@ pub fn apply(layout: Layout, before: &[u8], edits: &Edits) -> Result<Vec<u8>, St
         let bytes = encode(&field, value).map_err(|error| format!("{key}: {error}"))?;
         planned[field.range()].copy_from_slice(&bytes);
     }
-    check_plan(layout, before, &planned)?;
+    check_plan(layout, before, &planned, unlocked)?;
     Ok(planned)
 }
 
 /// The structural rules for any plan: same length, an unchanged
 /// shared-buffer tail, read-only fields kept and choice fields changed only
-/// to one of their choices. Other values are the user's choice.
-pub fn check_plan(layout: Layout, before: &[u8], planned: &[u8]) -> Result<(), String> {
+/// to one of their choices. Other values are the user's choice. A plan the
+/// user unlocked read-only fields for in the editor (`unlocked`) may change
+/// them as well; the other rules still hold.
+pub fn check_plan(
+    layout: Layout,
+    before: &[u8],
+    planned: &[u8],
+    unlocked: bool,
+) -> Result<(), String> {
     layout.check_buffer(before)?;
     let logical = layout.logical_size();
     if planned.len() != SHARED_SIZE || planned[logical..] != before[logical..] {
@@ -370,7 +383,7 @@ pub fn check_plan(layout: Layout, before: &[u8], planned: &[u8]) -> Result<(), S
         if before[field.range()] == planned[field.range()] {
             continue;
         }
-        if !field.editable {
+        if !field.editable && !unlocked {
             return Err(crate::msg!("core_map_read_only", key = field.key));
         }
         if !field.choices.is_empty() && !field.choices.contains(&display(&field, planned).as_str())
@@ -493,7 +506,7 @@ pub(crate) mod tests {
                     field.key
                 );
             }
-            assert!(apply(layout, &b, &Edits::new()).unwrap() == b);
+            assert!(apply(layout, &b, &Edits::new(), false).unwrap() == b);
         }
     }
 
@@ -549,7 +562,7 @@ pub(crate) mod tests {
                 ("is_unlocked".into(), "1".into()),
                 ("persistent[0].value".into(), "AB".repeat(32)),
             ]);
-            let planned = apply(layout, &before, &edits).unwrap();
+            let planned = apply(layout, &before, &edits, false).unwrap();
             let changes = diff(layout, &before, &planned);
             let keys: Vec<_> = changes.iter().map(|c| c.field.key.as_str()).collect();
             assert_eq!(
@@ -576,17 +589,18 @@ pub(crate) mod tests {
             assert_eq!(layout.region(&planned), Some(Region::Row));
             // Canonical edits rebuild exactly the same plan.
             let canonical = edits_between(layout, &before, &planned);
-            assert_eq!(apply(layout, &before, &canonical).unwrap(), planned);
+            assert_eq!(apply(layout, &before, &canonical, false).unwrap(), planned);
             let mut tail = planned.clone();
             tail[SHARED_SIZE - 1] ^= 1;
-            assert!(check_plan(layout, &before, &tail).is_err());
+            assert!(check_plan(layout, &before, &tail, false).is_err());
+            assert!(check_plan(layout, &before, &tail, true).is_err());
         }
         let b = sample(tb520());
         let unknown = Edits::from([("nonexistent".into(), "1".into())]);
-        assert!(apply(tb520(), &b, &unknown).is_err());
+        assert!(apply(tb520(), &b, &unknown, false).is_err());
         let mut no_magic = b.clone();
         no_magic[0] = b'X';
-        assert!(apply(tb520(), &no_magic, &Edits::new()).is_err());
+        assert!(apply(tb520(), &no_magic, &Edits::new(), false).is_err());
     }
 
     #[test]
@@ -607,11 +621,12 @@ pub(crate) mod tests {
             assert!(encode(&f("rollback_index[1]"), "10000000000").is_err());
             assert!(encode(&f("region"), "hex:524F57").is_err());
             assert_eq!(encode(&f("region"), "row").unwrap(), b"ROW");
-            let changed = |key: &str, byte: u8| {
+            let changed_with = |key: &str, byte: u8, unlocked: bool| {
                 let mut planned = before.clone();
                 planned[f(key).offset] = byte;
-                check_plan(layout, &before, &planned)
+                check_plan(layout, &before, &planned, unlocked)
             };
+            let changed = |key: &str, byte: u8| changed_with(key, byte, false);
             for key in [
                 "magic",
                 "region_magic_1",
@@ -622,7 +637,11 @@ pub(crate) mod tests {
                 "frs_uds_cache",
             ] {
                 assert!(changed(key, b'X').is_err(), "{layout:?} {key}");
+                // Unlocked in the editor, read-only fields may change.
+                assert!(changed_with(key, b'X', true).is_ok(), "{layout:?} {key}");
             }
+            // Choices still hold when unlocked.
+            assert!(changed_with("verity_mode", 2, true).is_err());
             assert!(changed("verity_mode", 1).is_ok());
             assert!(changed("verity_mode", 2).is_err());
             // Only the recognized audio framework names and golden values.
@@ -631,7 +650,7 @@ pub(crate) mod tests {
                 let mut planned = before.clone();
                 planned[field.range()].fill(0);
                 planned[field.offset..field.offset + raw.len()].copy_from_slice(raw);
-                check_plan(layout, &before, &planned)
+                check_plan(layout, &before, &planned, false)
             };
             assert!(with(&audio, b"elite").is_ok());
             assert!(with(&audio, b"dolby").is_err());

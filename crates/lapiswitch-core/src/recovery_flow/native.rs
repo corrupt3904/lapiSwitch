@@ -344,11 +344,12 @@ impl DeviceInfoIo for Recovery {
         &mut self,
         before: &[u8],
         planned: &[u8],
+        unlocked: bool,
         _log: &mut Vec<String>,
     ) -> Result<(), String> {
         self.prepared = None;
         let ta = self.active_keymaster()?;
-        map::check_plan(self.device.write_layout()?, before, planned)?;
+        map::check_plan(self.device.write_layout()?, before, planned, unlocked)?;
         self.reads += 1;
         let tag = self.reads;
         let (before_hash, planned_hash) =

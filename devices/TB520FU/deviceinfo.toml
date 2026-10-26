@@ -5,7 +5,7 @@
 #        text (ASCII, NUL padded) · text_nul (ASCII, the last byte stays NUL) · bytes (hex)
 # class: basic · advanced · protected (security/structure fields: changing them on the advanced tab needs a risk confirmation)
 # count/stride: a repeated field. {n} in key becomes 0..count-1 and offset grows by stride.
-# editable = false: read-only. choices: the only values that can be chosen.
+# editable = false: read-only (the advanced tab can unlock it after a risk confirmation). choices: the only values that can be chosen.
 # decimal = true: a uint shown and entered in decimal only; max_digits limits its digits.
 # Required fields: magic, is_unlocked, is_unlock_critical, region, region_fill (13 bytes after
 # region, read-only), rollback_index[0..31]
@@ -73,6 +73,7 @@ offset = 0x0091
 size = 3
 kind = "bytes"
 class = "advanced"
+editable = false
 
 [[field]]
 key = "user_public_key_length"
@@ -175,6 +176,7 @@ offset = 0x0CA1
 size = 3
 kind = "bytes"
 class = "advanced"
+editable = false
 
 [[field]]
 key = "frs_uds_cache_length"
@@ -206,6 +208,7 @@ offset = 0x0CD0
 size = 0x40
 kind = "bytes"
 class = "advanced"
+editable = false
 
 [[field]]
 key = "region"
@@ -236,6 +239,7 @@ offset = 0x0D28
 size = 8
 kind = "bytes"
 class = "advanced"
+editable = false
 
 [[field]]
 key = "oem_reserved_2"
@@ -243,6 +247,7 @@ offset = 0x0D30
 size = 0x170
 kind = "bytes"
 class = "advanced"
+editable = false
 
 [[field]]
 key = "fastboot_mode"
@@ -274,3 +279,4 @@ offset = 0x0EA3
 size = 5
 kind = "bytes"
 class = "advanced"
+editable = false

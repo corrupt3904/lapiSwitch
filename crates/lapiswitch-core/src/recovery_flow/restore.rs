@@ -72,7 +72,7 @@ fn proof(backup: &VerifiedBackup, p: &Progress) -> Result<(Vec<u8>, Vec<u8>), St
     if backup.device().field_map()?.region(&before) != a.original_region {
         return Err(crate::msg!("core_original_region_mismatch"));
     }
-    let planned = map::apply(backup.device().field_map()?, &before, &a.edits)?;
+    let planned = map::apply(backup.device().field_map()?, &before, &a.edits, a.unlocked)?;
     if backup::digest_bytes(&planned) != a.planned_sha256 {
         return Err(crate::msg!("core_planned_hash_mismatch"));
     }
@@ -484,12 +484,13 @@ pub fn run(
         let second = recovery.read(&scratch.path().join("read2"), log)?;
         let p = progress(backup)?.ok_or(crate::msg!("core_conversion_record_missing"))?;
         let (planned, expected) = proof(backup, &p)?;
+        let unlocked = p.attempt.as_ref().is_some_and(|a| a.unlocked);
         deviceinfo::verify(&expected, &before, &second)?;
         preserve(&dir.join("deviceinfo_before.bin"), &before)?;
         j.before_sha256 = Some(backup::digest_bytes(&before));
         j.planned_sha256 = Some(backup::digest_bytes(&planned));
         // Transfers and the dry-run precede the durable write intent.
-        recovery.prepare(&before, &planned, log)?;
+        recovery.prepare(&before, &planned, unlocked, log)?;
         save(&dir, &mut j, RestorePhase::RegionWritePending)?;
         ui.phase(Phase::Planned);
         ui.status(&crate::msg!("core_restore_writing"), false);
@@ -576,6 +577,7 @@ pub fn run_from_twrp(
     match p.as_ref().filter(|p| p.attempt.is_some()) {
         Some(p) => {
             let (original, planned) = proof(backup, p)?;
+            let unlocked = p.attempt.as_ref().is_some_and(|a| a.unlocked);
             ui.phase(Phase::Planned);
             ui.status(&crate::msg!("core_restore_twrp_reading"), false);
             let scratch = tempfile::tempdir_in(backup.work_dir()?).map_err(|e| e.to_string())?;
@@ -592,7 +594,7 @@ pub fn run_from_twrp(
                 j.before_sha256 = Some(backup::digest_bytes(&first));
                 j.planned_sha256 = Some(backup::digest_bytes(&original));
                 // Transfers and the dry-run precede the durable write intent.
-                recovery.prepare(&first, &original, log)?;
+                recovery.prepare(&first, &original, unlocked, log)?;
                 save(&dir, &mut j, RestorePhase::RegionWritePending)?;
                 ui.status(&crate::msg!("core_restore_writing"), false);
                 let (same, fresh) =

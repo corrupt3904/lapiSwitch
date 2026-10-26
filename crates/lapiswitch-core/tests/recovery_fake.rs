@@ -243,12 +243,13 @@ impl DeviceInfoIo for Info {
         &mut self,
         before: &[u8],
         planned: &[u8],
+        unlocked: bool,
         _: &mut Vec<String>,
     ) -> Result<(), String> {
         // No durable write intent may exist while transfers can still fail.
         assert_eq!(self.phase(), Phase::Planned);
         assert_eq!(before, self.bytes);
-        map::check_plan(self.layout, before, planned)?;
+        map::check_plan(self.layout, before, planned, unlocked)?;
         if self.fail_prepare {
             return Err("push/dry-run failed".into());
         }
@@ -287,7 +288,7 @@ impl DeviceInfoIo for Info {
         );
         assert_eq!(before, self.bytes);
         let p = planned.to_vec();
-        map::check_plan(self.layout, &self.bytes, &p)?;
+        map::check_plan(self.layout, &self.bytes, &p, record.unlocked)?;
         if self.fail_before_write {
             self.fail_reads = self.lose_usb_on_write;
             return Err("The DeviceInfo helper exited before the write request (exit 1).".into());
@@ -556,7 +557,7 @@ fn conversion(before: &[u8], s: &Setup, mode: RollbackMode) -> Vec<u8> {
     let edits =
         deviceinfo::conversion_edits(tb520fu().layout().unwrap(), before, s.firmware.region, mode)
             .unwrap();
-    let planned = map::apply(tb520fu().layout().unwrap(), before, &edits).unwrap();
+    let planned = map::apply(tb520fu().layout().unwrap(), before, &edits, false).unwrap();
     for (n, (a, b)) in before.iter().zip(&planned).enumerate() {
         if a != b {
             assert!(
@@ -1403,13 +1404,19 @@ impl DeviceInfoIo for RestoreInfo {
     fn read(&mut self, _: &Path, _: &mut Vec<String>) -> Result<Vec<u8>, String> {
         Ok(self.shared.borrow().0.clone())
     }
-    fn prepare(&mut self, b: &[u8], p: &[u8], _: &mut Vec<String>) -> Result<(), String> {
+    fn prepare(
+        &mut self,
+        b: &[u8],
+        p: &[u8],
+        unlocked: bool,
+        _: &mut Vec<String>,
+    ) -> Result<(), String> {
         assert_eq!(b, self.shared.borrow().0);
         // The reverse write intent is recorded only after the dry-run.
         let j: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&self.journal).unwrap()).unwrap();
         assert_eq!(j["phase"], "BootRequested");
-        map::check_plan(tb520fu().layout().unwrap(), b, p)
+        map::check_plan(tb520fu().layout().unwrap(), b, p, unlocked)
     }
     fn apply(
         &mut self,
@@ -2117,6 +2124,7 @@ fn edit_request(pairs: &[(&str, &str)], firmware_dir: Option<PathBuf>) -> EditRe
             .collect(),
         firmware_dir,
         country: None,
+        unlocked: false,
     }
 }
 
@@ -2545,9 +2553,15 @@ impl DeviceInfoIo for TwrpInfo {
         self.reads += 1;
         Ok(self.bytes.clone())
     }
-    fn prepare(&mut self, b: &[u8], p: &[u8], _: &mut Vec<String>) -> Result<(), String> {
+    fn prepare(
+        &mut self,
+        b: &[u8],
+        p: &[u8],
+        unlocked: bool,
+        _: &mut Vec<String>,
+    ) -> Result<(), String> {
         assert_eq!(b, self.bytes);
-        map::check_plan(tb520fu().layout().unwrap(), b, p)
+        map::check_plan(tb520fu().layout().unwrap(), b, p, unlocked)
     }
     fn apply(
         &mut self,

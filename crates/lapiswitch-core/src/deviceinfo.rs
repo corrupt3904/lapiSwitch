@@ -36,13 +36,15 @@ pub fn indices(layout: map::Layout, bytes: &[u8]) -> [u64; map::ROLLBACK_COUNT] 
     layout.rollback_indices(bytes)
 }
 
-/// Set all 32 rollback indices to zero on top of existing edits.
+/// Set all 32 rollback indices to zero on top of existing edits, which may
+/// change read-only fields when `unlocked`.
 pub fn with_rollback_reset(
     layout: map::Layout,
     before: &[u8],
     edits: &map::Edits,
+    unlocked: bool,
 ) -> Result<map::Edits, String> {
-    let mut planned = map::apply(layout, before, edits)?;
+    let mut planned = map::apply(layout, before, edits, unlocked)?;
     let start = layout.rollback_start();
     planned[start..start + map::ROLLBACK_COUNT * 8].fill(0);
     Ok(map::edits_between(layout, before, &planned))
@@ -63,7 +65,7 @@ pub fn conversion_edits(
     let edits = map::edits_between(layout, before, &planned);
     match mode {
         RollbackMode::Keep => Ok(edits),
-        RollbackMode::Reset => with_rollback_reset(layout, before, &edits),
+        RollbackMode::Reset => with_rollback_reset(layout, before, &edits, false),
     }
 }
 
@@ -108,7 +110,7 @@ mod tests {
                 for mode in [RollbackMode::Keep, RollbackMode::Reset] {
                     let b = sample(current);
                     let edits = conversion_edits(layout(), &b, target, mode).unwrap();
-                    let p = map::apply(layout(), &b, &edits).unwrap();
+                    let p = map::apply(layout(), &b, &edits, false).unwrap();
                     assert_eq!(region(layout(), &p).unwrap(), target);
                     if mode == RollbackMode::Reset {
                         assert_eq!(indices(layout(), &p), [0; 32]);

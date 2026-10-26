@@ -1369,7 +1369,14 @@ impl App {
         self.logs.push_back(line);
     }
     fn subscription(&self) -> Subscription<Message> {
+        // The lock icon fills every frame while it is held.
+        let hold = if self.editor.as_ref().is_some_and(|e| e.hold.is_some()) {
+            iced::window::frames().map(|at| Message::Editor(editor::EditorMessage::LockFrame(at)))
+        } else {
+            Subscription::none()
+        };
         Subscription::batch([
+            hold,
             iced::time::every(worker::POLL_INTERVAL).map(|_| Message::Tick),
             iced::system::theme_changes().map(Message::SystemTheme),
             iced::event::listen_with(|event, status, _| match event {
@@ -1696,7 +1703,10 @@ impl App {
             | "deviceinfo-editor-rollback-zero"
             | "deviceinfo-editor-rollback-zero-field"
             | "deviceinfo-editor-help"
-            | "deviceinfo-editor-help-rollback" => {
+            | "deviceinfo-editor-help-rollback"
+            | "deviceinfo-editor-lock-hold"
+            | "deviceinfo-editor-unlock"
+            | "deviceinfo-editor-unlocked" => {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
@@ -1799,6 +1809,38 @@ impl App {
                 }
                 if screen == "deviceinfo-editor-country" {
                     let _ = self.update(Message::CountryOpen);
+                }
+                if matches!(
+                    screen,
+                    "deviceinfo-editor-lock-hold"
+                        | "deviceinfo-editor-unlock"
+                        | "deviceinfo-editor-unlocked"
+                ) {
+                    self.editor_update(editor::EditorMessage::Tab(editor::Tab::Advanced));
+                    self.editor_update(editor::EditorMessage::Query("reserved".into()));
+                    // A hold 40% of the way; the dialog after a full hold.
+                    self.editor_update(editor::EditorMessage::LockPress);
+                    if let Some(editor) = self.editor.as_mut() {
+                        editor.hold = None;
+                        editor.hold_progress = 0.4;
+                    }
+                    if screen != "deviceinfo-editor-lock-hold" {
+                        let start = std::time::Instant::now();
+                        if let Some(editor) = self.editor.as_mut() {
+                            editor.hold = Some(start);
+                        }
+                        self.editor_update(editor::EditorMessage::LockFrame(
+                            start + editor::UNLOCK_HOLD,
+                        ));
+                    }
+                    if screen == "deviceinfo-editor-unlocked" {
+                        self.editor_update(editor::EditorMessage::UnlockAgree(true));
+                        self.editor_update(editor::EditorMessage::Unlock(true));
+                        self.editor_update(editor::EditorMessage::Input(
+                            "reserved_end".into(),
+                            "0102030405".into(),
+                        ));
+                    }
                 }
                 if screen == "deviceinfo-editor-review" {
                     self.editor_update(editor::EditorMessage::Input("region".into(), "ROW".into()));
@@ -2760,6 +2802,9 @@ mod tests {
                 "deviceinfo-editor-notices",
                 "deviceinfo-editor-custom-notices",
                 "deviceinfo-editor-country",
+                "deviceinfo-editor-lock-hold",
+                "deviceinfo-editor-unlock",
+                "deviceinfo-editor-unlocked",
                 "twrp-wait",
                 "deviceinfo",
                 "new-flash",

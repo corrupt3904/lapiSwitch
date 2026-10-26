@@ -53,7 +53,7 @@ devices/
    - `deviceinfo_read = true`이면 `codename`, `[firmware]`, `[installed]`, `[twrp]`, `[country]`가 모두 있는지, 알 수 없는 항목이나 값이 없는지
    - `deviceinfo_write = true`이면 `deviceinfo_read = true`이고 `deviceinfo.toml`이 있는지
 4. 필드에는 다음 항목을 더 둘 수 있습니다.
-   - `editable = false`: 수정 불가. 편집 창은 값만 보여 주고, 어떤 작업도 이 바이트를 바꾸지 않습니다.
+   - `editable = false`: 읽기 전용. 편집 창은 값만 보여 줍니다. 고급 탭의 자물쇠를 3초간 누르고 위험성에 동의해야만 이 편집 창 안에서 수정할 수 있고, 그 계획은 "잠금 해제됨"으로 기록되어 쓰기·재개·복구 검사도 그 기록에 따라 허용합니다. 예약·패딩 영역도 읽기 전용입니다.
    - `choices = ["0", "1"]`: 버튼으로 고를 수 있는 값(`flag`·`uint`). 이 값으로만 바꿀 수 있고, 기기 값이 목록에 없으면 현재 값을 유지만 할 수 있습니다.
    - `decimal = true`: `uint`를 10진수로만 표시·입력합니다(`0x`·`hex:` 입력 불가).
 5. 화면에 보이는 필드 이름과 설명은 모든 기기가 함께 쓰는 `devices/text/<언어>.toml`(`en`·`ko`·`zh`·`ja`·`ru`)에 씁니다.

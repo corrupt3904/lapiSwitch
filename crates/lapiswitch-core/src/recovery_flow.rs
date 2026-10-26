@@ -48,6 +48,9 @@ pub struct Attempt {
     pub original_region: Option<Region>,
     /// The chosen field values; with the original they rebuild the plan.
     pub edits: map::Edits,
+    /// The user unlocked read-only fields for these edits in the editor.
+    #[serde(default)]
+    pub unlocked: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -118,15 +121,20 @@ pub struct EditRequest {
     /// Applied after installing that firmware; `None` keeps the country code.
     /// Only a region change installs firmware, so only it may set one.
     pub country: Option<String>,
+    /// Read-only fields were unlocked, after the risk was agreed to, and
+    /// changed.
+    pub unlocked: bool,
 }
 pub trait DeviceInfoIo {
     fn read(&mut self, out: &Path, log: &mut Vec<String>) -> Result<Vec<u8>, String>;
     /// Transfer and dry-run this exact plan without any write request. A
     /// failure here happens before the durable write intent is recorded.
+    /// `unlocked` plans may change read-only fields.
     fn prepare(
         &mut self,
         before: &[u8],
         planned: &[u8],
+        unlocked: bool,
         log: &mut Vec<String>,
     ) -> Result<(), String>;
     /// The only write request, for the plan just prepared in this session.
@@ -288,7 +296,7 @@ fn saved_plan(
         return Err(crate::msg!("core_deviceinfo_backup_changed"));
     }
     let before = std::fs::read(original).map_err(|e| e.to_string())?;
-    let planned = map::apply(layout, &before, &record.edits)?;
+    let planned = map::apply(layout, &before, &record.edits, record.unlocked)?;
     if backup::digest_bytes(&planned) != record.planned_sha256 {
         return Err(crate::msg!("core_deviceinfo_plan_differs"));
     }
@@ -314,7 +322,12 @@ fn verify_evidence(backup: &VerifiedBackup, state: &RunState) -> Result<(), Stri
         return Err(crate::msg!("core_deviceinfo_final_evidence_changed"));
     }
     let after = std::fs::read(final_read).map_err(|e| e.to_string())?;
-    map::check_plan(backup.device().field_map()?, &before, &after)?;
+    map::check_plan(
+        backup.device().field_map()?,
+        &before,
+        &after,
+        record.unlocked,
+    )?;
     deviceinfo::verify(&planned, &after, &after)
 }
 
@@ -645,14 +658,15 @@ fn attempt_dir(backup: &VerifiedBackup, name: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 /// Edits of this run: the conversion preset, or the user's choice in the
-/// editor. An edit that changes the region binds that region's firmware.
+/// editor, with whether read-only fields were unlocked for them. An edit that
+/// changes the region binds that region's firmware.
 fn choose_edits(
     before: &[u8],
     state: &mut RunState,
     firmware: &mut Option<FirmwareReport>,
     ui: &mut impl Ui,
     log: &mut Vec<String>,
-) -> Result<Option<map::Edits>, String> {
+) -> Result<Option<(map::Edits, bool)>, String> {
     let layout = state.device()?.write_layout()?;
     match state.request {
         Request::Convert {
@@ -662,12 +676,10 @@ fn choose_edits(
             if firmware.as_ref().map(|firmware| firmware.region) != Some(target) {
                 return Err(crate::msg!("core_no_target_firmware"));
             }
-            Ok(Some(deviceinfo::conversion_edits(
-                layout,
-                before,
-                target,
-                rollback_mode,
-            )?))
+            Ok(Some((
+                deviceinfo::conversion_edits(layout, before, target, rollback_mode)?,
+                false,
+            )))
         }
         Request::Dump => Err(crate::msg!("core_dump_changes_nothing")),
         Request::Edit => {
@@ -676,7 +688,7 @@ fn choose_edits(
                 live!(log, "{}", crate::msg!("core_edit_cancelled"));
                 return Ok(None);
             };
-            let planned = map::apply(layout, before, &request.edits)?;
+            let planned = map::apply(layout, before, &request.edits, request.unlocked)?;
             let target = layout
                 .region(&planned)
                 .ok_or(crate::msg!("core_region_field_invalid"))?;
@@ -717,7 +729,10 @@ fn choose_edits(
                 state.firmware = Some(FirmwareBinding::new(&checked)?);
                 *firmware = Some(checked);
             }
-            Ok(Some(map::edits_between(layout, before, &planned)))
+            Ok(Some((
+                map::edits_between(layout, before, &planned),
+                request.unlocked,
+            )))
         }
     }
 }
@@ -727,13 +742,13 @@ fn choose_edits(
 fn check_planned_rollback(
     layout: map::Layout,
     before: &[u8],
-    edits: map::Edits,
+    (edits, unlocked): (map::Edits, bool),
     firmware: &FirmwareReport,
     state: &mut RunState,
     ui: &mut impl Ui,
     log: &mut Vec<String>,
 ) -> Result<Option<map::Edits>, String> {
-    let planned = map::apply(layout, before, &edits)?;
+    let planned = map::apply(layout, before, &edits, unlocked)?;
     let stored = deviceinfo::indices(layout, &planned);
     let device = RollbackIndices {
         boot: stored[3],
@@ -774,7 +789,7 @@ fn check_planned_rollback(
     ));
     live!(log, "{}", crate::msg!("core_rollback_reset_chosen"));
     Ok(Some(deviceinfo::with_rollback_reset(
-        layout, before, &edits,
+        layout, before, &edits, unlocked,
     )?))
 }
 
@@ -892,26 +907,32 @@ pub fn transact(
         return Err(crate::msg!("core_reads_differ_not_written"));
     }
     // A plan recorded before an unapplied write is reused as chosen.
-    let edits = if let Some(record) = state.recovery.attempt.clone() {
+    let (edits, unlocked) = if let Some(record) = state.recovery.attempt.clone() {
         saved_plan(layout, &attempt, &record)?;
-        record.edits
+        (record.edits, record.unlocked)
     } else {
-        let Some(edits) = choose_edits(&before, state, firmware, ui, log)? else {
+        let Some((edits, unlocked)) = choose_edits(&before, state, firmware, ui, log)? else {
             return Ok(Outcome::Cancelled);
         };
         let edits = match firmware.as_ref() {
-            Some(chosen) => {
-                match check_planned_rollback(layout, &before, edits, chosen, state, ui, log)? {
-                    Some(edits) => edits,
-                    None => return Ok(Outcome::Cancelled),
-                }
-            }
+            Some(chosen) => match check_planned_rollback(
+                layout,
+                &before,
+                (edits, unlocked),
+                chosen,
+                state,
+                ui,
+                log,
+            )? {
+                Some(edits) => edits,
+                None => return Ok(Outcome::Cancelled),
+            },
             None => edits,
         };
         stopped(ui)?;
-        edits
+        (edits, unlocked)
     };
-    let planned = map::apply(layout, &before, &edits)?;
+    let planned = map::apply(layout, &before, &edits, unlocked)?;
     log_changes(layout, &before, &planned, log);
     state.recovery.attempt = Some(Attempt {
         directory: attempt
@@ -923,6 +944,7 @@ pub fn transact(
         planned_sha256: backup::digest_bytes(&planned),
         original_region: layout.region(&before),
         edits,
+        unlocked,
     });
     if backup::hash_file(&attempt.join("before_shared_1.bin"), None)?
         != (before.len() as u64, backup::digest_bytes(&before))
@@ -936,7 +958,7 @@ pub fn transact(
         ui.status(&crate::msg!("core_writing_deviceinfo"), false);
         // Transfers and the dry-run cannot change DeviceInfo. Their failures
         // stay at Planned instead of becoming an unresolved write.
-        device.prepare(&before, &planned, log)?;
+        device.prepare(&before, &planned, unlocked, log)?;
         checkpoint(state, store, Phase::WritePending)?;
         // A durable PC intent exists before the only write call.
         let (same, fresh) =
