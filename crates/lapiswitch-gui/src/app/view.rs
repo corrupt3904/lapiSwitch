@@ -804,37 +804,21 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         )
     } else if let Some(editor) = &app.editor {
         // The country picker and a field's help open over the editor, which
-        // stays visible behind them.
+        // stays visible behind them. The editor keeps the same place in the
+        // widget tree either way, so its scroll position survives.
         let over = if app.country_open {
             Some(country_view::modal(app))
         } else {
             super::editor::help_modal(app, editor)
         };
-        Some(if let Some(over) = over {
+        Some(
             container(stack![
                 container(super::editor::modal(app, editor)).center(Fill),
-                opaque(container(over).center(Fill).style(|_| container::Style {
-                    background: Some(Background::Color(fluent::p().scrim)),
-                    ..Default::default()
-                })),
+                overlay(over),
             ])
             .width(Fill)
-            .height(Fill)
-        } else if app.country_open {
-            container(stack![
-                container(super::editor::modal(app, editor)).center(Fill),
-                opaque(container(country_view::modal(app)).center(Fill).style(|_| {
-                    container::Style {
-                        background: Some(Background::Color(fluent::p().scrim)),
-                        ..Default::default()
-                    }
-                })),
-            ])
-            .width(Fill)
-            .height(Fill)
-        } else {
-            super::editor::modal(app, editor)
-        })
+            .height(Fill),
+        )
     } else if app.edl_confirmation.is_some() {
         Some(
             panel(
@@ -908,17 +892,18 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
     } else {
         None
     };
-    if let Some(modal) = modal {
-        stack![
-            root,
-            opaque(container(modal).center(Fill).style(|_| container::Style {
-                background: Some(Background::Color(fluent::p().scrim)),
-                ..Default::default()
-            }))
-        ]
-        .into()
-    } else {
-        root
+    // The page keeps the same place in the widget tree with or without a
+    // dialog, so its scroll position survives one opening and closing.
+    stack![root, overlay(modal)].into()
+}
+/// A dialog over the page with the scrim behind it, or nothing.
+fn overlay<'a>(dialog: Option<widget::Container<'a, Message>>) -> Element<'a, Message> {
+    match dialog {
+        Some(dialog) => opaque(container(dialog).center(Fill).style(|_| container::Style {
+            background: Some(Background::Color(fluent::p().scrim)),
+            ..Default::default()
+        })),
+        None => space().into(),
     }
 }
 pub(super) fn footer<'a>(app: &App, next: Option<(Message, bool)>) -> Element<'a, Message> {
