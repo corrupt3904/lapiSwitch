@@ -905,14 +905,12 @@ fn locked_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element
     .extend(help_button(field));
     // The same box as a typed field, without input.
     let value = text_input("", editor.input(field)).padding(8).size(14);
-    let mut content = column![head, value].spacing(6);
-    if changed {
-        content = content.push(small(app.tr("editor_original")));
-        if let Some(original) = selectable(editor, &field.key) {
-            content = content.push(original);
-        }
-    }
-    basic_box(content, changed)
+    let content = column![
+        original_line(app, editor, field, changed),
+        value_line(app, value.into(), changed),
+    ]
+    .spacing(6);
+    basic_box(column![head, content].spacing(6), changed)
 }
 
 /// The notice a changed field shows inside its own box: the region change
@@ -1043,15 +1041,37 @@ fn rollback_choices<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message
 
 /// A field's full read value as text that can be selected and copied.
 fn selectable<'a>(editor: &'a Editor, key: &str) -> Option<Element<'a, Message>> {
+    selectable_text(editor, key, false)
+}
+
+/// The read value as selectable text; `greyed` for the read value shown
+/// above a changed field's input, so it does not read as input.
+fn selectable_text<'a>(
+    editor: &'a Editor,
+    key: &str,
+    greyed: bool,
+) -> Option<Element<'a, Message>> {
     let content = editor.texts.get(key)?;
     let key = key.to_owned();
-    Some(
-        text_editor(content)
-            .on_action(move |action| Message::Editor(EditorMessage::Select(key.clone(), action)))
-            .size(14)
-            .wrapping(iced::widget::text::Wrapping::Glyph)
-            .into(),
-    )
+    let text = text_editor(content)
+        .on_action(move |action| Message::Editor(EditorMessage::Select(key.clone(), action)))
+        .size(14)
+        .wrapping(iced::widget::text::Wrapping::Glyph);
+    Some(if greyed {
+        text.style(|theme, status| text_editor::Style {
+            background: card_color().into(),
+            border: Border {
+                color: line(),
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            value: muted(),
+            ..text_editor::default(theme, status)
+        })
+        .into()
+    } else {
+        text.into()
+    })
 }
 
 /// A long (bytes) field's input: multi-line so the whole value shows.
@@ -1129,7 +1149,7 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
     }
     if changed {
         head = head.push(space().width(Fill)).push(
-            button(small(app.tr("editor_original")))
+            button(small(app.tr("editor_revert")))
                 .padding([4, 10])
                 .style(soft_style)
                 .on_press(Message::Editor(EditorMessage::Reset(field.key.clone()))),
@@ -1143,14 +1163,18 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
             .size(14)
             .into()
     });
-    let mut content = column![head, input].spacing(6);
+    // The read value above, the new one below; the input keeps its place in
+    // the tree whether or not the field is changed, so typing keeps focus.
+    let mut content = column![
+        head,
+        original_line(app, editor, field, changed),
+        value_line(app, input, changed),
+    ]
+    .spacing(6);
     if let Some(error) = editor.error(field) {
         content = content.push(small(error).color(danger()));
-    } else if changed {
-        content = content.push(small(app.tr("editor_original")));
-        if let Some(original) = selectable(editor, &field.key) {
-            content = content.push(original);
-        }
+    } else if let Some(diff) = byte_diff(app, editor, field) {
+        content = content.push(diff);
     }
     let content = content.extend(field_notice(app, editor, field));
     container(content)
@@ -1162,6 +1186,122 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
             ..Default::default()
         })
         .into()
+}
+
+/// Width of the tags in front of a changed field's values.
+const TAG_WIDTH: f32 = 76.0;
+
+/// The tag in front of a value line: grey for the read value, red for the
+/// new value. An empty tag (`None`) takes no room.
+fn value_tag<'a>(text: Option<&'a str>, new: bool) -> Element<'a, Message> {
+    let Some(text) = text else {
+        return container(small("")).into();
+    };
+    container(small(text).color(if new { danger() } else { muted() }))
+        .width(TAG_WIDTH)
+        .padding([7, 0])
+        .center_x(TAG_WIDTH)
+        .style(move |_| container::Style {
+            background: Some(if new { pale() } else { card_color() }.into()),
+            border: Border {
+                color: if new { danger() } else { line() },
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+}
+
+/// A changed field's read value, tagged, above its new value; nothing
+/// while the field is unchanged.
+fn original_line<'a>(
+    app: &'a App,
+    editor: &'a Editor,
+    field: &Field,
+    changed: bool,
+) -> Element<'a, Message> {
+    match selectable_text(editor, &field.key, true).filter(|_| changed) {
+        Some(original) => row![
+            value_tag(Some(app.tr("editor_original")), false),
+            container(original).width(Fill)
+        ]
+        .spacing(8)
+        .align_y(Alignment::Start)
+        .into(),
+        None => space().height(0).into(),
+    }
+}
+
+/// The value input, tagged as the new value once the field is changed.
+fn value_line<'a>(
+    app: &'a App,
+    input: Element<'a, Message>,
+    changed: bool,
+) -> Element<'a, Message> {
+    row![
+        value_tag(changed.then(|| app.tr("editor_new_value")), true),
+        container(input).width(Fill)
+    ]
+    .spacing(if changed { 8 } else { 0 })
+    .align_y(Alignment::Start)
+    .into()
+}
+
+/// For a long bytes value: the new bytes with the changed ones marked, and
+/// how many changed.
+fn byte_diff<'a>(app: &'a App, editor: &'a Editor, field: &Field) -> Option<Element<'a, Message>> {
+    if field.kind != Kind::Bytes || field.size <= 8 {
+        return None;
+    }
+    let new = map::encode(field, editor.input(field)).ok()?;
+    let old = &editor.before[field.range()];
+    let count = old.iter().zip(&new).filter(|(a, b)| a != b).count();
+    if count == 0 {
+        return None;
+    }
+    // Runs of changed and unchanged bytes become one span each.
+    let mut spans = Vec::new();
+    let mut run = String::new();
+    let mut run_changed = false;
+    let mut flush = |run: &mut String, changed: bool| {
+        if !run.is_empty() {
+            let text: iced::widget::text::Span<'_, ()> = iced::widget::span(std::mem::take(run));
+            spans.push(if changed {
+                text.color(danger()).background(pale())
+            } else {
+                text.color(muted())
+            });
+        }
+    };
+    for (a, b) in old.iter().zip(&new) {
+        if (a != b) != run_changed {
+            flush(&mut run, run_changed);
+            run_changed = a != b;
+        }
+        run.push_str(&format!("{b:02X}"));
+    }
+    flush(&mut run, run_changed);
+    Some(
+        column![
+            row![
+                value_tag(Some(app.tr("editor_changed_bytes")), true),
+                iced::widget::rich_text(spans)
+                    .size(14)
+                    .wrapping(iced::widget::text::Wrapping::Glyph)
+                    .width(Fill),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+            small(
+                app.tr("editor_bytes_changed_of")
+                    .replace("{count}", &count.to_string())
+                    .replace("{size}", &field.size.to_string())
+            ),
+        ]
+        .spacing(4)
+        .into(),
+    )
 }
 
 /// The set number of a `persistent[n].…` key.
@@ -1877,5 +2017,20 @@ mod tests {
         assert!(half.contains("A30 30 0 0 1 12.000 42.000Z"), "{half}");
         let open = lock_svg(true, 0.0, base, fill);
         assert!(!open.contains("#112233") && open.contains("#CC0000"));
+    }
+
+    #[test]
+    fn only_a_changed_long_bytes_value_shows_its_changed_bytes() {
+        let (mut app, _rx) = open();
+        let field = |key: &str| layout().field(key).unwrap();
+        let long = field("persistent[0].value");
+        assert!(byte_diff(&app, editor(&app), &long).is_none());
+        let mut value = map::display(&long, &editor(&app).before);
+        value.replace_range(0..2, "AB");
+        app.editor_update(EditorMessage::Input(long.key.clone(), value));
+        assert!(byte_diff(&app, editor(&app), &long).is_some());
+        // Short values are compared in the original and new lines alone.
+        app.editor_update(EditorMessage::Input("rollback_index[1]".into(), "3".into()));
+        assert!(byte_diff(&app, editor(&app), &field("rollback_index[1]")).is_none());
     }
 }

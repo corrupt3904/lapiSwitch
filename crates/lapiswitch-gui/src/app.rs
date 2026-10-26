@@ -728,7 +728,7 @@ impl App {
                 }
                 if self.demo && self.snapshot.is_some() {
                     self.snapshot_ticks += 1;
-                    if self.snapshot_ticks == 3 {
+                    if self.snapshot_ticks == 10 {
                         return iced::window::oldest()
                             .and_then(iced::window::screenshot)
                             .map(Message::Snapshot);
@@ -1706,7 +1706,8 @@ impl App {
             | "deviceinfo-editor-help-rollback"
             | "deviceinfo-editor-lock-hold"
             | "deviceinfo-editor-unlock"
-            | "deviceinfo-editor-unlocked" => {
+            | "deviceinfo-editor-unlocked"
+            | "deviceinfo-editor-changed" => {
                 self.reset_progress(RunKind::Edit);
                 self.progress.step(Step::DeviceInfo);
                 let (tx, _) = mpsc::channel();
@@ -1809,6 +1810,27 @@ impl App {
                 }
                 if screen == "deviceinfo-editor-country" {
                     let _ = self.update(Message::CountryOpen);
+                }
+                if screen == "deviceinfo-editor-changed" {
+                    // A short and a long field changed, the long one in a few bytes.
+                    self.editor_update(editor::EditorMessage::Tab(editor::Tab::Advanced));
+                    self.editor_update(editor::EditorMessage::Query("persistent[0].value".into()));
+                    self.editor_update(editor::EditorMessage::Input(
+                        "persistent[0].value_length".into(),
+                        "32".into(),
+                    ));
+                    if let Some(editor) = self.editor.as_ref()
+                        && let Ok(field) = editor.layout.field("persistent[0].value")
+                    {
+                        let mut value =
+                            lapiswitch_core::deviceinfo::map::display(&field, &editor.before);
+                        value.replace_range(8..16, "DEADBEEF");
+                        value.replace_range(40..44, "1234");
+                        self.editor_update(editor::EditorMessage::Input(
+                            "persistent[0].value".into(),
+                            value,
+                        ));
+                    }
                 }
                 if matches!(
                     screen,
@@ -2805,6 +2827,7 @@ mod tests {
                 "deviceinfo-editor-lock-hold",
                 "deviceinfo-editor-unlock",
                 "deviceinfo-editor-unlocked",
+                "deviceinfo-editor-changed",
                 "twrp-wait",
                 "deviceinfo",
                 "new-flash",
