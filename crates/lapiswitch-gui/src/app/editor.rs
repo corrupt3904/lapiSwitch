@@ -575,10 +575,7 @@ fn choice_row<'a>(
             ));
         }
     }
-    let description = app
-        .preferences
-        .language
-        .field_description(field.description);
+    let description = app.preferences.language.field_text(field.names);
     let place = format!("0x{:04X} · {}B", field.offset, field.size);
     let head = if basic {
         row![
@@ -609,7 +606,7 @@ const PERSISTENT_HELP: &str = "@persistent";
 /// The circled question mark that opens a field's help; only for a field
 /// that has one.
 fn help_button<'a>(field: &Field) -> Option<Element<'a, Message>> {
-    help_icon(field.help, &field.key)
+    help_icon(field.helps[0], &field.key)
 }
 
 /// The circled question mark that opens the help named `key`, when `help`
@@ -640,7 +637,7 @@ pub(super) fn help_modal<'a>(
         .filter_map(|f| persistent_index(&f.key))
         .max()
         .map_or(0, |last| last + 1);
-    let (title, place, help): (String, String, &str) = match key.as_str() {
+    let (title, place, help): (String, String, [&str; 5]) = match key.as_str() {
         ROLLBACK_HELP => (
             app.tr("editor_32_rollback_indices").to_owned(),
             format!(
@@ -658,9 +655,9 @@ pub(super) fn help_modal<'a>(
         _ => {
             let field = editor.fields.iter().find(|f| &f.key == key)?;
             (
-                language.field_description(field.description).to_owned(),
+                language.field_text(field.names).to_owned(),
                 format!("{} · 0x{:04X} · {}B", field.key, field.offset, field.size),
-                field.help,
+                field.helps,
             )
         }
     };
@@ -668,7 +665,7 @@ pub(super) fn help_modal<'a>(
         panel(
             column![
                 column![label(title).size(22), small(place)].spacing(4),
-                label(language.field_description(help)).size(14),
+                label(language.field_text(help)).size(14),
                 row![
                     space().width(Fill),
                     action(
@@ -689,11 +686,7 @@ fn read_only_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Elem
     let mut head = row![
         label(field.key.clone()).size(15),
         small(format!("0x{:04X} · {}B", field.offset, field.size)),
-        small(
-            app.preferences
-                .language
-                .field_description(field.description)
-        ),
+        small(app.preferences.language.field_text(field.names)),
     ]
     .spacing(10)
     .align_y(Alignment::Center)
@@ -716,11 +709,7 @@ fn locked_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element
     let head = row![
         label(field.key.clone()).size(15),
         small(format!("0x{:04X} · {}B", field.offset, field.size)),
-        small(
-            app.preferences
-                .language
-                .field_description(field.description)
-        ),
+        small(app.preferences.language.field_text(field.names)),
     ]
     .spacing(10)
     .align_y(Alignment::Center)
@@ -811,7 +800,7 @@ fn rollback_row<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> {
     let head = row![head]
         .spacing(6)
         .align_y(Alignment::Center)
-        .extend(help_icon(editor.layout.rollback_help(), ROLLBACK_HELP));
+        .extend(help_icon(editor.layout.rollback_help()[0], ROLLBACK_HELP));
     let mut content = column![head].spacing(8);
     let mut changed = false;
     if !editor.view_only {
@@ -938,11 +927,7 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
     let mut head = row![
         label(field.key.clone()).size(15),
         small(format!("0x{:04X} · {}B", field.offset, field.size)),
-        small(
-            app.preferences
-                .language
-                .field_description(field.description)
-        ),
+        small(app.preferences.language.field_text(field.names)),
     ]
     .spacing(10)
     .align_y(Alignment::Center)
@@ -1036,7 +1021,10 @@ fn persistent_box<'a>(app: &'a App, editor: &'a Editor) -> Element<'a, Message> 
         ]
         .spacing(10)
         .align_y(Alignment::Center)
-        .extend(help_icon(editor.layout.persistent_help(), PERSISTENT_HELP))
+        .extend(help_icon(
+            editor.layout.persistent_help()[0],
+            PERSISTENT_HELP
+        ))
     ]
     .spacing(8);
     for n in sets {
@@ -1233,9 +1221,9 @@ pub(super) fn field_list<'a>(app: &'a App, editor: &'a Editor) -> widget::Column
     for field in editor.fields.iter().filter(|field| {
         query.is_empty()
             || field.key.to_lowercase().contains(&query)
-            || field.description.to_lowercase().contains(&query)
+            || field.names[0].to_lowercase().contains(&query)
             || language
-                .field_description(field.description)
+                .field_text(field.names)
                 .to_lowercase()
                 .contains(&query)
     }) {

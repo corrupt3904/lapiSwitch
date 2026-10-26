@@ -42,6 +42,8 @@ pub enum Kind {
 
 /// Editing tier of a field: how much care a change needs.
 pub use lapiswitch_devices::Class;
+/// The language order of `Field::names`, `Field::helps` and group help.
+pub use lapiswitch_devices::TEXT_LANGUAGES;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
@@ -50,8 +52,9 @@ pub struct Field {
     pub size: usize,
     pub kind: Kind,
     pub class: Class,
-    /// English meaning from the structure map; the app translates it.
-    pub description: &'static str,
+    /// Shown name per `lapiswitch_devices::TEXT_LANGUAGES`, from
+    /// `devices/<MODEL>/text/<lang>.toml`; empty falls back to English.
+    pub names: [&'static str; 5],
     /// `false`: a plan never changes these bytes.
     pub editable: bool,
     /// The only values a plan may write, as `display` shows them; empty
@@ -62,7 +65,7 @@ pub struct Field {
     /// Most decimal digits a new value may have; 0 for no limit.
     pub max_digits: usize,
     /// What the field does on this device, in English; empty when unwritten.
-    pub help: &'static str,
+    pub helps: [&'static str; 5],
 }
 
 impl Field {
@@ -104,11 +107,11 @@ impl Layout {
         self.offset("region")
     }
     /// Help for the rollback indices as one group; empty when unwritten.
-    pub fn rollback_help(self) -> &'static str {
+    pub fn rollback_help(self) -> [&'static str; 5] {
         self.map.rollback_help
     }
     /// Help for the persistent value sets as one group; empty when unwritten.
-    pub fn persistent_help(self) -> &'static str {
+    pub fn persistent_help(self) -> [&'static str; 5] {
         self.map.persistent_help
     }
     pub fn rollback_start(self) -> usize {
@@ -134,12 +137,12 @@ impl Layout {
                     K::Bytes => Kind::Bytes,
                 },
                 class: field.class,
-                description: field.description,
+                names: field.names,
                 editable: field.editable,
                 choices: field.choices,
                 decimal: field.decimal,
                 max_digits: field.max_digits,
-                help: field.help,
+                helps: field.helps,
             })
             .collect()
     }

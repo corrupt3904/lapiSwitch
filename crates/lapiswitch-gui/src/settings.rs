@@ -119,46 +119,51 @@ mod tests {
         assert_eq!(Language::Russian.tr("Missing-key"), "Missing-key");
     }
 
+    /// Every name and help written in `text/en.toml` is written in every
+    /// language too, so no screen falls back to English unnoticed.
     #[test]
-    fn every_deviceinfo_field_description_is_translated() {
-        let english: BTreeSet<String> = lapiswitch_core::device::Device::all()
-            .filter_map(|device| device.layout())
-            .flat_map(|layout| {
-                let mut texts = vec![layout.rollback_help(), layout.persistent_help()];
-                for field in layout.fields() {
-                    texts.extend([field.description, field.help]);
+    fn every_deviceinfo_text_is_written_in_every_language() {
+        use lapiswitch_core::deviceinfo::map::TEXT_LANGUAGES;
+        let mut checked = 0;
+        for layout in lapiswitch_core::device::Device::all().filter_map(|device| device.layout()) {
+            let mut entries = vec![
+                ("@rollback".to_owned(), layout.rollback_help()),
+                ("@persistent".to_owned(), layout.persistent_help()),
+            ];
+            for field in layout.fields() {
+                entries.push((format!("{} name", field.key), field.names));
+                entries.push((format!("{} help", field.key), field.helps));
+            }
+            for (what, texts) in entries {
+                if texts[0].is_empty() {
+                    continue;
                 }
-                texts
-            })
-            .filter(|text| !text.is_empty())
-            .map(str::to_owned)
-            .collect();
-        assert!(english.len() > 20, "{english:?}");
-        for language in [
-            Language::Korean,
-            Language::Chinese,
-            Language::Japanese,
-            Language::Russian,
-        ] {
-            let catalog = language.field_catalog().unwrap();
-            let keys: BTreeSet<String> = catalog.keys().map(|k| (*k).to_owned()).collect();
-            let missing: Vec<_> = english.difference(&keys).collect();
-            let stale: Vec<_> = keys.difference(&english).collect();
-            assert!(missing.is_empty(), "{language:?} missing: {missing:#?}");
-            assert!(stale.is_empty(), "{language:?} unused: {stale:#?}");
-            assert!(catalog.values().all(|v| !v.trim().is_empty()));
+                for (text, code) in texts.iter().zip(TEXT_LANGUAGES) {
+                    assert!(
+                        !text.trim().is_empty(),
+                        "{} text/{code}.toml: {what}",
+                        layout.model()
+                    );
+                }
+                checked += 1;
+            }
         }
+        assert!(checked > 40, "{checked}");
+        let field = lapiswitch_core::deviceinfo::map::Layout::find("TB520FU")
+            .unwrap()
+            .field("is_unlocked")
+            .unwrap();
         assert_eq!(
-            Language::Korean.field_description("Bootloader unlock state"),
+            Language::Korean.field_text(field.names),
             "부트로더 잠금 해제 상태"
         );
         assert_eq!(
-            Language::English.field_description("Bootloader unlock state"),
+            Language::English.field_text(field.names),
             "Bootloader unlock state"
         );
         assert_eq!(
-            Language::Korean.field_description("Not mapped"),
-            "Not mapped"
+            Language::Korean.field_text(["Only English", "", "", "", ""]),
+            "Only English"
         );
     }
 
@@ -251,27 +256,15 @@ impl Language {
             .copied()
             .unwrap_or_else(|| crate::countries::find(code).map_or("", |c| c.code))
     }
-    /// Translations of the DeviceInfo field descriptions, which the device
-    /// files write in English.
-    fn field_catalog(self) -> Option<&'static Catalog> {
-        static KO: OnceLock<Catalog> = OnceLock::new();
-        static ZH: OnceLock<Catalog> = OnceLock::new();
-        static JA: OnceLock<Catalog> = OnceLock::new();
-        static RU: OnceLock<Catalog> = OnceLock::new();
-        let (cell, json) = match self {
-            Self::English => return None,
-            Self::Korean => (&KO, include_str!("../lang/deviceinfo/ko.json")),
-            Self::Chinese => (&ZH, include_str!("../lang/deviceinfo/zh.json")),
-            Self::Japanese => (&JA, include_str!("../lang/deviceinfo/ja.json")),
-            Self::Russian => (&RU, include_str!("../lang/deviceinfo/ru.json")),
-        };
-        Some(cell.get_or_init(|| leak_catalog(json)))
-    }
-    /// A DeviceInfo field description in this language, or the English one.
-    pub fn field_description(self, english: &'static str) -> &'static str {
-        self.field_catalog()
-            .and_then(|catalog| catalog.get(english).copied())
-            .unwrap_or(english)
+    /// A DeviceInfo name or help from `devices/<MODEL>/text/<lang>.toml` in
+    /// this language, or the English one when it is not written.
+    pub fn field_text(self, texts: [&'static str; 5]) -> &'static str {
+        lapiswitch_core::deviceinfo::map::TEXT_LANGUAGES
+            .iter()
+            .position(|code| *code == self.code())
+            .map(|index| texts[index])
+            .filter(|text| !text.is_empty())
+            .unwrap_or(texts[0])
     }
     /// The run messages of the core, worker and CLI in this language.
     fn run_catalog(self) -> &'static Catalog {

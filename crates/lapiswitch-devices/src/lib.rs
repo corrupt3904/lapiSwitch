@@ -35,7 +35,8 @@ pub struct Field {
     pub size: usize,
     pub kind: Kind,
     pub class: Class,
-    pub description: &'static str,
+    /// Shown name in each of `TEXT_LANGUAGES`; empty falls back to English.
+    pub names: [&'static str; 5],
     /// `false` keeps the field as read; the app shows it without an input.
     pub editable: bool,
     /// The only values that may be written, as shown (decimal for numbers).
@@ -45,18 +46,22 @@ pub struct Field {
     pub decimal: bool,
     /// Most decimal digits a new value may have; 0 for no limit.
     pub max_digits: usize,
-    /// What the field does on this device, in English; empty when unwritten.
-    pub help: &'static str,
+    /// What the field does on this device, in each of `TEXT_LANGUAGES`;
+    /// empty when unwritten.
+    pub helps: [&'static str; 5],
 }
+
+/// The languages of `devices/<MODEL>/text/<lang>.toml`, in array order.
+pub const TEXT_LANGUAGES: [&str; 5] = ["en", "ko", "zh", "ja", "ru"];
 
 /// The logical DeviceInfo structure: fields in offset order, without gaps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeviceInfoMap {
     pub logical_size: usize,
-    /// Help for the 32 rollback indices as one group, in English.
-    pub rollback_help: &'static str,
-    /// Help for the persistent value sets as one group, in English.
-    pub persistent_help: &'static str,
+    /// Help for the 32 rollback indices as one group, per language.
+    pub rollback_help: [&'static str; 5],
+    /// Help for the persistent value sets as one group, per language.
+    pub persistent_help: [&'static str; 5],
     pub fields: &'static [Field],
 }
 

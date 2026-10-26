@@ -5,6 +5,10 @@ use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Item, Table};
 
 const SHARED_SIZE: i64 = 0x1000;
+/// `devices/<MODEL>/text/<lang>.toml`, in the order of the generated arrays.
+const TEXT_LANGUAGES: [&str; 5] = ["en", "ko", "zh", "ja", "ru"];
+/// Text sections of the two field groups.
+const GROUP_KEYS: [&str; 2] = ["@rollback", "@persistent"];
 const ROLLBACK_COUNT: usize = 32;
 
 type Result<T> = std::result::Result<T, String>;
@@ -34,6 +38,10 @@ fn generate(root: &Path) -> Result<String> {
     for folder in &folders {
         for name in ["device.toml", "deviceinfo.toml", "image.png"] {
             println!("cargo:rerun-if-changed={}", folder.join(name).display());
+        }
+        for lang in TEXT_LANGUAGES {
+            let text = folder.join("text").join(format!("{lang}.toml"));
+            println!("cargo:rerun-if-changed={}", text.display());
         }
         let model = folder.file_name().unwrap().to_string_lossy().into_owned();
         let (device, read) = device(folder, &model).map_err(|e| format!("{model}: {e}"))?;
@@ -145,7 +153,7 @@ fn device(folder: &Path, model: &str) -> Result<(String, bool)> {
     // Writing needs the field map; a dump saves the raw bytes without one.
     let map = folder.join("deviceinfo.toml");
     let deviceinfo = if map.is_file() {
-        format!("Some({})", deviceinfo(&self::read(&map)?)?)
+        format!("Some({})", deviceinfo(&self::read(&map)?, folder)?)
     } else if write {
         return Err("deviceinfo_write = true에는 deviceinfo.toml이 필요합니다.".into());
     } else {
@@ -387,12 +395,68 @@ struct Field {
     size: i64,
     kind: &'static str,
     class: &'static str,
-    description: String,
+    names: [String; 5],
     editable: bool,
     choices: Vec<String>,
     decimal: bool,
     max_digits: i64,
-    help: String,
+    helps: [String; 5],
+}
+
+/// Names and help of one text section in every language, `en` first.
+#[derive(Default, Clone)]
+struct Texts {
+    names: [String; 5],
+    helps: [String; 5],
+}
+
+/// Reads `text/<lang>.toml`: a table per field key (repeated fields keep
+/// `{n}`) or group, with `name` and `help`. English names every field;
+/// another language may leave an entry out, which shows the English one.
+fn texts(folder: &Path, keys: &[String]) -> Result<std::collections::BTreeMap<String, Texts>> {
+    let mut all: std::collections::BTreeMap<String, Texts> = keys
+        .iter()
+        .map(String::as_str)
+        .chain(GROUP_KEYS)
+        .map(|key| (key.to_owned(), Texts::default()))
+        .collect();
+    for (index, lang) in TEXT_LANGUAGES.iter().enumerate() {
+        let path = folder.join("text").join(format!("{lang}.toml"));
+        if !path.is_file() {
+            if index == 0 {
+                return Err(format!("{}이(가) 필요합니다.", path.display()));
+            }
+            continue;
+        }
+        let doc = read(&path)?;
+        for (key, item) in doc.iter() {
+            let place = format!("text/{lang}.toml [{key}]");
+            let Some(texts) = all.get_mut(key) else {
+                return Err(format!("{place}: deviceinfo.toml에 없는 key입니다."));
+            };
+            let table = item
+                .as_table()
+                .ok_or_else(|| format!("{place}: 표([key])여야 합니다."))?;
+            let group = GROUP_KEYS.contains(&key);
+            only(
+                table,
+                if group { &["help"] } else { &["name", "help"] },
+                &place,
+            )?;
+            if table.contains_key("name") {
+                texts.names[index] = string(table, "name", &place)?.trim().to_owned();
+            }
+            if table.contains_key("help") {
+                texts.helps[index] = string(table, "help", &place)?.trim().to_owned();
+            }
+        }
+    }
+    for key in keys {
+        if all[key].names[0].is_empty() {
+            return Err(format!("text/en.toml: [{key}]의 name이 필요합니다."));
+        }
+    }
+    Ok(all)
 }
 
 fn boolean(table: &Table, key: &str, default: bool, place: &str) -> Result<bool> {
@@ -422,20 +486,8 @@ fn strings(table: &Table, key: &str, place: &str) -> Result<Vec<String>> {
         .collect()
 }
 
-fn deviceinfo(doc: &DocumentMut) -> Result<String> {
-    only(
-        doc,
-        &["logical_size", "rollback_help", "persistent_help", "field"],
-        "deviceinfo.toml",
-    )?;
-    let group_help = |key: &str| -> Result<String> {
-        match doc.get(key) {
-            None => Ok(String::new()),
-            Some(_) => Ok(string(doc, key, "deviceinfo.toml")?.to_owned()),
-        }
-    };
-    let rollback_help = group_help("rollback_help")?;
-    let persistent_help = group_help("persistent_help")?;
+fn deviceinfo(doc: &DocumentMut, folder: &Path) -> Result<String> {
+    only(doc, &["logical_size", "field"], "deviceinfo.toml")?;
     let logical = int(doc, "logical_size", "deviceinfo.toml")?;
     if !(0x0D..=SHARED_SIZE).contains(&logical) {
         return Err(format!(
@@ -447,6 +499,11 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
         .get("field")
         .and_then(Item::as_array_of_tables)
         .ok_or("deviceinfo.toml: [[field]]가 없습니다.")?;
+    let keys: Vec<String> = tables
+        .iter()
+        .filter_map(|table| table.get("key").and_then(Item::as_str).map(str::to_owned))
+        .collect();
+    let texts = texts(folder, &keys)?;
     for (n, table) in tables.iter().enumerate() {
         let place = format!(
             "deviceinfo.toml [[field]] #{} ({})",
@@ -461,7 +518,6 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
                 "size",
                 "kind",
                 "class",
-                "description",
                 "count",
                 "stride",
                 "editable",
@@ -500,7 +556,7 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
         if !size_ok {
             return Err(format!("{place}: 이 kind에 맞지 않는 size {size}"));
         }
-        let description = string(table, "description", &place)?.to_owned();
+        let text = texts[key].clone();
         let editable = boolean(table, "editable", true, &place)?;
         let decimal = boolean(table, "decimal", false, &place)?;
         if decimal && kind != "Kind::Uint" {
@@ -552,10 +608,6 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
                 ));
             }
         }
-        let help = match table.get("help") {
-            None => String::new(),
-            Some(_) => string(table, "help", &place)?.to_owned(),
-        };
         let repeated = table.contains_key("count") || table.contains_key("stride");
         if repeated != key.contains("{n}") {
             return Err(format!(
@@ -577,12 +629,12 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
                 size,
                 kind,
                 class,
-                description: description.clone(),
+                names: text.names.clone(),
                 editable,
                 choices: choices.clone(),
                 decimal,
                 max_digits,
-                help: help.clone(),
+                helps: text.helps.clone(),
             });
         }
     }
@@ -650,13 +702,14 @@ fn deviceinfo(doc: &DocumentMut) -> Result<String> {
         }
     }
     let mut code = format!(
-        "DeviceInfoMap {{ logical_size: {logical}, rollback_help: {rollback_help:?}, persistent_help: {persistent_help:?}, fields: &[\n"
+        "DeviceInfoMap {{ logical_size: {logical}, rollback_help: {:?}, persistent_help: {:?}, fields: &[\n",
+        texts["@rollback"].helps, texts["@persistent"].helps
     );
     for f in &fields {
         writeln!(
             code,
-            "            Field {{ key: {:?}, offset: {}, size: {}, kind: {}, class: {}, description: {:?}, editable: {}, choices: &{:?}, decimal: {}, max_digits: {}, help: {:?} }},",
-            f.key, f.offset, f.size, f.kind, f.class, f.description, f.editable, f.choices, f.decimal, f.max_digits, f.help
+            "            Field {{ key: {:?}, offset: {}, size: {}, kind: {}, class: {}, names: {:?}, editable: {}, choices: &{:?}, decimal: {}, max_digits: {}, helps: {:?} }},",
+            f.key, f.offset, f.size, f.kind, f.class, f.names, f.editable, f.choices, f.decimal, f.max_digits, f.helps
         )
         .unwrap();
     }

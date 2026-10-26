@@ -56,9 +56,12 @@ devices/
    - `editable = false`: 수정 불가. 편집 창은 값만 보여 주고, 어떤 작업도 이 바이트를 바꾸지 않습니다.
    - `choices = ["0", "1"]`: 버튼으로 고를 수 있는 값(`flag`·`uint`). 이 값으로만 바꿀 수 있고, 기기 값이 목록에 없으면 현재 값을 유지만 할 수 있습니다.
    - `decimal = true`: `uint`를 10진수로만 표시·입력합니다(`0x`·`hex:` 입력 불가).
-5. `deviceinfo.toml`의 `description`은 영어로 씁니다. 화면에 보일 번역은
-   `crates/lapiswitch-gui/lang/deviceinfo/`의 `ko.json`·`zh.json`·`ja.json`·`ru.json`에 영어 설명을 키로 추가합니다.
-   번역이 없으면 영어로 표시되며, 테스트가 빠진 번역과 쓰지 않는 번역을 알려 줍니다.
+5. 화면에 보이는 필드 이름과 설명은 `devices/<모델명>/text/<언어>.toml`(`en`·`ko`·`zh`·`ja`·`ru`)에 씁니다.
+   `[필드 key]` 아래에 `name`(표시 이름)과 `help`(설명 창 내용)를 두고, 반복 필드는 `["rollback_index[{n}]"]`처럼 `{n}`을 그대로 씁니다.
+   롤백·persistent 묶음 상자의 설명은 `["@rollback"]`, `["@persistent"]`의 `help`입니다.
+   `help`는 `"""`로 감싸 여러 줄로 쓰며, 적은 줄바꿈이 그대로 보입니다.
+   `en.toml`에는 모든 필드의 `name`이 있어야 하고, 다른 언어에서 빠진 항목은 영어로 표시됩니다.
+   없는 key나 알 수 없는 항목은 빌드에서, 영어에만 있고 다른 언어에 빠진 문장은 테스트에서 알려 줍니다.
 6. TWRP Release의 라이선스 고지를 `crates/lapiswitch-gui/assets/licenses.json`에 추가합니다. 테스트가 모든 기기의 TWRP 고지를 확인합니다.
 7. 실제 덤프가 있으면 `LAPISWITCH_DEVICEINFO_<모델명>` 환경 변수에 경로를 지정하고
    `cargo test -p lapiswitch-core -- --ignored real_dump`로 필드 맵을 덤프와 맞춰 볼 수 있습니다.
