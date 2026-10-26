@@ -167,7 +167,7 @@ help.TB522FU = """
 """
 
 ["rollback_index[{n}]"]
-name = "ロールバックインデックス"
+name = "ロールバックインデックス（未使用）"
 help = """
 Rollback Index Location: {n} - 未使用
 
@@ -176,6 +176,7 @@ Rollback Index Location: {n} - 未使用
 """
 
 ["rollback_index[0]"]
+name = "ロールバックインデックス（vbmeta）"
 help = """
 Rollback Index Location: 0 - vbmeta
 
@@ -184,6 +185,7 @@ Rollback Index Location: 0 - vbmeta
 """
 
 ["rollback_index[1]"]
+name = "ロールバックインデックス（recovery）"
 help = """
 Rollback Index Location: 1 - recovery
 
@@ -192,6 +194,7 @@ Rollback Index Location: 1 - recovery
 """
 
 ["rollback_index[2]"]
+name = "ロールバックインデックス（vbmeta_system）"
 help = """
 Rollback Index Location: 2 - vbmeta_system
 
@@ -200,6 +203,7 @@ Rollback Index Location: 2 - vbmeta_system
 """
 
 ["rollback_index[3]"]
+name = "ロールバックインデックス（boot）"
 help = """
 Rollback Index Location: 3 - boot
 
