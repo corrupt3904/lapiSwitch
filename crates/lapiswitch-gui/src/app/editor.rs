@@ -1173,8 +1173,6 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
     .spacing(6);
     if let Some(error) = editor.error(field) {
         content = content.push(small(error).color(danger()));
-    } else if let Some(diff) = byte_diff(app, editor, field) {
-        content = content.push(diff);
     }
     let content = content.extend(field_notice(app, editor, field));
     container(content)
@@ -1248,62 +1246,6 @@ fn value_line<'a>(
     .spacing(if changed { 8 } else { 0 })
     .align_y(Alignment::Start)
     .into()
-}
-
-/// For a long bytes value: the new bytes with the changed ones marked, and
-/// how many changed.
-fn byte_diff<'a>(app: &'a App, editor: &'a Editor, field: &Field) -> Option<Element<'a, Message>> {
-    if field.kind != Kind::Bytes || field.size <= 8 {
-        return None;
-    }
-    let new = map::encode(field, editor.input(field)).ok()?;
-    let old = &editor.before[field.range()];
-    let count = old.iter().zip(&new).filter(|(a, b)| a != b).count();
-    if count == 0 {
-        return None;
-    }
-    // Runs of changed and unchanged bytes become one span each.
-    let mut spans = Vec::new();
-    let mut run = String::new();
-    let mut run_changed = false;
-    let mut flush = |run: &mut String, changed: bool| {
-        if !run.is_empty() {
-            let text: iced::widget::text::Span<'_, ()> = iced::widget::span(std::mem::take(run));
-            spans.push(if changed {
-                text.color(danger()).background(pale())
-            } else {
-                text.color(muted())
-            });
-        }
-    };
-    for (a, b) in old.iter().zip(&new) {
-        if (a != b) != run_changed {
-            flush(&mut run, run_changed);
-            run_changed = a != b;
-        }
-        run.push_str(&format!("{b:02X}"));
-    }
-    flush(&mut run, run_changed);
-    Some(
-        column![
-            row![
-                value_tag(Some(app.tr("editor_changed_bytes")), true),
-                iced::widget::rich_text(spans)
-                    .size(14)
-                    .wrapping(iced::widget::text::Wrapping::Glyph)
-                    .width(Fill),
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center),
-            small(
-                app.tr("editor_bytes_changed_of")
-                    .replace("{count}", &count.to_string())
-                    .replace("{size}", &field.size.to_string())
-            ),
-        ]
-        .spacing(4)
-        .into(),
-    )
 }
 
 /// The set number of a `persistent[n].…` key.
@@ -2023,21 +1965,6 @@ mod tests {
         assert!(half.contains("A30 30 0 0 1 12.000 42.000Z"), "{half}");
         let open = lock_svg(true, 0.0, base, fill);
         assert!(!open.contains("#112233") && open.contains("#CC0000"));
-    }
-
-    #[test]
-    fn only_a_changed_long_bytes_value_shows_its_changed_bytes() {
-        let (mut app, _rx) = open();
-        let field = |key: &str| layout().field(key).unwrap();
-        let long = field("persistent[0].value");
-        assert!(byte_diff(&app, editor(&app), &long).is_none());
-        let mut value = map::display(&long, &editor(&app).before);
-        value.replace_range(0..2, "AB");
-        app.editor_update(EditorMessage::Input(long.key.clone(), value));
-        assert!(byte_diff(&app, editor(&app), &long).is_some());
-        // Short values are compared in the original and new lines alone.
-        app.editor_update(EditorMessage::Input("rollback_index[1]".into(), "3".into()));
-        assert!(byte_diff(&app, editor(&app), &field("rollback_index[1]")).is_none());
     }
 
     #[test]
