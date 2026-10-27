@@ -1939,6 +1939,19 @@ fn bootloader(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     if let Some(unlock) = app.bootloader.filter(|_| connected) {
         content = content.push(bootloader_summary(app, unlock));
     }
+    content = content.push(
+        row![
+            checkbox(app.agreed)
+                .label(app.tr("view_bootloader_agreed_to_the_notice"))
+                .on_toggle(Message::Agree),
+            button(icon('\u{E9CE}').size(14).color(muted()))
+                .padding(2)
+                .style(|_, _| button::Style::default())
+                .on_press_maybe((!app.busy()).then_some(Message::BootloaderNoticeReview)),
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center),
+    );
     let start = match app.bootloader {
         Some(true) => app.tr("view_start_bootloader_unlock"),
         Some(false) => app.tr("view_start_bootloader_relock"),

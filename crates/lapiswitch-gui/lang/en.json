@@ -371,6 +371,7 @@
   "view_before_changing_the_bootloader_lock": "Before changing the bootloader lock",
   "view_before_rebooting": "Before rebooting",
   "view_bootloader_agree": "I understand the risks above, agree to them and want to continue with the bootloader task.",
+  "view_bootloader_agreed_to_the_notice": "I have read all the precautions given beforehand and agree to them.",
   "view_bootloader_and_the_original_configuration": "The bootloader task is done and the original configuration restored. Read the notes below.",
   "view_bootloader_flags_verified_enter_edl": "The bootloader flags were written and verified. The device enters EDL and the original GPT and Recovery are restored.",
   "view_bootloader_relock": "Relock",

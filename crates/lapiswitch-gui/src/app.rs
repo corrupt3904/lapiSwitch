@@ -85,6 +85,8 @@ enum Message {
     BootloaderNoticeAgree(bool),
     /// Leave the bootloader risk dialog: `true` opens the task.
     BootloaderNoticeClose(bool),
+    /// Read the bootloader risks again from the page's ? button.
+    BootloaderNoticeReview,
     Dump,
     Parse,
     /// Show the parsed fields.
@@ -186,6 +188,9 @@ struct App {
     bootloader_notice: Option<bool>,
     /// The page a cancelled bootloader risk dialog returns to.
     bootloader_return: Page,
+    /// The risk dialog was reopened from the page: confirming it checks the
+    /// page's agreement and cancelling it stays on the page.
+    bootloader_review: bool,
     output: PathBuf,
     state_path: PathBuf,
     preferences_path: PathBuf,
@@ -287,6 +292,7 @@ impl App {
             bootloader: None,
             bootloader_notice: None,
             bootloader_return: Page::Dashboard,
+            bootloader_review: false,
             output: preferences.storage_root(&data),
             state_path,
             preferences_path,
@@ -981,17 +987,26 @@ impl App {
                 self.agreed = false;
                 self.error = None;
                 self.bootloader_notice = Some(false);
+                self.bootloader_review = false;
+            }
+            Message::BootloaderNoticeReview if self.page == Page::Bootloader && !self.busy() => {
+                self.bootloader_notice = Some(false);
+                self.bootloader_review = true;
             }
             Message::BootloaderNoticeAgree(agree) if self.bootloader_notice.is_some() => {
                 self.bootloader_notice = Some(agree);
             }
+            // The first dialog only opens the page; the page's own agreement
+            // is checked there, or by confirming the dialog reopened from it.
             Message::BootloaderNoticeClose(open) if self.bootloader_notice.is_some() => {
-                if open && self.bootloader_notice == Some(true) {
-                    self.agreed = true;
-                } else {
+                let confirmed = open && self.bootloader_notice == Some(true);
+                if self.bootloader_review {
+                    self.agreed |= confirmed;
+                } else if !confirmed {
                     self.page = self.bootloader_return;
                 }
                 self.bootloader_notice = None;
+                self.bootloader_review = false;
             }
             Message::BootloaderChoice(unlock) if !self.busy() => self.bootloader = Some(unlock),
             Message::Dump if !self.device.unsupported_model() => {
@@ -2825,20 +2840,36 @@ mod tests {
         let _ = app.update(Message::BootloaderNoticeClose(false));
         assert_eq!(app.page, Page::Dashboard);
         assert!(!app.agreed);
-        // Agreeing and confirming keeps the task, without a choice yet.
+        // Agreeing and confirming keeps the task, without a choice or the
+        // page's own agreement yet.
         let _ = app.update(Message::Bootloader);
         let _ = app.update(Message::BootloaderNoticeAgree(true));
         let _ = app.update(Message::BootloaderNoticeClose(true));
         assert_eq!(app.page, Page::Bootloader);
         assert_eq!(app.bootloader_notice, None);
         assert_eq!(app.bootloader, None);
-        assert!(app.agreed);
+        assert!(!app.agreed);
         app.loader = None;
         assert!(app.start_blocker().unwrap().contains("EDL"));
         app.demo_pick(Picker::Loader);
         assert!(app.start_blocker().unwrap().contains("리락"));
         drop(app.view());
         let _ = app.update(Message::BootloaderChoice(false));
+        assert!(app.start_blocker().unwrap().contains("동의"));
+        // The ? reopens the risks; cancelling stays and checks nothing.
+        let _ = app.update(Message::BootloaderNoticeReview);
+        assert_eq!(app.bootloader_notice, Some(false));
+        drop(app.view());
+        let _ = app.update(Message::BootloaderNoticeAgree(true));
+        let _ = app.update(Message::BootloaderNoticeClose(false));
+        assert_eq!(app.page, Page::Bootloader);
+        assert!(!app.agreed);
+        // Confirming it checks the page's agreement.
+        let _ = app.update(Message::BootloaderNoticeReview);
+        let _ = app.update(Message::BootloaderNoticeAgree(true));
+        let _ = app.update(Message::BootloaderNoticeClose(true));
+        assert_eq!(app.page, Page::Bootloader);
+        assert!(app.agreed);
         assert!(app.can_start(), "{:?}", app.start_blocker());
         drop(app.view());
         let _ = app.update(Message::Start);

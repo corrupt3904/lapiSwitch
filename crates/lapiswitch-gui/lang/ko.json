@@ -371,6 +371,7 @@
   "view_before_changing_the_bootloader_lock": "부트로더 언락/리락 전 주의사항",
   "view_before_rebooting": "재부팅 전 확인",
   "view_bootloader_agree": "위 위험성을 확인했으며, 이에 동의하고 부트로더 작업을 진행하겠습니다.",
+  "view_bootloader_agreed_to_the_notice": "사전에 안내된 주의사항을 모두 확인하였으며, 이에 동의합니다.",
   "view_bootloader_and_the_original_configuration": "부트로더 작업과 원본 구성 복구를 마쳤습니다. 아래 안내를 확인해 주세요.",
   "view_bootloader_flags_verified_enter_edl": "부트로더 플래그 쓰기와 검증을 마쳤습니다. EDL로 전환하여 원본 GPT·Recovery를 복구합니다.",
   "view_bootloader_relock": "리락",
