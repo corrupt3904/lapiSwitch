@@ -225,12 +225,21 @@ impl Editor {
             .filter(|f| self.error(f).is_some())
             .collect()
     }
+    /// Whether a field's input differs from the read value, compared as the
+    /// bytes it is written as (32 and 0x20 are the same value); an input that
+    /// is not valid yet is compared as typed.
+    pub(crate) fn field_changed(&self, field: &Field) -> bool {
+        match map::encode(field, self.input(field)) {
+            Ok(bytes) => bytes[..] != self.before[field.range()],
+            Err(_) => self.input(field).trim() != self.original(field),
+        }
+    }
     /// The full plan, once every input is valid.
     pub(crate) fn planned(&self) -> Option<Vec<u8>> {
         let edits: map::Edits = self
             .fields
             .iter()
-            .filter(|field| self.input(field).trim() != self.original(field))
+            .filter(|field| self.field_changed(field))
             .map(|field| (field.key.clone(), self.input(field).to_owned()))
             .collect();
         map::apply(self.layout, &self.before, &edits, self.unlocked).ok()
@@ -263,7 +272,7 @@ impl Editor {
         self.fields
             .iter()
             .find(|f| f.key == key)
-            .is_none_or(|f| self.input(f).trim() == self.original(f))
+            .is_none_or(|f| !self.field_changed(f))
     }
     pub(crate) fn rollback_choice(&self) -> RollbackChoice {
         if self.rollback_custom {
@@ -1134,7 +1143,7 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
         return choice_row(app, editor, field, false);
     }
     let value = editor.input(field);
-    let changed = value.trim() != editor.original(field);
+    let changed = editor.field_changed(field);
     let mut head = row![
         label(field.key.clone()).size(15),
         small(format!("0x{:04X} · {}B", field.offset, field.size)),
@@ -2014,5 +2023,42 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_same_value_written_differently_is_not_a_change() {
+        let (mut app, _rx) = open();
+        let field = |key: &str| layout().field(key).unwrap();
+        let length = field("frs_uds_cache_length");
+        let read = map::display(&length, &editor(&app).before);
+        let number = u64::from_str_radix(read.trim_start_matches("0x"), 16).unwrap();
+        // The read value in decimal, and with a leading zero, is no change.
+        for same in [
+            number.to_string(),
+            format!("0x0{}", read.trim_start_matches("0x")),
+        ] {
+            app.editor_update(EditorMessage::Input(length.key.clone(), same));
+            assert!(!editor(&app).field_changed(&length));
+            assert!(editor(&app).changes().is_empty());
+        }
+        app.editor_update(EditorMessage::Input(
+            length.key.clone(),
+            (number + 1).to_string(),
+        ));
+        assert!(editor(&app).field_changed(&length));
+        // Hex letters in either case are the same bytes.
+        let value = field("persistent[0].value");
+        app.editor_update(EditorMessage::Reset(length.key.clone()));
+        let read = map::display(&value, &editor(&app).before);
+        app.editor_update(EditorMessage::Input(value.key.clone(), read.to_lowercase()));
+        assert!(!editor(&app).field_changed(&value));
+        // Leading zeros of a decimal index too; an input not valid yet
+        // counts as a change.
+        let index = field("rollback_index[1]");
+        let read = map::display(&index, &editor(&app).before);
+        app.editor_update(EditorMessage::Input(index.key.clone(), format!("00{read}")));
+        assert!(!editor(&app).field_changed(&index));
+        app.editor_update(EditorMessage::Input(index.key.clone(), "x".into()));
+        assert!(editor(&app).field_changed(&index));
     }
 }
