@@ -3,7 +3,8 @@
 use super::view::*;
 use super::*;
 use iced::widget::{
-    self, button, checkbox, column, container, row, scrollable, space, text_editor, text_input,
+    self, button, checkbox, column, container, row, scrollable, space, stack, text_editor,
+    text_input,
 };
 use iced::{Alignment, Border, Color, Fill};
 use lapiswitch_core::deviceinfo::map::{self, Class, Field, Kind, Layout};
@@ -1172,6 +1173,11 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
             .size(14)
             .into()
     });
+    let input = if takes_both_bases(field) {
+        with_base_hint(editor, field, input)
+    } else {
+        input
+    };
     // The read value above, the new one below; the input keeps its place in
     // the tree whether or not the field is changed, so typing keeps focus.
     let mut content = column![
@@ -1193,6 +1199,50 @@ fn field_row<'a>(app: &'a App, editor: &'a Editor, field: &'a Field) -> Element<
             ..Default::default()
         })
         .into()
+}
+
+/// A number field typed in decimal or as 0x hex.
+fn takes_both_bases(field: &Field) -> bool {
+    field.kind == Kind::Uint && !field.decimal && options(field).is_empty()
+}
+
+/// The typed number in the other base: hex for a decimal input, decimal for
+/// a 0x input. `None` while the input is not a valid value.
+pub(crate) fn other_base(field: &Field, input: &str) -> Option<String> {
+    let bytes = map::encode(field, input).ok()?;
+    let mut raw = [0u8; 8];
+    raw[..bytes.len()].copy_from_slice(&bytes);
+    let number = u64::from_le_bytes(raw);
+    let input = input.trim();
+    Some(if input.starts_with("0x") || input.starts_with("0X") {
+        format!("= {number}")
+    } else {
+        format!("= 0x{number:X}")
+    })
+}
+
+/// The input with the value in the other base in faint text at its right
+/// end, under the input so it takes no clicks. The layer is always there,
+/// so the input keeps its state while the hint comes and goes.
+fn with_base_hint<'a>(
+    editor: &'a Editor,
+    field: &Field,
+    input: Element<'a, Message>,
+) -> Element<'a, Message> {
+    let hint = other_base(field, editor.input(field)).unwrap_or_default();
+    stack![
+        input,
+        container(small(hint).color(muted()))
+            .width(Fill)
+            .height(Fill)
+            .align_right(Fill)
+            .center_y(Fill)
+            .padding(iced::Padding {
+                right: 12.0,
+                ..Default::default()
+            }),
+    ]
+    .into()
 }
 
 /// Width of the tags in front of a changed field's values.
@@ -2000,7 +2050,11 @@ mod tests {
                 states(child, focus, out);
             }
         }
-        for key in ["rollback_index[1]", "persistent[0].value"] {
+        for key in [
+            "rollback_index[1]",
+            "user_public_key_length",
+            "persistent[0].value",
+        ] {
             let (mut app, _rx) = open();
             app.editor_update(EditorMessage::Tab(Tab::Advanced));
             app.editor_update(EditorMessage::Query(key.into()));
@@ -2008,7 +2062,7 @@ mod tests {
             let mut before = Vec::new();
             states(&mut tree, true, &mut before);
             let original = value(&app, key);
-            let changed = if key.starts_with("rollback") {
+            let changed = if !key.ends_with(".value") {
                 "7".to_owned()
             } else {
                 format!("AB{}", &original[2..])
@@ -2060,5 +2114,19 @@ mod tests {
         assert!(!editor(&app).field_changed(&index));
         app.editor_update(EditorMessage::Input(index.key.clone(), "x".into()));
         assert!(editor(&app).field_changed(&index));
+    }
+
+    #[test]
+    fn a_number_shows_its_value_in_the_other_base() {
+        let field = layout().field("frs_uds_cache_length").unwrap();
+        assert!(takes_both_bases(&field));
+        assert_eq!(other_base(&field, "32").as_deref(), Some("= 0x20"));
+        assert_eq!(other_base(&field, "0x20").as_deref(), Some("= 32"));
+        assert_eq!(other_base(&field, " 0X1f ").as_deref(), Some("= 31"));
+        assert_eq!(other_base(&field, "x"), None);
+        // Decimal-only rollback indices and choice fields have no hint.
+        for key in ["rollback_index[1]", "golden_snapshot"] {
+            assert!(!takes_both_bases(&layout().field(key).unwrap()), "{key}");
+        }
     }
 }
