@@ -1222,8 +1222,8 @@ pub(crate) fn other_base(field: &Field, input: &str) -> Option<String> {
 }
 
 /// The input with the value in the other base in faint text at its right
-/// end, under the input so it takes no clicks. The layer is always there,
-/// so the input keeps its state while the hint comes and goes.
+/// end, layered over the input; plain text takes no clicks, so they reach
+/// the input. The layer is always there, so the input keeps its state.
 fn with_base_hint<'a>(
     editor: &'a Editor,
     field: &Field,
