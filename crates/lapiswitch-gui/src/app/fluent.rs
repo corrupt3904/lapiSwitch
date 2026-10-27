@@ -153,6 +153,7 @@ pub(crate) mod glyph {
     pub const ALERT: char = '\u{E783}';
     pub const COMPLETED: char = '\u{E930}';
     pub const CLOSE: char = '\u{E711}';
+    pub const SEARCH: char = '\u{E721}';
 }
 
 pub(crate) fn icon<'a>(glyph: char) -> text::Text<'a> {

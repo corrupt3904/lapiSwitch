@@ -180,7 +180,7 @@ mod tests {
         );
         assert_eq!(
             Language::English.field_text(field.names),
-            "Bootloader unlock state"
+            "Bootloader Unlock flag"
         );
         assert_eq!(
             Language::Korean.field_text(["Only English", "", "", "", ""]),

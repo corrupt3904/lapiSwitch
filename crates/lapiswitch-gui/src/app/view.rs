@@ -307,7 +307,7 @@ fn navigation(app: &App) -> Element<'_, Message> {
         // Reads a saved file only, so it needs no connected device.
         item(
             6,
-            glyph::DOCUMENT,
+            glyph::SEARCH,
             app.tr("view_parse_deviceinfo"),
             Message::Parse,
             idle,
