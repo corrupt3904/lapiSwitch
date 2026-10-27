@@ -402,6 +402,7 @@
   "view_close_app": "关闭应用",
   "view_close_the_running_operation": "操作正在进行，是否关闭应用？",
   "view_closing_during_writes_can_leave_the": "在写入过程中关闭可能导致设备无法启动，届时可能需要使用已保存的进度和备份来继续或还原。",
+  "view_confirms_automatically": "如不点击将自动确认",
   "view_connect_one_device_and_keep_usb": "请只连接一台设备并保持 USB 连接。点击项目即可更改。",
   "view_connect_the_backed_up_device_in": "请将创建此备份时使用的设备以 TWRP（ADB Recovery）或 EDL 模式连接。",
   "view_continue": "继续操作",

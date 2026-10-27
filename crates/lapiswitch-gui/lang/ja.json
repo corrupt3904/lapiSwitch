@@ -402,6 +402,7 @@
   "view_close_app": "アプリを終了",
   "view_close_the_running_operation": "作業中にアプリを終了しますか？",
   "view_closing_during_writes_can_leave_the": "書き込み中に終了すると、デバイスが起動しなくなる場合があります。保存された段階とバックアップを使って再開または復元が必要になることがあります。",
+  "view_confirms_automatically": "押さなくても自動的に確認されます",
   "view_connect_one_device_and_keep_usb": "デバイスを 1 台接続し、USB 接続を維持してください。項目を押すと変更できます。",
   "view_connect_the_backed_up_device_in": "このバックアップを作成したデバイスを TWRP（ADB Recovery）または EDL で接続してください。",
   "view_continue": "続行",

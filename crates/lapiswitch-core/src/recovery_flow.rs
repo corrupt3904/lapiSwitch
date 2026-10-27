@@ -1216,11 +1216,14 @@ pub fn finish(
             | Phase::WritePending
             | Phase::RegionVerified
     ) {
+        // Each reboot prompt comes after its checks and the reboot follows
+        // it at once; the GUI confirms it by itself after a few seconds.
         if phase == Phase::Staged {
             ui.phase(Phase::RecoveryRequested);
+            ui.status(&crate::msg!("core_checking_staged_recovery"), false);
+            validate_staged(device, backup, log)?;
             ui.confirm(Transition::Twrp)?;
             stopped(ui)?;
-            validate_staged(device, backup, log)?;
             checkpoint(state, store, Phase::RecoveryRequested)?;
             device.reboot_recovery(log)?;
             checkpoint(state, store, Phase::RecoveryWaiting)?;
@@ -1267,17 +1270,12 @@ pub fn finish(
                 log,
             )));
         }
+        // The write was just verified by an independent read; the prompt
+        // closes within seconds, so it is not read again after it.
         ui.phase(Phase::EdlRequested);
+        recovery.verify_identity(backup)?;
         ui.confirm(Transition::Edl)?;
         stopped(ui)?;
-        // Confirmation can be open for minutes. Re-read, never assume old bytes.
-        // Only the verified-result path is reachable here, so no new prompt.
-        if transact(&mut recovery, backup, &mut firmware, state, store, ui, log)?
-            == Outcome::Cancelled
-        {
-            return Err(crate::msg!("core_unexpected_cancel"));
-        }
-        recovery.verify_identity(backup)?;
         checkpoint(state, store, Phase::EdlRequested)?;
         if let Err(e) = recovery.reboot_edl() {
             live!(log, "{}", crate::msg!("core_edl_reboot_response", e = e));

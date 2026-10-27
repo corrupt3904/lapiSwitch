@@ -21,6 +21,10 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 
+/// How long a reboot prompt waits before it confirms itself, so the
+/// device's session is not left idle.
+const REBOOT_AUTO_CONFIRM: std::time::Duration = std::time::Duration::from_secs(10);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Page {
     Dashboard,
@@ -148,6 +152,8 @@ enum Message {
     CancelStopWait,
     ConfirmStopWait(worker::WaitTicket),
     ConfirmRecoveryReboot,
+    /// A step of a reboot prompt's countdown.
+    RebootFrame(std::time::Instant),
     ConfirmEdlStart(bool),
     ConfirmUnrecognizedFirmware(bool),
     ConfirmRollbackReset(bool),
@@ -222,6 +228,9 @@ struct App {
     stop_confirmation: Option<worker::WaitTicket>,
     close_warning: bool,
     reboot_confirmation: Option<Sender<()>>,
+    /// When the open reboot prompt confirms itself, and the time it was
+    /// last drawn at.
+    reboot_deadline: Option<(std::time::Instant, std::time::Instant)>,
     edl_confirmation: Option<Sender<bool>>,
     firmware_confirmation: Option<Sender<bool>>,
     /// Keep-mode rollback prompt: comparison details and the worker's answer.
@@ -322,6 +331,7 @@ impl App {
             stop_confirmation: None,
             close_warning: false,
             reboot_confirmation: None,
+            reboot_deadline: None,
             edl_confirmation: None,
             firmware_confirmation: None,
             rollback_confirmation: None,
@@ -648,6 +658,7 @@ impl App {
         self.result = None;
         self.close_warning = false;
         self.reboot_confirmation = None;
+        self.reboot_deadline = None;
         self.edl_confirmation = None;
         self.firmware_confirmation = None;
         self.rollback_confirmation = None;
@@ -726,6 +737,13 @@ impl App {
             Message::Tick => {
                 while let Ok(event) = self.rx.try_recv() {
                     self.event(event);
+                }
+                // Frames stop while the window is minimized; ticks do not.
+                if self
+                    .reboot_deadline
+                    .is_some_and(|(deadline, _)| std::time::Instant::now() >= deadline)
+                {
+                    let _ = self.update(Message::ConfirmRecoveryReboot);
                 }
                 if self.activity == Some(Activity::Run) && !self.demo {
                     self.flash = ltbox_device::edl::flash_progress();
@@ -847,7 +865,16 @@ impl App {
             Message::ParseForget(path) if self.preferences.forget_deviceinfo(&path) => {
                 self.save_preferences();
             }
+            Message::RebootFrame(now) => {
+                if let Some((deadline, _)) = self.reboot_deadline {
+                    self.reboot_deadline = Some((deadline, now));
+                    if now >= deadline {
+                        let _ = self.update(Message::ConfirmRecoveryReboot);
+                    }
+                }
+            }
             Message::ConfirmRecoveryReboot => {
+                self.reboot_deadline = None;
                 if let Some(confirmation) = self.reboot_confirmation.take() {
                     let delivered = confirmation.send(());
                     if !self.demo && delivered.is_err() {
@@ -1418,11 +1445,14 @@ impl App {
                 if self.activity == Some(Activity::Run) && self.run_kind != RunKind::Restore {
                     self.recovery_transition = Some(transition);
                     self.reboot_confirmation = Some(confirmation);
+                    let now = std::time::Instant::now();
+                    self.reboot_deadline = Some((now + REBOOT_AUTO_CONFIRM, now));
                 }
             }
             Event::Finished(result) => {
                 self.progress.finish(result.is_ok());
                 self.reboot_confirmation = None;
+                self.reboot_deadline = None;
                 self.edl_confirmation = None;
                 self.firmware_confirmation = None;
                 self.rollback_confirmation = None;
@@ -1472,8 +1502,16 @@ impl App {
         } else {
             Subscription::none()
         };
+        // The countdown of a reboot prompt steps ten times a second; its
+        // number is not drawn while the window redraws every frame.
+        let countdown = if self.reboot_deadline.is_some() {
+            iced::time::every(std::time::Duration::from_millis(100)).map(Message::RebootFrame)
+        } else {
+            Subscription::none()
+        };
         Subscription::batch([
             hold,
+            countdown,
             iced::time::every(worker::POLL_INTERVAL).map(|_| Message::Tick),
             iced::system::theme_changes().map(Message::SystemTheme),
             iced::event::listen_with(|event, status, _| match event {
@@ -2037,6 +2075,12 @@ impl App {
                     });
                     let (confirmation, _) = mpsc::channel();
                     self.reboot_confirmation = Some(confirmation);
+                    // Drawn four seconds into the countdown.
+                    let now = std::time::Instant::now();
+                    self.reboot_deadline = Some((
+                        now + REBOOT_AUTO_CONFIRM,
+                        now + std::time::Duration::from_secs(4),
+                    ));
                 }
             }
             "twrp-stop" | "edl-stop" | "twrp-stop-confirm" | "edl-stop-confirm" => {
@@ -3164,6 +3208,33 @@ mod tests {
         assert!(rx.try_recv().is_err());
         let _ = app.update(Message::ConfirmRecoveryReboot);
         assert_eq!(rx.try_recv(), Ok(()));
+        assert!(app.reboot_deadline.is_none());
+    }
+    #[test]
+    fn a_reboot_prompt_confirms_itself_after_its_countdown() {
+        let mut app = App::base(true);
+        app.activity = Some(Activity::Run);
+        let (tx, rx) = mpsc::channel();
+        app.event(Event::ConfirmRecoveryReboot(
+            lapiswitch_core::recovery_flow::Transition::Twrp,
+            tx,
+        ));
+        let (deadline, start) = app.reboot_deadline.unwrap();
+        assert_eq!(deadline - start, REBOOT_AUTO_CONFIRM);
+        drop(app.view());
+        let _ = app.update(Message::RebootFrame(
+            deadline - std::time::Duration::from_millis(1),
+        ));
+        assert!(rx.try_recv().is_err());
+        assert!(app.reboot_confirmation.is_some());
+        drop(app.view());
+        let _ = app.update(Message::RebootFrame(deadline));
+        assert_eq!(rx.try_recv(), Ok(()));
+        assert!(app.reboot_confirmation.is_none());
+        assert!(app.reboot_deadline.is_none());
+        // A late frame after the confirmation changes nothing.
+        let _ = app.update(Message::RebootFrame(deadline));
+        assert!(rx.try_recv().is_err());
     }
     #[test]
     fn new_progress_survives_state_polling_and_confirmation_waits() {

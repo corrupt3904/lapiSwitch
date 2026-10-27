@@ -873,12 +873,16 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
                     label(app.tr("view_keep_the_tablet_connected_to_the")).color(danger()),
                     row![
                         space().width(Fill),
+                        small(app.tr("view_confirms_automatically")),
+                        reboot_countdown(app),
                         action(
                             app.tr("archive_confirm"),
                             Message::ConfirmRecoveryReboot,
                             true
                         )
-                    ],
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
                 ]
                 .spacing(20),
             )
@@ -914,6 +918,55 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
     // The page keeps the same place in the widget tree with or without a
     // dialog, so its scroll position survives one opening and closing.
     stack![root, overlay(modal)].into()
+}
+/// The seconds left before a reboot prompt confirms itself, in a ring that
+/// fills clockwise from twelve o'clock.
+fn reboot_countdown(app: &App) -> Element<'_, Message> {
+    const SIZE: f32 = 34.0;
+    let Some((deadline, now)) = app.reboot_deadline else {
+        return space().into();
+    };
+    let left = deadline.saturating_duration_since(now);
+    let progress = 1.0 - left.as_secs_f32() / REBOOT_AUTO_CONFIRM.as_secs_f32();
+    let ring = countdown_svg(progress, line(), accent());
+    stack![
+        widget::svg(widget::svg::Handle::from_memory(ring.into_bytes()))
+            .width(SIZE)
+            .height(SIZE),
+        container(label(left.as_secs_f32().ceil().to_string()).size(14))
+            .center_x(SIZE)
+            .center_y(SIZE),
+    ]
+    .into()
+}
+/// A ring in `base` with the elapsed part, `progress` of it, in `fill`.
+fn countdown_svg(progress: f32, base: Color, fill: Color) -> String {
+    let hex = |color: Color| {
+        let [r, g, b, _] = color.into_rgba8();
+        format!("#{r:02X}{g:02X}{b:02X}")
+    };
+    // In steps, so a countdown renders a bounded set of images.
+    let progress = (progress.clamp(0.0, 1.0) * 120.0).round() / 120.0;
+    let ring = |color: &str| {
+        format!(r#"<circle cx="12" cy="12" r="10" fill="none" stroke="{color}" stroke-width="2"/>"#)
+    };
+    let elapsed = if progress >= 1.0 {
+        ring(&hex(fill))
+    } else if progress <= 0.0 {
+        String::new()
+    } else {
+        let angle = progress * std::f32::consts::TAU;
+        let (x, y) = (12.0 + 10.0 * angle.sin(), 12.0 - 10.0 * angle.cos());
+        let large = u8::from(angle > std::f32::consts::PI);
+        format!(
+            r#"<path d="M12 2A10 10 0 {large} 1 {x:.3} {y:.3}" fill="none" stroke="{}" stroke-width="2.4" stroke-linecap="round"/>"#,
+            hex(fill)
+        )
+    };
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">{}{elapsed}</svg>"#,
+        ring(&hex(base))
+    )
 }
 /// A dialog over the page with the scrim behind it, or nothing.
 fn overlay<'a>(dialog: Option<widget::Container<'a, Message>>) -> Element<'a, Message> {

@@ -402,6 +402,7 @@
   "view_close_app": "Close app",
   "view_close_the_running_operation": "Close the app while an operation is running?",
   "view_closing_during_writes_can_leave_the": "Closing during writes can leave the device unable to boot. Resume or restore may be required using the saved state and backup.",
+  "view_confirms_automatically": "Confirms automatically if not pressed",
   "view_connect_one_device_and_keep_usb": "Connect one device and keep USB connected. Select an item to change it.",
   "view_connect_the_backed_up_device_in": "Connect the device this backup was created from in TWRP (ADB Recovery) or EDL.",
   "view_continue": "Continue",
