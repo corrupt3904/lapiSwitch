@@ -181,9 +181,11 @@ struct App {
     agreed: bool,
     /// Unlock (`true`) or relock chosen on the bootloader page.
     bootloader: Option<bool>,
-    /// The risk dialog shown before the bootloader page, with whether its
+    /// The risk dialog shown over the bootloader page, with whether its
     /// agreement is checked.
     bootloader_notice: Option<bool>,
+    /// The page a cancelled bootloader risk dialog returns to.
+    bootloader_return: Page,
     output: PathBuf,
     state_path: PathBuf,
     preferences_path: PathBuf,
@@ -284,6 +286,7 @@ impl App {
             agreed: false,
             bootloader: None,
             bootloader_notice: None,
+            bootloader_return: Page::Dashboard,
             output: preferences.storage_root(&data),
             state_path,
             preferences_path,
@@ -966,21 +969,27 @@ impl App {
                 self.agreed = false;
                 self.error = None;
             }
-            // The task opens only after its risks are agreed to in a dialog.
+            // The task opens under a dialog whose risks must be agreed to.
             Message::Bootloader
                 if !self.busy() && !self.device.unsupported_model() && !self.device.dump_only() =>
             {
+                if self.page != Page::Bootloader {
+                    self.bootloader_return = self.page;
+                }
+                self.page = Page::Bootloader;
+                self.bootloader = None;
+                self.agreed = false;
+                self.error = None;
                 self.bootloader_notice = Some(false);
             }
             Message::BootloaderNoticeAgree(agree) if self.bootloader_notice.is_some() => {
                 self.bootloader_notice = Some(agree);
             }
-            Message::BootloaderNoticeClose(open) => {
-                if open && self.bootloader_notice == Some(true) && !self.busy() {
-                    self.page = Page::Bootloader;
-                    self.bootloader = None;
+            Message::BootloaderNoticeClose(open) if self.bootloader_notice.is_some() => {
+                if open && self.bootloader_notice == Some(true) {
                     self.agreed = true;
-                    self.error = None;
+                } else {
+                    self.page = self.bootloader_return;
                 }
                 self.bootloader_notice = None;
             }
@@ -1754,7 +1763,6 @@ impl App {
                     "bootloader" => self.bootloader = Some(true),
                     "bootloader-relock" => self.bootloader = Some(false),
                     "bootloader-notice" => {
-                        self.page = Page::Dashboard;
                         self.agreed = false;
                         self.bootloader_notice = Some(true);
                     }
@@ -2802,10 +2810,12 @@ mod tests {
         let mut app = App::base(true);
         app.seed_preview("bootloader");
         let _ = app.update(Message::Home);
-        // The risk dialog comes first; cancelling it stays where it was.
+        // The page opens under the risk dialog; cancelling it, or
+        // confirming without the agreement, goes back where it was.
         let _ = app.update(Message::Bootloader);
-        assert_eq!(app.page, Page::Dashboard);
+        assert_eq!(app.page, Page::Bootloader);
         assert_eq!(app.bootloader_notice, Some(false));
+        assert!(!app.can_start());
         drop(app.view());
         let _ = app.update(Message::BootloaderNoticeClose(true));
         assert_eq!(app.page, Page::Dashboard);
@@ -2814,7 +2824,8 @@ mod tests {
         let _ = app.update(Message::BootloaderNoticeAgree(true));
         let _ = app.update(Message::BootloaderNoticeClose(false));
         assert_eq!(app.page, Page::Dashboard);
-        // Agreeing and confirming opens the task, without a choice yet.
+        assert!(!app.agreed);
+        // Agreeing and confirming keeps the task, without a choice yet.
         let _ = app.update(Message::Bootloader);
         let _ = app.update(Message::BootloaderNoticeAgree(true));
         let _ = app.update(Message::BootloaderNoticeClose(true));

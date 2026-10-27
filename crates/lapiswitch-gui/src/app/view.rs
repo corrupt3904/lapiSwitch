@@ -1839,18 +1839,11 @@ fn bootloader_summary(app: &App, unlock: bool) -> Element<'_, Message> {
     let flag = |name: &'static str| {
         group_row(
             name,
-            row![
-                label(if unlock { "1" } else { "0" })
-                    .size(18)
-                    .color(accent()),
-                label(if unlock { "Unlocked" } else { "Locked" })
-                    .size(13)
-                    .color(muted())
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center)
-            .into(),
-            None,
+            label(if unlock { "1" } else { "0" })
+                .size(18)
+                .color(accent())
+                .into(),
+            Some(small(if unlock { "Unlocked" } else { "Locked" }).into()),
         )
     };
     group(vec![
@@ -1858,7 +1851,7 @@ fn bootloader_summary(app: &App, unlock: bool) -> Element<'_, Message> {
             app.tr("dashboard_device"),
             row![
                 label(dashboard_view::device_name(app)).size(14),
-                small(format!("{} · {}", d.model, dashboard_view::status(app)))
+                small(d.model.clone())
             ]
             .spacing(10)
             .align_y(Alignment::Center)
@@ -1870,8 +1863,8 @@ fn bootloader_summary(app: &App, unlock: bool) -> Element<'_, Message> {
             label(app.tr("view_erased")).size(18).color(danger()).into(),
             None,
         ),
-        flag(app.tr("view_new_bootloader_unlock_flag")),
-        flag(app.tr("view_new_critical_unlock_flag")),
+        flag(app.tr("view_bootloader_unlock_flag")),
+        flag(app.tr("view_critical_unlock_flag")),
         group_row(
             app.tr("view_backup_location"),
             label(short_path(
