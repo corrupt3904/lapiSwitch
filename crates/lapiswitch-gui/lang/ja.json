@@ -372,6 +372,7 @@
   "view_before_rebooting": "再起動前の確認",
   "view_bootloader_agree": "上記のリスクを確認し、同意したうえでブートローダーの作業を進めます。",
   "view_bootloader_agreed_to_the_notice": "事前に案内された注意事項をすべて確認し、これに同意します。",
+  "view_bootloader_always_erases_user_data": "ブートローダーをアンロック/再ロックするとユーザーデータは必ず消去されます。\nアプリ・写真・アカウント・ファイルなどが削除されるため、重要なデータは事前に別途バックアップしてください。",
   "view_bootloader_and_the_original_configuration": "ブートローダーの作業と元の構成の復元が完了しました。以下の案内を確認してください。",
   "view_bootloader_flags_verified_enter_edl": "ブートローダーフラグの書き込みと検証が完了しました。EDL に切り替えて元の GPT・Recovery を復元します。",
   "view_bootloader_relock": "再ロック",

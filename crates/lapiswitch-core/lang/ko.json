@@ -60,7 +60,6 @@
   "core_backup_verify_failed": "백업 검증 실패: {filename}",
   "core_bootloader_already_locked": "부트로더가 이미 리락 상태입니다(두 플래그 모두 0). DeviceInfo에 쓰지 않았습니다.",
   "core_bootloader_already_unlocked": "부트로더가 이미 언락 상태입니다(두 플래그 모두 1). DeviceInfo에 쓰지 않았습니다.",
-  "core_bootloader_reset_user_data": "부트로더 잠금 상태를 바꿨습니다. 기기를 사용하기 전에 반드시 사용자 데이터를 초기화해야 합니다.",
   "core_cancel_restore_failed": "{rollback_cancelled_message}\n원본 구성 자동 복구를 완료하지 못했습니다: {error}\n백업과 작업 기록을 보존했습니다. 기기를 EDL로 연결해 원본 복구를 진행하세요.",
   "core_cancel_restored": "{rollback_cancelled_message} 원본 GPT·Recovery·vendor_boot를 자동으로 복구·검증했습니다.",
   "core_cancel_to_original": "작업을 취소하고 원본 구성으로 복구합니다. EDL로 전환합니다.",

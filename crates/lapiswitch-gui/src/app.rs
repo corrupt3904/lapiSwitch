@@ -649,6 +649,7 @@ impl App {
         self.progress = RunProgress::new(match kind {
             RunKind::Restore => Flow::Restore,
             RunKind::Dump => Flow::Dump,
+            RunKind::Bootloader => Flow::Bootloader,
             _ => Flow::Recovery,
         });
         self.wait_control = worker::WaitControl::default();
@@ -1822,6 +1823,11 @@ impl App {
                     _ => {}
                 }
             }
+            "bootloader-progress" => {
+                self.bootloader = Some(true);
+                self.reset_progress(RunKind::Bootloader);
+                self.progress.step(Step::DeviceInfo);
+            }
             "dump" | "dump-only" => {
                 self.page = Page::Dump;
                 self.loader = Some("Demo/loader.melf".into());
@@ -2919,6 +2925,7 @@ mod tests {
         let _ = app.update(Message::Start);
         assert_eq!(app.page, Page::Progress);
         assert_eq!(app.run_kind, RunKind::Bootloader);
+        assert!(!app.progress.flow.steps().contains(&Step::Firmware));
         assert_eq!(app.bootloader, Some(false));
         drop(app.view());
         app.event(Event::Finished(Ok(vec![])));

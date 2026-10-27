@@ -690,13 +690,15 @@ fn choose_edits(
                 .collect();
             let planned = map::apply(layout, before, &edits, false)?;
             // A device already in the chosen state keeps its DeviceInfo.
-            let note = match (planned == before, unlock) {
-                (true, true) => crate::msg!("core_bootloader_already_unlocked"),
-                (true, false) => crate::msg!("core_bootloader_already_locked"),
-                (false, _) => crate::msg!("core_bootloader_reset_user_data"),
-            };
-            live!(log, "{note}");
-            state.warnings.push(note);
+            if planned == before {
+                let note = if unlock {
+                    crate::msg!("core_bootloader_already_unlocked")
+                } else {
+                    crate::msg!("core_bootloader_already_locked")
+                };
+                live!(log, "{note}");
+                state.warnings.push(note);
+            }
             Ok(Some((map::edits_between(layout, before, &planned), false)))
         }
         Request::Edit => {

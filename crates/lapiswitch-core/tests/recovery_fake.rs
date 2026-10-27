@@ -2161,7 +2161,7 @@ fn a_bootloader_unlock_or_relock_sets_both_flags_without_the_editor() {
             }
         }
         assert!(s.state.firmware.is_none());
-        assert_eq!(s.state.warnings.len(), 1);
+        assert!(s.state.warnings.is_empty());
         assert_eq!(saved_state(&s).request, Request::Bootloader { unlock });
     }
 }

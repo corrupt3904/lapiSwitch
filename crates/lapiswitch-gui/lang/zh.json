@@ -372,6 +372,7 @@
   "view_before_rebooting": "重启前确认",
   "view_bootloader_agree": "我已了解上述风险，同意并继续执行引导加载程序操作。",
   "view_bootloader_agreed_to_the_notice": "我已阅读事先告知的所有注意事项，并表示同意。",
+  "view_bootloader_always_erases_user_data": "解锁或重新锁定引导加载程序时一定会清除用户数据。\n应用、照片、账户、文件等都会被删除，请先另行备份重要数据。",
   "view_bootloader_and_the_original_configuration": "引导加载程序操作和原始配置恢复已完成。请查看下方说明。",
   "view_bootloader_flags_verified_enter_edl": "引导加载程序标志已写入并验证。将切换到 EDL 并恢复原始 GPT 和 Recovery。",
   "view_bootloader_relock": "重新锁定",

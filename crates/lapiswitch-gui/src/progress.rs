@@ -7,6 +7,8 @@ pub enum Flow {
     Restore,
     /// DeviceInfo dump: the recovery flow without writes or firmware.
     Dump,
+    /// Bootloader unlock/relock: the recovery flow without firmware.
+    Bootloader,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -67,6 +69,17 @@ impl Flow {
                 Finish,
             ],
             Self::Restore => &[Check, Edl, Originals, Finish],
+            Self::Bootloader => &[
+                Check,
+                Device,
+                Backup,
+                StageRecovery,
+                Twrp,
+                DeviceInfo,
+                Edl,
+                Originals,
+                Finish,
+            ],
             Self::Dump => &[
                 Check,
                 Device,
@@ -158,7 +171,7 @@ mod tests {
     use super::*;
     #[test]
     fn every_milestone_is_visible_and_only_success_reaches_one_hundred() {
-        for flow in [Flow::Recovery, Flow::Restore, Flow::Dump] {
+        for flow in [Flow::Recovery, Flow::Restore, Flow::Dump, Flow::Bootloader] {
             let mut progress = RunProgress::new(flow);
             for (index, step) in flow.steps().iter().enumerate() {
                 progress.step(*step);

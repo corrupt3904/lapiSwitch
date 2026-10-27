@@ -1972,6 +1972,7 @@ fn bootloader(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "view_bootloader_unlock_relock",
             "view_bootloader_unlock_relock_description"
         ),
+        warning_note(app.tr("view_bootloader_always_erases_user_data")),
         group(vec![loader_row(app)]),
         row![
             choice(

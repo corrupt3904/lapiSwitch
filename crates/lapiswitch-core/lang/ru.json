@@ -60,7 +60,6 @@
   "core_backup_verify_failed": "Проверка резервной копии не пройдена: {filename}",
   "core_bootloader_already_locked": "Загрузчик уже заблокирован (оба флага равны 0). DeviceInfo не записывался.",
   "core_bootloader_already_unlocked": "Загрузчик уже разблокирован (оба флага равны 1). DeviceInfo не записывался.",
-  "core_bootloader_reset_user_data": "Состояние блокировки загрузчика изменено. Перед использованием устройства обязательно сбросьте пользовательские данные.",
   "core_cancel_restore_failed": "{rollback_cancelled_message}\nАвтоматическое восстановление исходной конфигурации не завершено: {error}\nРезервная копия и запись операции сохранены. Подключите устройство в EDL и восстановите оригинал.",
   "core_cancel_restored": "{rollback_cancelled_message} Исходные GPT, Recovery и vendor_boot автоматически восстановлены и проверены.",
   "core_cancel_to_original": "Операция отменяется, восстанавливается исходная конфигурация. Переход в EDL.",
