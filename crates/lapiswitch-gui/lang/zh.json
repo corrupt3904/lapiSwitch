@@ -460,6 +460,8 @@
   "view_reboot_to_twrp_deviceinfo_is_read": "将平板重启到 TWRP，读取并保存 DeviceInfo，然后恢复原始配置。不会更改 DeviceInfo 的值。",
   "view_reboot_to_twrp_deviceinfo_is_read_2": "将平板重启到 TWRP Recovery。在 TWRP 中读取并备份 DeviceInfo 后，选择要修改的值。",
   "view_reboot_to_twrp_to_back_up": "平板将重启进入 TWRP Recovery。在 TWRP 中备份 DeviceInfo 后，应用所选区域和回滚选项并进行验证。",
+  "view_recent_file_missing": "文件不存在",
+  "view_recent_files": "最近的文件",
   "view_recheck_the_saved_twrp_deviceinfo_stage": "将从已保存的 TWRP / DeviceInfo 阶段重新确认结果，验证后还原原始 GPT 和 Recovery 并安装固件。",
   "view_recovery": "还原",
   "view_region_vendor_boot_dtb": "区域（vendor_boot DTB）",

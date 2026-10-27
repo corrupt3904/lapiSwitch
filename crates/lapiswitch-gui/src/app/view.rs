@@ -1506,6 +1506,70 @@ fn loader_row(app: &App) -> Element<'_, Message> {
         Picker::Loader,
     )
 }
+/// The recently parsed DeviceInfo files: a row opens its file, × removes
+/// it from the list. A file that is gone can only be removed.
+fn recent_deviceinfo(app: &App) -> Option<Element<'_, Message>> {
+    let recent = &app.preferences.recent_deviceinfo;
+    if recent.is_empty() {
+        return None;
+    }
+    let width = value_width(app, 0.0) + FIELD_KEY - 80.0;
+    let mut rows = Vec::new();
+    for path in recent {
+        let exists = path.is_file();
+        let mut line = row![
+            icon(glyph::DOCUMENT)
+                .size(14)
+                .color(if exists { muted() } else { line() }),
+            container(
+                label(short_path(path, width))
+                    .size(13)
+                    .color(if exists { ink() } else { muted() })
+                    .wrapping(iced::widget::text::Wrapping::None)
+            )
+            .width(Fill)
+            .clip(true),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
+        if !exists {
+            line = line.push(small(app.tr("view_recent_file_missing")).color(danger()));
+        }
+        let open = button(line)
+            .padding([11, 16])
+            .width(Fill)
+            .on_press_maybe((exists && !app.busy()).then(|| Message::ParseRecent(path.clone())))
+            .style(|theme, status| {
+                let mut style = fluent::subtle_style(theme, status);
+                style.border.radius = 0.0.into();
+                style
+            });
+        let remove = button(icon(glyph::CLOSE).size(11).color(muted()))
+            .padding([8, 10])
+            .on_press(Message::ParseForget(path.clone()))
+            .style(fluent::subtle_style);
+        rows.push(
+            row![open, remove]
+                .spacing(4)
+                .padding(pad(0, 8, 0, 0))
+                .align_y(Alignment::Center)
+                .into(),
+        );
+    }
+    Some(
+        column![
+            row![
+                icon(glyph::HISTORY).size(12).color(muted()),
+                small(app.tr("view_recent_files")),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+            group(rows),
+        ]
+        .spacing(8)
+        .into(),
+    )
+}
 /// DeviceInfo parsing: a saved file shown field by field with the map of
 /// its device, read-only.
 fn parse_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
@@ -1550,7 +1614,8 @@ fn parse_page(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         title(app, "view_parse_deviceinfo", "view_parse_description"),
         group(rows),
     ]
-    .spacing(16);
+    .spacing(16)
+    .extend(recent_deviceinfo(app));
     let mut ready = false;
     if let Some(parsed) = parsed {
         if parsed.view.is_some() {

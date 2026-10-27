@@ -79,6 +79,10 @@ enum Message {
     Parse,
     /// Show the parsed fields.
     ParseShow,
+    /// Open a recent DeviceInfo file.
+    ParseRecent(PathBuf),
+    /// Remove a file from the recent DeviceInfo files.
+    ParseForget(PathBuf),
     Editor(editor::EditorMessage),
     Recovery,
     Settings,
@@ -800,6 +804,13 @@ impl App {
             Message::ParseShow if self.parsed.as_ref().is_some_and(|p| p.view.is_some()) => {
                 self.page = Page::ParseView;
             }
+            Message::ParseRecent(path) if !self.busy() => {
+                let opened = lapiswitch_core::deviceinfo::parse::open(&path);
+                self.parse_opened(opened);
+            }
+            Message::ParseForget(path) if self.preferences.forget_deviceinfo(&path) => {
+                self.save_preferences();
+            }
             Message::ConfirmRecoveryReboot => {
                 if let Some(confirmation) = self.reboot_confirmation.take() {
                     let delivered = confirmation.send(());
@@ -1082,9 +1093,25 @@ impl App {
                     return Task::none();
                 }
                 self.activity = Some(Activity::Dialog);
+                // A DeviceInfo file is looked for where the latest one was,
+                // else among the dumps.
+                let start = matches!(picker, Picker::DeviceInfoFile)
+                    .then(|| {
+                        self.preferences
+                            .recent_deviceinfo
+                            .iter()
+                            .filter_map(|path| path.parent())
+                            .find(|folder| folder.is_dir())
+                            .map(std::path::Path::to_path_buf)
+                            .or_else(|| self.preferences.dump_root.clone())
+                    })
+                    .flatten();
                 return Task::perform(
                     async move {
-                        let dialog = rfd::AsyncFileDialog::new();
+                        let mut dialog = rfd::AsyncFileDialog::new();
+                        if let Some(start) = start {
+                            dialog = dialog.set_directory(start);
+                        }
                         let path = match picker {
                             Picker::Firmware
                             | Picker::Output
@@ -1645,6 +1672,13 @@ impl App {
             "confirm" => self.page = Page::Confirm,
             "parse" | "parse-view" | "parse-view-long" | "parse-view-rollback" => {
                 self.page = Page::Parse;
+                // An earlier file that has since been moved and, with
+                // --demo-deviceinfo, a file that exists, under the one just
+                // picked.
+                self.preferences.recent_deviceinfo = std::env::args()
+                    .filter_map(|arg| arg.strip_prefix("--demo-deviceinfo=").map(PathBuf::from))
+                    .chain([r"Demo\dumps\Deviceinfo_dump_TB520FU_1790000000\deviceinfo.bin".into()])
+                    .collect();
                 self.demo_pick(Picker::DeviceInfoFile);
                 if screen != "parse" {
                     self.page = Page::ParseView;
@@ -2031,6 +2065,10 @@ impl App {
                 let view = opened.layout.map(|(layout, source)| {
                     (source, editor::Editor::viewer(layout, opened.bytes.clone()))
                 });
+                // Only a file whose model was determined is kept as recent.
+                if view.is_some() && self.preferences.remember_deviceinfo(&opened.path) {
+                    self.save_preferences();
+                }
                 self.parsed = Some(Parsed { opened, view });
             }
             Err(error) => {
@@ -2232,6 +2270,34 @@ mod tests {
             assert!(app.deferred.is_none());
             assert_eq!(app.activity == Some(Activity::Run), connected);
         }
+    }
+    #[test]
+    fn only_files_with_a_determined_model_become_recent_and_can_be_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = lapiswitch_core::device::Device::find("TB520FU")
+            .unwrap()
+            .layout()
+            .unwrap();
+        let good = dir.path().join("good.bin");
+        std::fs::write(&good, demo_deviceinfo(layout)).unwrap();
+        // A full-size buffer no map fits: opened, but no model.
+        let odd = dir.path().join("odd.bin");
+        let mut bytes = vec![0u8; lapiswitch_core::deviceinfo::SHARED_SIZE];
+        bytes[..13].copy_from_slice(b"ANDROID-BOOT!");
+        std::fs::write(&odd, bytes).unwrap();
+        let mut app = App::base(true);
+        app.preferences.recent_deviceinfo.clear();
+        let _ = app.update(Message::ParseRecent(odd.clone()));
+        assert!(app.parsed.as_ref().is_some_and(|p| p.view.is_none()));
+        assert!(app.preferences.recent_deviceinfo.is_empty());
+        let _ = app.update(Message::ParseRecent(good.clone()));
+        assert!(app.parsed.as_ref().is_some_and(|p| p.view.is_some()));
+        assert_eq!(
+            app.preferences.recent_deviceinfo,
+            std::slice::from_ref(&good)
+        );
+        let _ = app.update(Message::ParseForget(good));
+        assert!(app.preferences.recent_deviceinfo.is_empty());
     }
     #[test]
     fn a_parsed_file_is_detected_and_its_fields_shown_on_confirm() {

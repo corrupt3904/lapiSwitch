@@ -62,6 +62,27 @@ mod tests {
     /// exactly the English keys with the same placeholders, and no key is
     /// left that neither the GUI nor the vendored LTBox crates use.
     #[test]
+    fn recent_deviceinfo_files_are_unique_latest_first_and_at_most_five() {
+        let mut p = Preferences::default();
+        for n in 0..7 {
+            assert!(p.remember_deviceinfo(Path::new(&format!("{n}.bin"))));
+        }
+        let names = |p: &Preferences| -> Vec<String> {
+            p.recent_deviceinfo
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect()
+        };
+        assert_eq!(names(&p), ["6.bin", "5.bin", "4.bin", "3.bin", "2.bin"]);
+        // Again: moved to the front, never twice; first again: no change.
+        assert!(p.remember_deviceinfo(Path::new("3.bin")));
+        assert!(!p.remember_deviceinfo(Path::new("3.bin")));
+        assert_eq!(names(&p), ["3.bin", "6.bin", "5.bin", "4.bin", "2.bin"]);
+        assert!(p.forget_deviceinfo(Path::new("5.bin")));
+        assert!(!p.forget_deviceinfo(Path::new("5.bin")));
+        assert_eq!(names(&p), ["3.bin", "6.bin", "4.bin", "2.bin"]);
+    }
+    #[test]
     fn every_language_has_every_key_the_sources_use() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut gui = vec![];
@@ -350,7 +371,12 @@ pub struct Preferences {
     pub storage_root: Option<PathBuf>,
     /// Where DeviceInfo dumps are saved, apart from logs and backups.
     pub dump_root: Option<PathBuf>,
+    /// DeviceInfo files parsed with a determined model, latest first.
+    pub recent_deviceinfo: Vec<PathBuf>,
 }
+
+/// How many recent DeviceInfo files are kept.
+pub const RECENT_MAX: usize = 5;
 impl Default for Preferences {
     fn default() -> Self {
         Self {
@@ -360,6 +386,7 @@ impl Default for Preferences {
             kernel: ltbox_device::driver::kernel_mode_supported(),
             storage_root: None,
             dump_root: None,
+            recent_deviceinfo: Vec::new(),
         }
     }
 }
@@ -368,6 +395,21 @@ impl Preferences {
         self.storage_root
             .clone()
             .unwrap_or_else(|| data.to_path_buf())
+    }
+    /// Puts a parsed DeviceInfo file first among the recent ones, once.
+    /// Returns whether the list changed.
+    pub fn remember_deviceinfo(&mut self, path: &Path) -> bool {
+        let before = self.recent_deviceinfo.clone();
+        self.recent_deviceinfo.retain(|p| p != path);
+        self.recent_deviceinfo.insert(0, path.to_path_buf());
+        self.recent_deviceinfo.truncate(RECENT_MAX);
+        self.recent_deviceinfo != before
+    }
+    /// Removes a file from the recent ones; returns whether it was there.
+    pub fn forget_deviceinfo(&mut self, path: &Path) -> bool {
+        let count = self.recent_deviceinfo.len();
+        self.recent_deviceinfo.retain(|p| p != path);
+        self.recent_deviceinfo.len() != count
     }
     pub fn load(path: &Path) -> Self {
         std::fs::metadata(path)

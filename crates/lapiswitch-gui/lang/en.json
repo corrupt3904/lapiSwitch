@@ -460,6 +460,8 @@
   "view_reboot_to_twrp_deviceinfo_is_read": "Reboot into TWRP to read and save DeviceInfo, then restore the original configuration. DeviceInfo values are not changed.",
   "view_reboot_to_twrp_deviceinfo_is_read_2": "Reboot to TWRP. DeviceInfo is read and backed up there, then you choose the values to change.",
   "view_reboot_to_twrp_to_back_up": "Reboot to TWRP to back up, update and verify DeviceInfo.",
+  "view_recent_file_missing": "File not found",
+  "view_recent_files": "Recent files",
   "view_recheck_the_saved_twrp_deviceinfo_stage": "Recheck the saved TWRP/DeviceInfo stage, then restore original GPT/Recovery and install firmware.",
   "view_recovery": "Recovery",
   "view_region_vendor_boot_dtb": "Region (vendor_boot DTB)",

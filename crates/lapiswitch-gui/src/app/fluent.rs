@@ -152,6 +152,7 @@ pub(crate) mod glyph {
     /// A circle with an exclamation mark.
     pub const ALERT: char = '\u{E783}';
     pub const COMPLETED: char = '\u{E930}';
+    pub const CLOSE: char = '\u{E711}';
 }
 
 pub(crate) fn icon<'a>(glyph: char) -> text::Text<'a> {

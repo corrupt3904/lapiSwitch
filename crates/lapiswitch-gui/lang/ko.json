@@ -460,6 +460,8 @@
   "view_reboot_to_twrp_deviceinfo_is_read": "태블릿을 TWRP로 재부팅합니다. DeviceInfo를 읽어 저장한 뒤 원본 구성을 복구합니다. DeviceInfo 값은 변경하지 않습니다.",
   "view_reboot_to_twrp_deviceinfo_is_read_2": "태블릿을 TWRP Recovery로 재부팅합니다. TWRP에서 DeviceInfo를 읽어 백업한 뒤 수정할 값을 선택합니다.",
   "view_reboot_to_twrp_to_back_up": "태블릿을 TWRP Recovery로 재부팅합니다. TWRP에서 DeviceInfo를 백업한 뒤 선택한 리전과 롤백 옵션을 적용하고 검증합니다.",
+  "view_recent_file_missing": "파일 없음",
+  "view_recent_files": "최근 파일",
   "view_recheck_the_saved_twrp_deviceinfo_stage": "저장된 TWRP·DeviceInfo 단계부터 결과를 재확인합니다. 검증 후 원본 GPT·Recovery 복구와 펌웨어 설치를 진행합니다.",
   "view_recovery": "원본 복구",
   "view_region_vendor_boot_dtb": "리전 (vendor_boot DTB)",

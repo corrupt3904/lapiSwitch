@@ -460,6 +460,8 @@
   "view_reboot_to_twrp_deviceinfo_is_read": "タブレットを TWRP で再起動し、DeviceInfo を読み取って保存した後、元の構成を復元します。DeviceInfo の値は変更しません。",
   "view_reboot_to_twrp_deviceinfo_is_read_2": "タブレットを TWRP Recovery で再起動します。TWRP で DeviceInfo を読み取ってバックアップした後、変更する値を選択します。",
   "view_reboot_to_twrp_to_back_up": "タブレットを TWRP Recovery で再起動します。TWRP で DeviceInfo をバックアップしてから、選択したリージョンとロールバックの設定を適用して検証します。",
+  "view_recent_file_missing": "ファイルがありません",
+  "view_recent_files": "最近のファイル",
   "view_recheck_the_saved_twrp_deviceinfo_stage": "保存された TWRP・DeviceInfo の段階から結果を再確認します。検証後、元の GPT・Recovery を復元してファームウェアをインストールします。",
   "view_recovery": "復元",
   "view_region_vendor_boot_dtb": "リージョン（vendor_boot DTB）",

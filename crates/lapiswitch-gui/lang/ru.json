@@ -460,6 +460,8 @@
   "view_reboot_to_twrp_deviceinfo_is_read": "Планшет перезагрузится в TWRP. DeviceInfo будет считан и сохранён, затем исходная конфигурация будет восстановлена. Значения DeviceInfo не изменяются.",
   "view_reboot_to_twrp_deviceinfo_is_read_2": "Перезагрузка в TWRP. Там DeviceInfo читается и сохраняется, затем вы выбираете изменяемые значения.",
   "view_reboot_to_twrp_to_back_up": "Планшет перезагрузится в TWRP Recovery. Там DeviceInfo будет сохранён, после чего применятся выбранный регион и параметр отката с проверкой.",
+  "view_recent_file_missing": "Файл не найден",
+  "view_recent_files": "Недавние файлы",
   "view_recheck_the_saved_twrp_deviceinfo_stage": "Результат будет перепроверен с сохранённого этапа TWRP / DeviceInfo, затем восстановятся исходные GPT и Recovery и установится прошивка.",
   "view_recovery": "Восстановление",
   "view_region_vendor_boot_dtb": "Регион (DTB vendor_boot)",
