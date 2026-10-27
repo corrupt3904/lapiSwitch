@@ -904,6 +904,8 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Some(rollback_modal(app))
     } else if app.region_notice_open {
         Some(region_notice(app))
+    } else if let Some(agreed) = app.bootloader_notice {
+        Some(bootloader_notice(app, agreed))
     } else if app.license_open {
         Some(licenses_view::modal(app))
     } else {
@@ -1791,8 +1793,105 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         ),
     )
 }
-/// Bootloader unlock/relock setup: EDL loader, unlock or relock, the risks
-/// and consent.
+/// The risks of a bootloader unlock or relock, agreed to before its page.
+fn bootloader_notice(app: &App, agreed: bool) -> iced::widget::Container<'_, Message> {
+    let mut risks = column![].spacing(10);
+    for line in app.tr("view_bootloader_risks").lines() {
+        risks = risks.push(label(line).size(15));
+    }
+    panel(
+        column![
+            row![
+                icon(glyph::ALERT).size(22).color(danger()),
+                label(app.tr("view_before_changing_the_bootloader_lock")).size(25)
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+            risks,
+            small(app.tr("view_bootloader_what_the_task_does")),
+            checkbox(agreed)
+                .label(app.tr("view_bootloader_agree"))
+                .on_toggle(Message::BootloaderNoticeAgree),
+            row![
+                space().width(Fill),
+                action(
+                    app.tr("archive_cancel"),
+                    Message::BootloaderNoticeClose(false),
+                    true
+                )
+                .style(soft_style),
+                action(
+                    app.tr("archive_confirm"),
+                    Message::BootloaderNoticeClose(true),
+                    agreed
+                ),
+            ]
+            .spacing(12),
+        ]
+        .spacing(16),
+    )
+    .style(fluent::warning_dialog_style)
+    .max_width(720)
+}
+/// What the chosen unlock or relock changes on the connected device.
+fn bootloader_summary(app: &App, unlock: bool) -> Element<'_, Message> {
+    let d = &app.device.snapshot;
+    let flag = |name: &'static str| {
+        group_row(
+            name,
+            row![
+                label(if unlock { "1" } else { "0" })
+                    .size(18)
+                    .color(accent()),
+                label(if unlock { "Unlocked" } else { "Locked" })
+                    .size(13)
+                    .color(muted())
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .into(),
+            None,
+        )
+    };
+    group(vec![
+        group_row(
+            app.tr("dashboard_device"),
+            row![
+                label(dashboard_view::device_name(app)).size(14),
+                small(format!("{} · {}", d.model, dashboard_view::status(app)))
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .into(),
+            None,
+        ),
+        group_row(
+            app.tr("view_user_data"),
+            label(app.tr("view_erased")).size(18).color(danger()).into(),
+            None,
+        ),
+        flag(app.tr("view_new_bootloader_unlock_flag")),
+        flag(app.tr("view_new_critical_unlock_flag")),
+        group_row(
+            app.tr("view_backup_location"),
+            label(short_path(
+                &app.output
+                    .join("backup")
+                    .join(lapiswitch_core::backup::folder(Request::Bootloader {
+                        unlock,
+                    })),
+                value_width(app, 150.0),
+            ))
+            .size(14)
+            .color(muted())
+            .wrapping(iced::widget::text::Wrapping::None)
+            .into(),
+            Some(small(app.tr("view_change_in_settings")).into()),
+        ),
+    ])
+}
+/// Bootloader unlock/relock setup: EDL loader and unlock or relock; once
+/// one is chosen and a device is connected, what it changes.
 fn bootloader(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     let choice = |unlock: bool, name: &'static str, description: &'static str| {
         let selected = app.bootloader == Some(unlock);
@@ -1821,7 +1920,7 @@ fn bootloader(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             style
         })
     };
-    let content = column![
+    let mut content = column![
         title(
             app,
             "view_bootloader_unlock_relock",
@@ -1841,13 +1940,12 @@ fn bootloader(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             ),
         ]
         .spacing(12),
-        note(app.tr("view_bootloader_what_the_task_does"), false),
-        warning_note(app.tr("view_bootloader_risks")),
-        checkbox(app.agreed)
-            .label(app.tr("view_bootloader_agree"))
-            .on_toggle(Message::Agree),
     ]
     .spacing(16);
+    let connected = app.device.reachable() && app.device.snapshot.mode != crate::device::Mode::None;
+    if let Some(unlock) = app.bootloader.filter(|_| connected) {
+        content = content.push(bootloader_summary(app, unlock));
+    }
     let start = match app.bootloader {
         Some(true) => app.tr("view_start_bootloader_unlock"),
         Some(false) => app.tr("view_start_bootloader_relock"),

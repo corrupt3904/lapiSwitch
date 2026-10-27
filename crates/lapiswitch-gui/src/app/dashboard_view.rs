@@ -88,7 +88,7 @@ fn device_image(bytes: &'static [u8]) -> image::Handle {
     handles.push((key, handle.clone()));
     handle
 }
-fn device_name(app: &App) -> &str {
+pub(super) fn device_name(app: &App) -> &str {
     let d = &app.device.snapshot;
     if !d.name.is_empty() {
         &d.name
