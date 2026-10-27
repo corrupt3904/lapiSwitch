@@ -85,12 +85,12 @@ enum Message {
     Bootloader,
     /// Unlock (`true`) or relock chosen on the bootloader page.
     BootloaderChoice(bool),
-    /// The agreement checkbox of the bootloader risk dialog.
-    BootloaderNoticeAgree(bool),
-    /// Leave the bootloader risk dialog: `true` opens the task.
-    BootloaderNoticeClose(bool),
-    /// Read the bootloader risks again from the page's ? button.
-    BootloaderNoticeReview,
+    /// The agreement checkbox of a task's risk dialog.
+    TaskNoticeAgree(bool),
+    /// Leave a task's risk dialog: `true` keeps the task open.
+    TaskNoticeClose(bool),
+    /// Read the task's risks again from the page's ? button.
+    TaskNoticeReview,
     Dump,
     Parse,
     /// Show the parsed fields.
@@ -189,14 +189,14 @@ struct App {
     agreed: bool,
     /// Unlock (`true`) or relock chosen on the bootloader page.
     bootloader: Option<bool>,
-    /// The risk dialog shown over the bootloader page, with whether its
-    /// agreement is checked.
-    bootloader_notice: Option<bool>,
-    /// The page a cancelled bootloader risk dialog returns to.
-    bootloader_return: Page,
+    /// The risk dialog shown over the DeviceInfo edit or bootloader page,
+    /// with whether its agreement is checked.
+    task_notice: Option<bool>,
+    /// The page a cancelled risk dialog returns to.
+    task_return: Page,
     /// The risk dialog was reopened from the page: confirming it checks the
     /// page's agreement and cancelling it stays on the page.
-    bootloader_review: bool,
+    task_review: bool,
     output: PathBuf,
     state_path: PathBuf,
     preferences_path: PathBuf,
@@ -299,9 +299,9 @@ impl App {
             country_draft: None,
             agreed: false,
             bootloader: None,
-            bootloader_notice: None,
-            bootloader_return: Page::Dashboard,
-            bootloader_review: false,
+            task_notice: None,
+            task_return: Page::Dashboard,
+            task_review: false,
             output: preferences.storage_root(&data),
             state_path,
             preferences_path,
@@ -639,6 +639,18 @@ impl App {
             return false;
         }
         true
+    }
+    /// A task page under its risk dialog; the page's own agreement starts
+    /// unchecked.
+    fn open_with_notice(&mut self, page: Page) {
+        if self.page != page {
+            self.task_return = self.page;
+        }
+        self.page = page;
+        self.agreed = false;
+        self.error = None;
+        self.task_notice = Some(false);
+        self.task_review = false;
     }
     fn reset_progress(&mut self, kind: RunKind) {
         self.run_kind = kind;
@@ -998,43 +1010,38 @@ impl App {
                 self.agreed = false;
                 self.error = None;
             }
-            Message::Edit if !self.device.unsupported_model() && !self.device.dump_only() => {
-                self.page = Page::Edit;
-                self.agreed = false;
-                self.error = None;
+            // Both tasks open under a dialog whose risks must be agreed to.
+            Message::Edit
+                if !self.busy() && !self.device.unsupported_model() && !self.device.dump_only() =>
+            {
+                self.open_with_notice(Page::Edit);
             }
-            // The task opens under a dialog whose risks must be agreed to.
             Message::Bootloader
                 if !self.busy() && !self.device.unsupported_model() && !self.device.dump_only() =>
             {
-                if self.page != Page::Bootloader {
-                    self.bootloader_return = self.page;
-                }
-                self.page = Page::Bootloader;
+                self.open_with_notice(Page::Bootloader);
                 self.bootloader = None;
-                self.agreed = false;
-                self.error = None;
-                self.bootloader_notice = Some(false);
-                self.bootloader_review = false;
             }
-            Message::BootloaderNoticeReview if self.page == Page::Bootloader && !self.busy() => {
-                self.bootloader_notice = Some(false);
-                self.bootloader_review = true;
+            Message::TaskNoticeReview
+                if matches!(self.page, Page::Edit | Page::Bootloader) && !self.busy() =>
+            {
+                self.task_notice = Some(false);
+                self.task_review = true;
             }
-            Message::BootloaderNoticeAgree(agree) if self.bootloader_notice.is_some() => {
-                self.bootloader_notice = Some(agree);
+            Message::TaskNoticeAgree(agree) if self.task_notice.is_some() => {
+                self.task_notice = Some(agree);
             }
             // The first dialog only opens the page; the page's own agreement
             // is checked there, or by confirming the dialog reopened from it.
-            Message::BootloaderNoticeClose(open) if self.bootloader_notice.is_some() => {
-                let confirmed = open && self.bootloader_notice == Some(true);
-                if self.bootloader_review {
+            Message::TaskNoticeClose(open) if self.task_notice.is_some() => {
+                let confirmed = open && self.task_notice == Some(true);
+                if self.task_review {
                     self.agreed |= confirmed;
                 } else if !confirmed {
-                    self.page = self.bootloader_return;
+                    self.page = self.task_return;
                 }
-                self.bootloader_notice = None;
-                self.bootloader_review = false;
+                self.task_notice = None;
+                self.task_review = false;
             }
             Message::BootloaderChoice(unlock) if !self.busy() => self.bootloader = Some(unlock),
             Message::Dump if !self.device.unsupported_model() => {
@@ -1804,10 +1811,13 @@ impl App {
                     )));
                 }
             }
-            "deviceinfo-edit" => {
+            "deviceinfo-edit" | "deviceinfo-edit-notice" => {
                 self.page = Page::Edit;
                 self.loader = Some("Demo/loader.melf".into());
-                self.agreed = true;
+                self.agreed = screen == "deviceinfo-edit";
+                if screen == "deviceinfo-edit-notice" {
+                    self.task_notice = Some(true);
+                }
             }
             "bootloader" | "bootloader-relock" | "bootloader-empty" | "bootloader-notice" => {
                 self.page = Page::Bootloader;
@@ -1818,7 +1828,7 @@ impl App {
                     "bootloader-relock" => self.bootloader = Some(false),
                     "bootloader-notice" => {
                         self.agreed = false;
-                        self.bootloader_notice = Some(true);
+                        self.task_notice = Some(true);
                     }
                     _ => {}
                 }
@@ -2879,24 +2889,24 @@ mod tests {
         // confirming without the agreement, goes back where it was.
         let _ = app.update(Message::Bootloader);
         assert_eq!(app.page, Page::Bootloader);
-        assert_eq!(app.bootloader_notice, Some(false));
+        assert_eq!(app.task_notice, Some(false));
         assert!(!app.can_start());
         drop(app.view());
-        let _ = app.update(Message::BootloaderNoticeClose(true));
+        let _ = app.update(Message::TaskNoticeClose(true));
         assert_eq!(app.page, Page::Dashboard);
-        assert_eq!(app.bootloader_notice, None);
+        assert_eq!(app.task_notice, None);
         let _ = app.update(Message::Bootloader);
-        let _ = app.update(Message::BootloaderNoticeAgree(true));
-        let _ = app.update(Message::BootloaderNoticeClose(false));
+        let _ = app.update(Message::TaskNoticeAgree(true));
+        let _ = app.update(Message::TaskNoticeClose(false));
         assert_eq!(app.page, Page::Dashboard);
         assert!(!app.agreed);
         // Agreeing and confirming keeps the task, without a choice or the
         // page's own agreement yet.
         let _ = app.update(Message::Bootloader);
-        let _ = app.update(Message::BootloaderNoticeAgree(true));
-        let _ = app.update(Message::BootloaderNoticeClose(true));
+        let _ = app.update(Message::TaskNoticeAgree(true));
+        let _ = app.update(Message::TaskNoticeClose(true));
         assert_eq!(app.page, Page::Bootloader);
-        assert_eq!(app.bootloader_notice, None);
+        assert_eq!(app.task_notice, None);
         assert_eq!(app.bootloader, None);
         assert!(!app.agreed);
         app.loader = None;
@@ -2907,17 +2917,17 @@ mod tests {
         let _ = app.update(Message::BootloaderChoice(false));
         assert!(app.start_blocker().unwrap().contains("동의"));
         // The ? reopens the risks; cancelling stays and checks nothing.
-        let _ = app.update(Message::BootloaderNoticeReview);
-        assert_eq!(app.bootloader_notice, Some(false));
+        let _ = app.update(Message::TaskNoticeReview);
+        assert_eq!(app.task_notice, Some(false));
         drop(app.view());
-        let _ = app.update(Message::BootloaderNoticeAgree(true));
-        let _ = app.update(Message::BootloaderNoticeClose(false));
+        let _ = app.update(Message::TaskNoticeAgree(true));
+        let _ = app.update(Message::TaskNoticeClose(false));
         assert_eq!(app.page, Page::Bootloader);
         assert!(!app.agreed);
         // Confirming it checks the page's agreement.
-        let _ = app.update(Message::BootloaderNoticeReview);
-        let _ = app.update(Message::BootloaderNoticeAgree(true));
-        let _ = app.update(Message::BootloaderNoticeClose(true));
+        let _ = app.update(Message::TaskNoticeReview);
+        let _ = app.update(Message::TaskNoticeAgree(true));
+        let _ = app.update(Message::TaskNoticeClose(true));
         assert_eq!(app.page, Page::Bootloader);
         assert!(app.agreed);
         assert!(app.can_start(), "{:?}", app.start_blocker());
@@ -2931,6 +2941,34 @@ mod tests {
         app.event(Event::Finished(Ok(vec![])));
         assert_eq!(app.page, Page::Result);
         drop(app.view());
+    }
+    #[test]
+    fn the_deviceinfo_edit_opens_under_its_risks_and_needs_its_own_agreement() {
+        let mut app = App::base(true);
+        app.seed_preview("deviceinfo-edit");
+        let _ = app.update(Message::Home);
+        let _ = app.update(Message::Edit);
+        assert_eq!(app.page, Page::Edit);
+        assert_eq!(app.task_notice, Some(false));
+        drop(app.view());
+        // Cancelling goes back where it was.
+        let _ = app.update(Message::TaskNoticeClose(false));
+        assert_eq!(app.page, Page::Dashboard);
+        // Confirming keeps the page with its agreement unchecked.
+        let _ = app.update(Message::Edit);
+        let _ = app.update(Message::TaskNoticeAgree(true));
+        let _ = app.update(Message::TaskNoticeClose(true));
+        assert_eq!(app.page, Page::Edit);
+        assert!(!app.agreed);
+        assert!(app.start_blocker().unwrap().contains("동의"));
+        drop(app.view());
+        // The ? reopens the risks; confirming them checks the agreement.
+        let _ = app.update(Message::TaskNoticeReview);
+        let _ = app.update(Message::TaskNoticeAgree(true));
+        let _ = app.update(Message::TaskNoticeClose(true));
+        assert_eq!(app.page, Page::Edit);
+        assert!(app.agreed);
+        assert!(app.can_start(), "{:?}", app.start_blocker());
     }
     #[test]
     fn the_restore_starts_only_from_twrp_or_edl_with_its_choices() {

@@ -908,8 +908,8 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
         Some(rollback_modal(app))
     } else if app.region_notice_open {
         Some(region_notice(app))
-    } else if let Some(agreed) = app.bootloader_notice {
-        Some(bootloader_notice(app, agreed))
+    } else if let Some(agreed) = app.task_notice {
+        Some(task_notice(app, agreed))
     } else if app.license_open {
         Some(licenses_view::modal(app))
     } else {
@@ -1818,16 +1818,9 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "view_read_the_device_s_deviceinfo_in"
         ),
         group(vec![loader_row(app)]),
+        notice_agreement(app),
     ]
-    .spacing(16)
-    .push(warning_note(
-        app.tr("view_wrong_security_structure_values_can_stop"),
-    ))
-    .push(
-        checkbox(app.agreed)
-            .label(app.tr("view_i_have_read_the_instructions_and_2"))
-            .on_toggle(Message::Agree),
-    );
+    .spacing(16);
     (
         content.into(),
         start_footer(
@@ -1846,36 +1839,52 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         ),
     )
 }
-/// The risks of a bootloader unlock or relock, agreed to before its page.
-fn bootloader_notice(app: &App, agreed: bool) -> iced::widget::Container<'_, Message> {
+/// The risks of a DeviceInfo edit or a bootloader unlock or relock, agreed
+/// to over its page.
+fn task_notice(app: &App, agreed: bool) -> iced::widget::Container<'_, Message> {
+    let (heading, lines, scope, agreement) = if app.page == Page::Edit {
+        (
+            app.tr("view_before_editing_deviceinfo"),
+            app.tr("view_deviceinfo_edit_risks"),
+            app.tr("view_deviceinfo_edit_what_the_task_does"),
+            app.tr("view_deviceinfo_edit_agree"),
+        )
+    } else {
+        (
+            app.tr("view_before_changing_the_bootloader_lock"),
+            app.tr("view_bootloader_risks"),
+            app.tr("view_bootloader_what_the_task_does"),
+            app.tr("view_bootloader_agree"),
+        )
+    };
     let mut risks = column![].spacing(10);
-    for line in app.tr("view_bootloader_risks").lines() {
+    for line in lines.lines() {
         risks = risks.push(label(line).size(15));
     }
     panel(
         column![
             row![
                 icon(glyph::ALERT).size(22).color(danger()),
-                label(app.tr("view_before_changing_the_bootloader_lock")).size(25)
+                label(heading).size(25)
             ]
             .spacing(12)
             .align_y(Alignment::Center),
             risks,
-            small(app.tr("view_bootloader_what_the_task_does")),
+            small(scope),
             checkbox(agreed)
-                .label(app.tr("view_bootloader_agree"))
-                .on_toggle(Message::BootloaderNoticeAgree),
+                .label(agreement)
+                .on_toggle(Message::TaskNoticeAgree),
             row![
                 space().width(Fill),
                 action(
                     app.tr("archive_cancel"),
-                    Message::BootloaderNoticeClose(false),
+                    Message::TaskNoticeClose(false),
                     true
                 )
                 .style(soft_style),
                 action(
                     app.tr("archive_confirm"),
-                    Message::BootloaderNoticeClose(true),
+                    Message::TaskNoticeClose(true),
                     agreed
                 ),
             ]
@@ -1885,6 +1894,22 @@ fn bootloader_notice(app: &App, agreed: bool) -> iced::widget::Container<'_, Mes
     )
     .style(fluent::warning_dialog_style)
     .max_width(720)
+}
+/// The page's own agreement to the risks shown before it; the ? shows them
+/// again and checks it when they are confirmed.
+fn notice_agreement(app: &App) -> Element<'_, Message> {
+    row![
+        checkbox(app.agreed)
+            .label(app.tr("view_agreed_to_the_notice"))
+            .on_toggle(Message::Agree),
+        button(icon('\u{E9CE}').size(14).color(muted()))
+            .padding(2)
+            .style(|_, _| button::Style::default())
+            .on_press_maybe((!app.busy()).then_some(Message::TaskNoticeReview)),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center)
+    .into()
 }
 /// What the chosen unlock or relock changes on the connected device.
 fn bootloader_summary(app: &App, unlock: bool) -> Element<'_, Message> {
@@ -1993,19 +2018,7 @@ fn bootloader(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
     if let Some(unlock) = app.bootloader.filter(|_| connected) {
         content = content.push(bootloader_summary(app, unlock));
     }
-    content = content.push(
-        row![
-            checkbox(app.agreed)
-                .label(app.tr("view_bootloader_agreed_to_the_notice"))
-                .on_toggle(Message::Agree),
-            button(icon('\u{E9CE}').size(14).color(muted()))
-                .padding(2)
-                .style(|_, _| button::Style::default())
-                .on_press_maybe((!app.busy()).then_some(Message::BootloaderNoticeReview)),
-        ]
-        .spacing(6)
-        .align_y(Alignment::Center),
-    );
+    content = content.push(notice_agreement(app));
     let start = match app.bootloader {
         Some(true) => app.tr("view_start_bootloader_unlock"),
         Some(false) => app.tr("view_start_bootloader_relock"),
