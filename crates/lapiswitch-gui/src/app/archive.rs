@@ -3,7 +3,7 @@ use super::*;
 
 impl App {
     pub(super) fn can_archive_run(&self) -> bool {
-        matches!(self.page, Page::Confirm | Page::Edit)
+        matches!(self.page, Page::Confirm | Page::Edit | Page::Bootloader)
             && self.can_start()
             && self.pending.is_some()
             && !self.fix.confirm
@@ -14,7 +14,11 @@ impl App {
 
     pub(super) fn start_conversion(&mut self) -> Task<Message> {
         self.refresh_pending();
-        if !matches!(self.page, Page::Confirm | Page::Edit | Page::Dump) || !self.can_start() {
+        if !matches!(
+            self.page,
+            Page::Confirm | Page::Edit | Page::Bootloader | Page::Dump
+        ) || !self.can_start()
+        {
             self.error = self.start_blocker().map(str::to_owned);
             return Task::none();
         }
@@ -38,7 +42,11 @@ impl App {
     pub(super) fn start_verified(&mut self) {
         // A second instance may have left a run while the device was probed.
         self.refresh_pending();
-        if !matches!(self.page, Page::Confirm | Page::Edit | Page::Dump) || !self.can_start() {
+        if !matches!(
+            self.page,
+            Page::Confirm | Page::Edit | Page::Bootloader | Page::Dump
+        ) || !self.can_start()
+        {
             self.error = self.start_blocker().map(str::to_owned);
         } else if let Some(pending) = &self.pending {
             self.archive_confirmation = Some(pending.state.clone());
@@ -62,8 +70,19 @@ impl App {
                     device: self.device.supported(),
                     loader: self.loader.clone().expect("validated loader"),
                     output: self.output.clone(),
+                    bootloader: None,
                 },
                 RunKind::Edit,
+            );
+        } else if self.page == Page::Bootloader {
+            self.launch(
+                worker::Action::Edit {
+                    device: self.device.supported(),
+                    loader: self.loader.clone().expect("validated loader"),
+                    output: self.output.clone(),
+                    bootloader: Some(self.bootloader.expect("chosen bootloader action")),
+                },
+                RunKind::Bootloader,
             );
         } else {
             self.launch(

@@ -59,6 +59,9 @@ pub enum Request {
     /// DeviceInfo is read in TWRP and saved under `dump_root`; nothing is
     /// written and the original configuration is restored right after.
     Dump,
+    /// Both bootloader unlock flags set to 1 (`unlock`) or both to 0 in
+    /// TWRP. Nothing else changes and a device already there is not written.
+    Bootloader { unlock: bool },
 }
 
 /// Options of the firmware installation. Installing firmware always erases
@@ -266,6 +269,23 @@ impl RunState {
     pub fn edit(device: Option<Device>, loader: &Path, backup_dir: &Path) -> Result<Self, String> {
         Self::build(
             Request::Edit,
+            device,
+            loader,
+            None,
+            FlashOptions::new(None)?,
+            backup_dir,
+        )
+    }
+
+    /// A bootloader unlock or relock: like an edit, with its values fixed.
+    pub fn bootloader(
+        device: Option<Device>,
+        loader: &Path,
+        backup_dir: &Path,
+        unlock: bool,
+    ) -> Result<Self, String> {
+        Self::build(
+            Request::Bootloader { unlock },
             device,
             loader,
             None,

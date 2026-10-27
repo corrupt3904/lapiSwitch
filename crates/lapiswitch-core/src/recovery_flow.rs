@@ -682,6 +682,23 @@ fn choose_edits(
             )))
         }
         Request::Dump => Err(crate::msg!("core_dump_changes_nothing")),
+        Request::Bootloader { unlock } => {
+            let value = if unlock { "1" } else { "0" };
+            let edits = deviceinfo::BOOTLOADER_FLAGS
+                .iter()
+                .map(|key| ((*key).to_owned(), value.to_owned()))
+                .collect();
+            let planned = map::apply(layout, before, &edits, false)?;
+            // A device already in the chosen state keeps its DeviceInfo.
+            let note = match (planned == before, unlock) {
+                (true, true) => crate::msg!("core_bootloader_already_unlocked"),
+                (true, false) => crate::msg!("core_bootloader_already_locked"),
+                (false, _) => crate::msg!("core_bootloader_reset_user_data"),
+            };
+            live!(log, "{note}");
+            state.warnings.push(note);
+            Ok(Some((map::edits_between(layout, before, &planned), false)))
+        }
         Request::Edit => {
             ui.status(&crate::msg!("core_edit_read_done"), false);
             let Some(request) = ui.edit_deviceinfo(layout, before)? else {

@@ -57,6 +57,9 @@ pub enum Action {
         device: Option<Device>,
         loader: PathBuf,
         output: PathBuf,
+        /// A bootloader unlock (`true`) or relock with fixed values instead
+        /// of the editor.
+        bootloader: Option<bool>,
     },
     /// DeviceInfo dump into its own folder under `dump_root`, then the
     /// original configuration is restored.
@@ -345,6 +348,7 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 device,
                 loader,
                 output,
+                bootloader,
             } => {
                 let _ = tx.send(Event::Progress(Step::Check));
                 if !loader.is_file() {
@@ -356,8 +360,15 @@ fn run(request: Request, tx: &Sender<Event>) -> Result<Vec<String>, String> {
                 if let Some(device) = device {
                     device.write_layout()?;
                 }
-                let builder = BackupBuilder::create(&output, RunRequest::Edit, device)?;
-                let state = RunState::edit(device, &loader, builder.path())?;
+                let kind = match bootloader {
+                    Some(unlock) => RunRequest::Bootloader { unlock },
+                    None => RunRequest::Edit,
+                };
+                let builder = BackupBuilder::create(&output, kind, device)?;
+                let state = match bootloader {
+                    Some(unlock) => RunState::bootloader(device, &loader, builder.path(), unlock)?,
+                    None => RunState::edit(device, &loader, builder.path())?,
+                };
                 start_new(
                     state,
                     builder,

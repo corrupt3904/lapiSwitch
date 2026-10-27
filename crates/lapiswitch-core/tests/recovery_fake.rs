@@ -193,7 +193,7 @@ fn tb522fu() -> Device {
 fn mode(state: &RunState) -> RollbackMode {
     match state.request {
         Request::Convert { rollback_mode, .. } => rollback_mode,
-        Request::Edit | Request::Dump => panic!("not a conversion"),
+        Request::Edit | Request::Dump | Request::Bootloader { .. } => panic!("not a conversion"),
     }
 }
 struct Info {
@@ -2125,6 +2125,62 @@ fn edit_request(pairs: &[(&str, &str)], firmware_dir: Option<PathBuf>) -> EditRe
         firmware_dir,
         country: None,
         unlocked: false,
+    }
+}
+
+/// Where a DeviceInfo field starts in the TB520FU map.
+fn offset(key: &str) -> usize {
+    tb520fu()
+        .layout()
+        .unwrap()
+        .field(key)
+        .unwrap()
+        .range()
+        .start
+}
+
+#[test]
+fn a_bootloader_unlock_or_relock_sets_both_flags_without_the_editor() {
+    for unlock in [true, false] {
+        let mut s = Setup::edit(Slot::A);
+        s.state.request = Request::Bootloader { unlock };
+        let value = u8::from(unlock);
+        // The flags differ from each other; both end up as chosen.
+        s.info.bytes[offset("is_unlocked")] = 1 - value;
+        s.info.bytes[offset("is_unlock_critical")] = value;
+        let before = s.info.bytes.clone();
+        s.transact().unwrap();
+        assert_eq!(s.edits_shown, 0);
+        assert_eq!(s.info.writes, 1);
+        for key in deviceinfo::BOOTLOADER_FLAGS {
+            assert_eq!(s.info.bytes[offset(key)], value, "{unlock} {key}");
+        }
+        for (n, (a, b)) in before.iter().zip(&s.info.bytes).enumerate() {
+            if a != b {
+                assert_eq!(n, offset("is_unlocked"), "{n:#x}");
+            }
+        }
+        assert!(s.state.firmware.is_none());
+        assert_eq!(s.state.warnings.len(), 1);
+        assert_eq!(saved_state(&s).request, Request::Bootloader { unlock });
+    }
+}
+
+#[test]
+fn a_bootloader_already_in_the_chosen_state_is_not_written() {
+    for unlock in [true, false] {
+        let mut s = Setup::edit(Slot::B);
+        s.state.request = Request::Bootloader { unlock };
+        for key in deviceinfo::BOOTLOADER_FLAGS {
+            s.info.bytes[offset(key)] = u8::from(unlock);
+        }
+        let before = s.info.bytes.clone();
+        s.transact().unwrap();
+        assert_eq!(s.edits_shown, 0);
+        assert_eq!(s.info.writes, 0);
+        assert!(!s.info.prepared);
+        assert_eq!(s.info.bytes, before);
+        assert_eq!(s.state.warnings.len(), 1);
     }
 }
 

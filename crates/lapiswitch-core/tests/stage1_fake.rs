@@ -338,6 +338,8 @@ fn each_kind_of_run_backs_up_into_its_own_folder() {
         ),
         (Request::Edit, "DeviceInfo_Write"),
         (Request::Dump, "DeviceInfo_Dump"),
+        (Request::Bootloader { unlock: true }, "Bootloader_Unlock"),
+        (Request::Bootloader { unlock: false }, "Bootloader_Relock"),
     ] {
         let builder = BackupBuilder::create(out.path(), request, Some(tb520fu())).unwrap();
         assert_eq!(

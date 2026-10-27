@@ -164,6 +164,7 @@ fn nav_section(app: &App) -> usize {
         Page::Dashboard | Page::Resume => 0,
         Page::Firmware | Page::Confirm => 1,
         Page::Edit => 2,
+        Page::Bootloader => 7,
         Page::Recovery => 3,
         Page::Settings => 4,
         Page::Dump => 5,
@@ -171,6 +172,7 @@ fn nav_section(app: &App) -> usize {
         Page::Progress | Page::Result => match app.run_kind {
             RunKind::Convert => 1,
             RunKind::Edit => 2,
+            RunKind::Bootloader => 7,
             RunKind::Dump => 5,
             RunKind::Restore => 3,
             RunKind::Resume => 0,
@@ -285,6 +287,14 @@ fn navigation(app: &App) -> Element<'_, Message> {
             glyph::FLASH,
             app.tr("view_firmware_flashing"),
             Message::Convert,
+            idle && writable,
+            false
+        ),
+        item(
+            7,
+            glyph::LOCK,
+            app.tr("view_bootloader_unlock_relock"),
+            Message::Bootloader,
             idle && writable,
             false
         ),
@@ -609,10 +619,15 @@ fn stepper(app: &App) -> Element<'_, Message> {
 /// titles line up with the flashing pages below the step breadcrumb.
 fn deviceinfo_task(app: &App) -> bool {
     match app.page {
-        Page::Edit | Page::Dump | Page::Parse | Page::ParseView | Page::Recovery => true,
+        Page::Edit
+        | Page::Bootloader
+        | Page::Dump
+        | Page::Parse
+        | Page::ParseView
+        | Page::Recovery => true,
         Page::Progress | Page::Result => matches!(
             app.run_kind,
-            RunKind::Edit | RunKind::Dump | RunKind::Restore
+            RunKind::Edit | RunKind::Bootloader | RunKind::Dump | RunKind::Restore
         ),
         _ => false,
     }
@@ -676,6 +691,7 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
     let (content, footer) = match app.page {
         Page::Dashboard => dashboard_view::dashboard(app),
         Page::Edit => edit(app),
+        Page::Bootloader => bootloader(app),
         Page::Dump => dump(app),
         Page::Parse => parse_page(app),
         Page::ParseView => parse_result_page(app),
@@ -1024,6 +1040,13 @@ fn transition_text(app: &App) -> &'static str {
     if app.run_kind == RunKind::Dump {
         return app.tr("view_reboot_to_twrp_deviceinfo_is_read");
     }
+    if app.run_kind == RunKind::Bootloader {
+        return match app.recovery_transition {
+            Some(Transition::Twrp) => app.tr("view_reboot_to_twrp_bootloader_flags"),
+            Some(Transition::Edl) => app.tr("view_bootloader_flags_verified_enter_edl"),
+            None => app.tr("view_restore_the_original_configuration_after_bootloader"),
+        };
+    }
     let edit = app.run_kind == RunKind::Edit;
     match (app.recovery_transition, edit) {
         (Some(Transition::Twrp), false) => app.tr("view_reboot_to_twrp_to_back_up"),
@@ -1043,6 +1066,8 @@ pub(super) fn request_label(app: &App, state: &lapiswitch_core::state::RunState)
             format!("{} · {}", app.tr("view_firmware_flashing"), target.token())
         }
         Request::Dump => app.tr("view_deviceinfo_dump").into(),
+        Request::Bootloader { unlock: true } => app.tr("view_bootloader_unlock_task").into(),
+        Request::Bootloader { unlock: false } => app.tr("view_bootloader_relock_task").into(),
         Request::Edit => match &state.firmware {
             Some(binding) => format!(
                 "{} · {}",
@@ -1298,6 +1323,18 @@ fn progress(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "view_editing_deviceinfo",
             "view_keep_usb_connected_each_step_advances",
         )
+    } else if app.run_kind == RunKind::Bootloader && app.bootloader == Some(true) {
+        title(
+            app,
+            "view_unlocking_bootloader",
+            "view_keep_usb_connected_each_step_advances",
+        )
+    } else if app.run_kind == RunKind::Bootloader {
+        title(
+            app,
+            "view_relocking_bootloader",
+            "view_keep_usb_connected_each_step_advances",
+        )
     } else if app.run_kind == RunKind::Dump {
         title(
             app,
@@ -1378,6 +1415,10 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         match app.run_kind {
             RunKind::Restore => app.tr("view_original_backup_restored"),
             RunKind::Edit => app.tr("view_deviceinfo_edit_completed"),
+            RunKind::Bootloader if app.bootloader == Some(true) => {
+                app.tr("view_bootloader_unlock_completed")
+            }
+            RunKind::Bootloader => app.tr("view_bootloader_relock_completed"),
             RunKind::Dump => app.tr("view_deviceinfo_dump_complete"),
             _ => app.tr("view_firmware_flashing_completed"),
         }
@@ -1407,6 +1448,7 @@ fn result(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                     RunKind::Edit => {
                         app.tr("view_deviceinfo_changes_and_the_original_configuration")
                     }
+                    RunKind::Bootloader => app.tr("view_bootloader_and_the_original_configuration"),
                     RunKind::Dump => app.tr("view_deviceinfo_was_saved_and_the_original"),
                     _ => app.tr("view_firmware_writes_and_final_steps_are"),
                 },
@@ -1745,6 +1787,81 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                     app.can_start(),
                 )
                 .into(),
+            ],
+        ),
+    )
+}
+/// Bootloader unlock/relock setup: EDL loader, unlock or relock, the risks
+/// and consent.
+fn bootloader(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
+    let choice = |unlock: bool, name: &'static str, description: &'static str| {
+        let selected = app.bootloader == Some(unlock);
+        button(
+            row![
+                icon(if unlock { glyph::UNLOCK } else { glyph::LOCK })
+                    .size(20)
+                    .color(if selected { accent() } else { muted() }),
+                column![label(name).size(15), small(description)].spacing(4),
+            ]
+            .spacing(14)
+            .align_y(Alignment::Center),
+        )
+        .padding(16)
+        .width(Fill)
+        .on_press_maybe((!app.busy()).then_some(Message::BootloaderChoice(unlock)))
+        .style(move |theme, status| {
+            let mut style = button::secondary(theme, status);
+            style.background = Some(if selected { pale() } else { card_color() }.into());
+            style.text_color = ink();
+            style.border = Border {
+                color: if selected { accent() } else { line() },
+                width: if selected { 2.0 } else { 1.0 },
+                radius: fluent::CARD_RADIUS.into(),
+            };
+            style
+        })
+    };
+    let content = column![
+        title(
+            app,
+            "view_bootloader_unlock_relock",
+            "view_bootloader_unlock_relock_description"
+        ),
+        group(vec![loader_row(app)]),
+        row![
+            choice(
+                true,
+                app.tr("view_bootloader_unlock"),
+                app.tr("view_bootloader_unlock_sets_both_flags")
+            ),
+            choice(
+                false,
+                app.tr("view_bootloader_relock"),
+                app.tr("view_bootloader_relock_clears_both_flags")
+            ),
+        ]
+        .spacing(12),
+        note(app.tr("view_bootloader_what_the_task_does"), false),
+        warning_note(app.tr("view_bootloader_risks")),
+        checkbox(app.agreed)
+            .label(app.tr("view_bootloader_agree"))
+            .on_toggle(Message::Agree),
+    ]
+    .spacing(16);
+    let start = match app.bootloader {
+        Some(true) => app.tr("view_start_bootloader_unlock"),
+        Some(false) => app.tr("view_start_bootloader_relock"),
+        None => app.tr("view_start_bootloader_task"),
+    };
+    (
+        content.into(),
+        start_footer(
+            app,
+            [
+                action(app.tr("editor_back"), Message::Back, !app.busy())
+                    .style(soft_style)
+                    .into(),
+                action(start, Message::Start, app.can_start()).into(),
             ],
         ),
     )

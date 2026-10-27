@@ -237,6 +237,8 @@ pub fn folder(request: Request) -> &'static str {
         Request::Convert { .. } => "firmware_flashing",
         Request::Edit => "DeviceInfo_Write",
         Request::Dump => "DeviceInfo_Dump",
+        Request::Bootloader { unlock: true } => "Bootloader_Unlock",
+        Request::Bootloader { unlock: false } => "Bootloader_Relock",
     }
 }
 

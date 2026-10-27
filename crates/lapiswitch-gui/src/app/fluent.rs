@@ -154,6 +154,8 @@ pub(crate) mod glyph {
     pub const COMPLETED: char = '\u{E930}';
     pub const CLOSE: char = '\u{E711}';
     pub const SEARCH: char = '\u{E721}';
+    pub const LOCK: char = '\u{E72E}';
+    pub const UNLOCK: char = '\u{E785}';
 }
 
 pub(crate) fn icon<'a>(glyph: char) -> text::Text<'a> {

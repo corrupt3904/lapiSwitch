@@ -26,6 +26,8 @@ enum Page {
     Dashboard,
     /// DeviceInfo edit setup: EDL loader and consent.
     Edit,
+    /// Bootloader unlock/relock setup: EDL loader, the choice and consent.
+    Bootloader,
     /// DeviceInfo dump setup: EDL loader, save location and consent.
     Dump,
     /// DeviceInfo parsing setup: the file and its device's field map.
@@ -52,6 +54,7 @@ enum Activity {
 enum RunKind {
     Convert,
     Edit,
+    Bootloader,
     Dump,
     Resume,
     Restore,
@@ -75,6 +78,9 @@ enum Message {
     Home,
     Convert,
     Edit,
+    Bootloader,
+    /// Unlock (`true`) or relock chosen on the bootloader page.
+    BootloaderChoice(bool),
     Dump,
     Parse,
     /// Show the parsed fields.
@@ -169,6 +175,8 @@ struct App {
     country_search: String,
     country_draft: Option<String>,
     agreed: bool,
+    /// Unlock (`true`) or relock chosen on the bootloader page.
+    bootloader: Option<bool>,
     output: PathBuf,
     state_path: PathBuf,
     preferences_path: PathBuf,
@@ -267,6 +275,7 @@ impl App {
             country_search: String::new(),
             country_draft: None,
             agreed: false,
+            bootloader: None,
             output: preferences.storage_root(&data),
             state_path,
             preferences_path,
@@ -413,7 +422,7 @@ impl App {
             Page::Firmware | Page::Confirm | Page::Resume => true,
             Page::Progress | Page::Result => !matches!(
                 self.run_kind,
-                RunKind::Restore | RunKind::Edit | RunKind::Dump
+                RunKind::Restore | RunKind::Edit | RunKind::Bootloader | RunKind::Dump
             ),
             _ => false,
         }
@@ -480,6 +489,16 @@ impl App {
                 (None, self.tr("app_choose_where_to_save_the_dump"))
             } else if !self.agreed {
                 (None, self.tr("app_read_the_deviceinfo_dump_notice_and"))
+            } else {
+                return None;
+            }
+        } else if self.page == Page::Bootloader {
+            if self.loader.is_none() {
+                (None, self.tr("app_select_the_edl_loader_file"))
+            } else if self.bootloader.is_none() {
+                (None, self.tr("app_choose_unlock_or_relock"))
+            } else if !self.agreed {
+                (None, self.tr("app_read_the_bootloader_notice_and"))
             } else {
                 return None;
             }
@@ -939,6 +958,13 @@ impl App {
                 self.agreed = false;
                 self.error = None;
             }
+            Message::Bootloader if !self.device.unsupported_model() && !self.device.dump_only() => {
+                self.page = Page::Bootloader;
+                self.bootloader = None;
+                self.agreed = false;
+                self.error = None;
+            }
+            Message::BootloaderChoice(unlock) if !self.busy() => self.bootloader = Some(unlock),
             Message::Dump if !self.device.unsupported_model() => {
                 self.page = Page::Dump;
                 self.agreed = false;
@@ -1699,6 +1725,14 @@ impl App {
                 self.page = Page::Edit;
                 self.loader = Some("Demo/loader.melf".into());
                 self.agreed = true;
+            }
+            "bootloader" | "bootloader-relock" | "bootloader-empty" => {
+                self.page = Page::Bootloader;
+                self.loader = Some("Demo/loader.melf".into());
+                if screen != "bootloader-empty" {
+                    self.bootloader = Some(screen == "bootloader");
+                    self.agreed = true;
+                }
             }
             "dump" | "dump-only" => {
                 self.page = Page::Dump;
@@ -2709,7 +2743,7 @@ mod tests {
         app.seed_preview("dump-only");
         assert!(app.device.dump_only());
         let _ = app.update(Message::Home);
-        for message in [Message::Convert, Message::Edit] {
+        for message in [Message::Convert, Message::Edit, Message::Bootloader] {
             let _ = app.update(message);
             assert_eq!(app.page, Page::Dashboard);
         }
@@ -2735,6 +2769,34 @@ mod tests {
         let _ = app.update(Message::Home);
         let _ = app.update(Message::Edit);
         assert_eq!(app.page, Page::Edit);
+    }
+    #[test]
+    fn the_bootloader_task_needs_a_loader_a_choice_and_the_agreement() {
+        let mut app = App::base(true);
+        app.seed_preview("bootloader");
+        let _ = app.update(Message::Home);
+        let _ = app.update(Message::Bootloader);
+        assert_eq!(app.page, Page::Bootloader);
+        // Every visit starts without a choice or an agreement.
+        assert_eq!(app.bootloader, None);
+        assert!(!app.agreed);
+        app.loader = None;
+        assert!(app.start_blocker().unwrap().contains("EDL"));
+        app.demo_pick(Picker::Loader);
+        assert!(app.start_blocker().unwrap().contains("리락"));
+        let _ = app.update(Message::BootloaderChoice(false));
+        assert!(app.start_blocker().unwrap().contains("동의"));
+        let _ = app.update(Message::Agree(true));
+        assert!(app.can_start(), "{:?}", app.start_blocker());
+        drop(app.view());
+        let _ = app.update(Message::Start);
+        assert_eq!(app.page, Page::Progress);
+        assert_eq!(app.run_kind, RunKind::Bootloader);
+        assert_eq!(app.bootloader, Some(false));
+        drop(app.view());
+        app.event(Event::Finished(Ok(vec![])));
+        assert_eq!(app.page, Page::Result);
+        drop(app.view());
     }
     #[test]
     fn the_restore_starts_only_from_twrp_or_edl_with_its_choices() {

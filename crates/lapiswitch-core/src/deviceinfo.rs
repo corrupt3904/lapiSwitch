@@ -6,6 +6,8 @@ use crate::region::Region;
 use serde::{Deserialize, Serialize};
 
 pub const SHARED_SIZE: usize = 0x1000;
+/// The two flags a bootloader unlock sets to 1 and a relock to 0.
+pub const BOOTLOADER_FLAGS: [&str; 2] = ["is_unlocked", "is_unlock_critical"];
 
 /// Load the TA from the device's confirmed active slot. Firmware-specific
 /// hashes/signatures do not determine DeviceInfo compatibility.
