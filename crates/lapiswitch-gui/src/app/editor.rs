@@ -876,7 +876,7 @@ pub(super) fn unlock_modal<'a>(
             .spacing(20),
         )
         .style(super::fluent::warning_dialog_style)
-        .max_width(660),
+        .max_width(820),
     )
 }
 
