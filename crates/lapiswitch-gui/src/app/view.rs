@@ -716,20 +716,13 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             .height(Fill),
         )
         .push(container(footer).max_width(1000).padding(pad(0, 18, 0, 0)));
-    // The connection state stays in the top right corner on every page.
-    let connection = container(dashboard_view::badge(app))
-        .align_right(Fill)
-        .padding(pad(4, 24, 0, 0));
     let root: Element<'_, Message> = container(
         row![
             navigation(app),
-            stack![
-                container(body)
-                    .padding(pad(28, 24, 20, 12))
-                    .width(Fill)
-                    .height(Fill),
-                connection,
-            ]
+            container(body)
+                .padding(pad(28, 24, 20, 12))
+                .width(Fill)
+                .height(Fill)
         ]
         .height(Fill),
     )

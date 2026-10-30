@@ -105,31 +105,23 @@ pub(super) fn device_name(app: &App) -> &str {
 /// card of Windows Settings.
 pub(super) fn device_card(app: &App) -> Element<'_, Message> {
     let d = &app.device.snapshot;
-    row![
-        portrait(app, 56.0, 42.0),
-        column![
-            label(device_name(app)).size(14),
-            small(if d.model.is_empty() {
-                status(app)
-            } else if app.device.dump_only() {
-                format!(
-                    "{} · {} · {}",
-                    d.model,
-                    status(app),
-                    app.tr("dashboard_dump_only")
-                )
-            } else {
-                format!("{} · {}", d.model, status(app))
-            })
-            .size(12)
-        ]
-        .spacing(2)
-        .width(Fill)
-    ]
-    .spacing(12)
-    .align_y(Alignment::Center)
-    .padding([0, 6])
-    .into()
+    let mut info = column![label(device_name(app)).size(14)]
+        .spacing(4)
+        .width(Fill);
+    if app.device.dump_only() {
+        info =
+            info.push(small(format!("{} · {}", d.model, app.tr("dashboard_dump_only"))).size(12));
+    } else if !d.model.is_empty() {
+        info = info.push(small(d.model.clone()).size(12));
+    }
+    // The connection state, always shown, in the dashboard's badge.
+    // A fixed height keeps the navigation still with or without a model.
+    row![portrait(app, 56.0, 42.0), info.push(badge(app))]
+        .spacing(12)
+        .align_y(Alignment::Center)
+        .padding([0, 6])
+        .height(68)
+        .into()
 }
 pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
     let s = &app.device.snapshot;
