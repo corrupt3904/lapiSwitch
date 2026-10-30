@@ -1784,14 +1784,11 @@ fn dump(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             model_row(app),
             group_row(
                 app.tr("view_user_data"),
-                label(app.tr("view_keep")).size(18).into(),
+                label(app.tr("view_keep")).size(14).into(),
                 None,
             ),
             backup_row(app, Request::Dump),
         ]),
-        checkbox(app.agreed)
-            .label(app.tr("view_i_have_read_the_instructions_and"))
-            .on_toggle(Message::Agree),
     ]
     .spacing(16);
     (
@@ -1819,9 +1816,9 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             model_row(app),
             group_row(
                 app.tr("view_user_data"),
-                label(app.tr("view_may_be_erased"))
+                label(app.tr("view_depends_on_the_changed_fields"))
                     .size(18)
-                    .color(danger())
+                    .color(fluent::p().warning)
                     .into(),
                 None,
             ),

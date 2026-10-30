@@ -514,8 +514,6 @@ impl App {
                 (None, self.tr("app_select_the_edl_loader_file"))
             } else if self.preferences.dump_root.is_none() {
                 (None, self.tr("app_choose_where_to_save_the_dump"))
-            } else if !self.agreed {
-                (None, self.tr("app_read_the_deviceinfo_dump_notice_and"))
             } else {
                 return None;
             }
@@ -2883,8 +2881,8 @@ mod tests {
         app.demo_pick(Picker::Loader);
         assert!(app.start_blocker().unwrap().contains("저장 위치"));
         app.demo_pick(Picker::DumpRoot);
-        assert!(app.start_blocker().unwrap().contains("동의"));
-        app.agreed = true;
+        // A dump only reads, so it needs no agreement.
+        app.agreed = false;
         assert!(app.can_start(), "{:?}", app.start_blocker());
         // The flashing check refuses it too, with a problem InfoBar.
         app.page = Page::Edit;
