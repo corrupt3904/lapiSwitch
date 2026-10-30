@@ -17,7 +17,7 @@
 
 lapiSwitch is an unofficial Windows tool developed for researching and experimenting with **PRC (China) ↔ ROW (global)** region conversion on the **Lenovo TB520FU**, also known as Yoga Tab Plus.
 
-lapiSwitch is an **independent tool based on [LTBox](https://github.com/miner7222/LTBox) by [@miner7222](https://github.com/miner7222)**. It uses the **[TB520FU TWRP build](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014) published by [@wnduddld0513](https://github.com/wnduddld0513)**.
+lapiSwitch is an **independent tool based on [LTBox](https://github.com/miner7222/LTBox) by [@miner7222](https://github.com/miner7222)**.
 
 It backs up, updates and verifies DeviceInfo in TWRP, restores the original GPT and Recovery, and installs official firmware for the selected region.
 
@@ -113,9 +113,9 @@ Supported-device data (model names, firmware checks, accepted installed firmware
 
 ## Credits
 
-- **[LTBox](https://github.com/miner7222/LTBox) — [@miner7222](https://github.com/miner7222):** the foundation for device communication, EDL flashing, driver and firmware handling, and selected GUI assets. Its vendored `ltbox-core` and `ltbox-device` sources are retained unmodified. AVB parsing uses [avbtool-rs](https://github.com/miner7222/avbtool-rs).
-- **[TeamWin / TWRP](https://twrp.me/), TWRP-Test and lapis contributors:** the [TB520FU recovery build](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014) is published by [@wnduddld0513](https://github.com/wnduddld0513) under [lenovo-sm8650](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp). The [TB522FU recovery build](https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16) is published by lanweikayu.
-- **Other components:** [qdlrs](https://github.com/qualcomm/qdlrs), [flag-icons](https://github.com/lipis/flag-icons), [Noto Sans KR](https://github.com/notofonts/noto-cjk), [iced](https://github.com/iced-rs/iced) and the Rust dependencies recorded in [`Cargo.lock`](Cargo.lock).
+- **[LTBox](https://github.com/miner7222/LTBox) · [avbtool-rs](https://github.com/miner7222/avbtool-rs)** — [@miner7222](https://github.com/miner7222)
+- **[TWRP](https://twrp.me/)** — TeamWin · [TB520FU build](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014) by [@wnduddld0513](https://github.com/wnduddld0513) · [TB522FU build](https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16) by lanweikayu
+- **Others** — [qdlrs](https://github.com/qualcomm/qdlrs), [flag-icons](https://github.com/lipis/flag-icons), [Noto Sans KR](https://github.com/notofonts/noto-cjk), [iced](https://github.com/iced-rs/iced), [Rust dependencies](Cargo.lock)
 
 ## License
 

@@ -17,7 +17,7 @@
 
 lapiSwitch는 **Lenovo TB520FU**(코드네임 `lapis`, Yoga Tab Plus)의 **PRC(중국 내수) ↔ ROW(글로벌)** 리전 변환을 연구·실험하기 위해 개발한 비공식 Windows 도구입니다.
 
-lapiSwitch는 **[@miner7222](https://github.com/miner7222)님의 [LTBox](https://github.com/miner7222/LTBox)를 기반으로 만든 독립 도구**이며, **[@wnduddld0513](https://github.com/wnduddld0513)님이 배포한 [TB520FU용 TWRP](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014)**를 사용합니다.
+lapiSwitch는 **[@miner7222](https://github.com/miner7222)님의 [LTBox](https://github.com/miner7222/LTBox)를 기반으로 만든 독립 도구**입니다.
 
 TWRP에서 DeviceInfo를 백업·변경·검증한 뒤 원본 GPT·Recovery를 복원하고 선택한 리전의 공식 펌웨어를 설치합니다.
 
@@ -113,9 +113,9 @@ Android helper와 해당 검증 범위는 [`tools/deviceinfo/README.md`](tools/d
 
 ## 크레딧
 
-- **[LTBox](https://github.com/miner7222/LTBox) — [@miner7222](https://github.com/miner7222):** 기기 통신, EDL 플래시, 드라이버·펌웨어 처리와 일부 GUI 자산의 기반입니다. 포함된 `ltbox-core`·`ltbox-device` 소스는 수정 없이 유지합니다. AVB 분석에는 [avbtool-rs](https://github.com/miner7222/avbtool-rs)를 사용합니다.
-- **[TeamWin / TWRP](https://twrp.me/), TWRP-Test 및 lapis 기여자:** [TB520FU용 Recovery 빌드](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014)는 [@wnduddld0513](https://github.com/wnduddld0513)님이 [lenovo-sm8650](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp)에 배포한 릴리즈를 사용합니다. [TB522FU용 Recovery 빌드](https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16)는 lanweikayu님이 배포한 릴리즈를 사용합니다.
-- **기타 구성요소:** [qdlrs](https://github.com/qualcomm/qdlrs), [flag-icons](https://github.com/lipis/flag-icons), [Noto Sans KR](https://github.com/notofonts/noto-cjk), [iced](https://github.com/iced-rs/iced), [`Cargo.lock`](Cargo.lock)에 기록된 Rust 의존성.
+- **[LTBox](https://github.com/miner7222/LTBox) · [avbtool-rs](https://github.com/miner7222/avbtool-rs)** — [@miner7222](https://github.com/miner7222)
+- **[TWRP](https://twrp.me/)** — TeamWin · [TB520FU 빌드](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014) [@wnduddld0513](https://github.com/wnduddld0513) · [TB522FU 빌드](https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16) lanweikayu
+- **기타** — [qdlrs](https://github.com/qualcomm/qdlrs), [flag-icons](https://github.com/lipis/flag-icons), [Noto Sans KR](https://github.com/notofonts/noto-cjk), [iced](https://github.com/iced-rs/iced), [Rust 의존성](Cargo.lock)
 
 ## 라이선스
 
