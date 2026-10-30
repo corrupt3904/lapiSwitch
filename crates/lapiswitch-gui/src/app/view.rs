@@ -1169,6 +1169,7 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
         .spacing(4),
         warning_note(app.tr("view_firmware_flashing_always_erases_user_data")),
         group(vec![
+            model_row(app),
             group_row(
                 app.tr("view_target_region"),
                 row![
@@ -1615,9 +1616,6 @@ fn recent_deviceinfo(app: &App) -> Option<Element<'_, Message>> {
     for path in recent {
         let exists = path.is_file();
         let mut line = row![
-            icon(glyph::DOCUMENT)
-                .size(14)
-                .color(if exists { muted() } else { line() }),
             container(
                 label(short_path(path, width))
                     .size(13)
@@ -1654,17 +1652,9 @@ fn recent_deviceinfo(app: &App) -> Option<Element<'_, Message>> {
         );
     }
     Some(
-        column![
-            row![
-                icon(glyph::HISTORY).size(12).color(muted()),
-                small(app.tr("view_recent_files")),
-            ]
-            .spacing(6)
-            .align_y(Alignment::Center),
-            group(rows),
-        ]
-        .spacing(8)
-        .into(),
+        column![small(app.tr("view_recent_files")), group(rows),]
+            .spacing(8)
+            .into(),
     )
 }
 /// DeviceInfo parsing: a saved file shown field by field with the map of
@@ -1790,8 +1780,15 @@ fn dump(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 Picker::DumpRoot,
             ),
         ]),
-        small(app.tr("view_a_deviceinfo_dump_model_unix_time")),
-        note(app.tr("view_back_up_originals_boot_twrp_read"), false,),
+        group(vec![
+            model_row(app),
+            group_row(
+                app.tr("view_user_data"),
+                label(app.tr("view_keep")).size(18).into(),
+                None,
+            ),
+            backup_row(app, Request::Dump),
+        ]),
         checkbox(app.agreed)
             .label(app.tr("view_i_have_read_the_instructions_and"))
             .on_toggle(Message::Agree),
@@ -1818,6 +1815,18 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             "view_read_the_device_s_deviceinfo_in"
         ),
         group(vec![loader_row(app)]),
+        group(vec![
+            model_row(app),
+            group_row(
+                app.tr("view_user_data"),
+                label(app.tr("view_may_be_erased"))
+                    .size(18)
+                    .color(danger())
+                    .into(),
+                None,
+            ),
+            backup_row(app, Request::Edit),
+        ]),
         notice_agreement(app),
     ]
     .spacing(16);
@@ -1913,7 +1922,6 @@ fn notice_agreement(app: &App) -> Element<'_, Message> {
 }
 /// What the chosen unlock or relock changes on the connected device.
 fn bootloader_summary(app: &App, unlock: bool) -> Element<'_, Message> {
-    let d = &app.device.snapshot;
     let flag = |name: &'static str| {
         group_row(
             name,
@@ -1925,17 +1933,7 @@ fn bootloader_summary(app: &App, unlock: bool) -> Element<'_, Message> {
         )
     };
     group(vec![
-        group_row(
-            app.tr("dashboard_device"),
-            row![
-                label(dashboard_view::device_name(app)).size(14),
-                small(d.model.clone())
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center)
-            .into(),
-            None,
-        ),
+        model_row(app),
         group_row(
             app.tr("view_user_data"),
             label(app.tr("view_erased")).size(18).color(danger()).into(),
@@ -1943,23 +1941,41 @@ fn bootloader_summary(app: &App, unlock: bool) -> Element<'_, Message> {
         ),
         flag(app.tr("view_bootloader_unlock_flag")),
         flag(app.tr("view_critical_unlock_flag")),
-        group_row(
-            app.tr("view_backup_location"),
-            label(short_path(
-                &app.output
-                    .join("backup")
-                    .join(lapiswitch_core::backup::folder(Request::Bootloader {
-                        unlock,
-                    })),
-                value_width(app, 150.0),
-            ))
-            .size(14)
-            .color(muted())
-            .wrapping(iced::widget::text::Wrapping::None)
-            .into(),
-            Some(small(app.tr("view_change_in_settings")).into()),
-        ),
+        backup_row(app, Request::Bootloader { unlock }),
     ])
+}
+/// The connected device's model, with its name beside it; a dash while it
+/// is unknown, as in EDL.
+fn model_row(app: &App) -> Element<'_, Message> {
+    let d = &app.device.snapshot;
+    group_row(
+        app.tr("view_model"),
+        row![
+            label(if d.model.is_empty() { "—" } else { &d.model }).size(14),
+            small(d.name.clone())
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+        .into(),
+        None,
+    )
+}
+/// Where the task's backup goes under the output folder.
+fn backup_row(app: &App, request: Request) -> Element<'_, Message> {
+    group_row(
+        app.tr("view_backup_location"),
+        label(short_path(
+            &app.output
+                .join("backup")
+                .join(lapiswitch_core::backup::folder(request)),
+            value_width(app, 150.0),
+        ))
+        .size(14)
+        .color(muted())
+        .wrapping(iced::widget::text::Wrapping::None)
+        .into(),
+        Some(small(app.tr("view_change_in_settings")).into()),
+    )
 }
 /// Bootloader unlock/relock setup: EDL loader and unlock or relock; once
 /// one is chosen and a device is connected, what it changes.
