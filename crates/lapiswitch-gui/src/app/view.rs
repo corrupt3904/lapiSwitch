@@ -299,14 +299,6 @@ fn navigation(app: &App) -> Element<'_, Message> {
             false
         ),
         item(
-            2,
-            glyph::EDIT,
-            app.tr("view_edit_deviceinfo"),
-            Message::Edit,
-            idle && writable,
-            false
-        ),
-        item(
             5,
             glyph::SAVE,
             app.tr("view_dump_deviceinfo"),
@@ -321,6 +313,14 @@ fn navigation(app: &App) -> Element<'_, Message> {
             app.tr("view_parse_deviceinfo"),
             Message::Parse,
             idle,
+            false
+        ),
+        item(
+            2,
+            glyph::EDIT,
+            app.tr("view_edit_deviceinfo"),
+            Message::Edit,
+            idle && writable,
             false
         ),
         space().height(Fill),
@@ -716,13 +716,20 @@ pub(super) fn view(app: &App) -> Element<'_, Message> {
             .height(Fill),
         )
         .push(container(footer).max_width(1000).padding(pad(0, 18, 0, 0)));
+    // The connection state stays in the top right corner on every page.
+    let connection = container(dashboard_view::badge(app))
+        .align_right(Fill)
+        .padding(pad(4, 24, 0, 0));
     let root: Element<'_, Message> = container(
         row![
             navigation(app),
-            container(body)
-                .padding(pad(28, 24, 20, 12))
-                .width(Fill)
-                .height(Fill)
+            stack![
+                container(body)
+                    .padding(pad(28, 24, 20, 12))
+                    .width(Fill)
+                    .height(Fill),
+                connection,
+            ]
         ]
         .height(Fill),
     )

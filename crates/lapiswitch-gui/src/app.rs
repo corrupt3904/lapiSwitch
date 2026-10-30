@@ -1613,6 +1613,24 @@ impl App {
                 self.device.snapshot.firmware =
                     "twrp_lapis-eng 99.87.36 BP2A.250605.031.A2 1791987058 test-keys".into();
             }
+            // EDL reports no model or name, only the connection.
+            "dashboard-edl" => {
+                self.page = Page::Dashboard;
+                self.device.snapshot = crate::device::Snapshot {
+                    mode: crate::device::Mode::Edl,
+                    ..Default::default()
+                };
+            }
+            "bootloader-edl" => {
+                self.page = Page::Bootloader;
+                self.loader = Some("Demo/loader.melf".into());
+                self.agreed = true;
+                self.bootloader = Some(true);
+                self.device.snapshot = crate::device::Snapshot {
+                    mode: crate::device::Mode::Edl,
+                    ..Default::default()
+                };
+            }
             "dashboard-dump-only" | "dashboard-unsupported" => {
                 self.page = Page::Dashboard;
                 let (model, name) = if screen == "dashboard-dump-only" {
