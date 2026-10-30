@@ -163,7 +163,6 @@
   "dashboard_in_edl_model_and_slot_are": "在 EDL 下，型号和槽位会在操作开始时确认。",
   "dashboard_installing_drivers_check_the_permission_prompt": "正在安装驱动… 请查看权限请求窗口。",
   "dashboard_log": "日志",
-  "dashboard_no_device": "未连接设备",
   "dashboard_no_device_connected": "未连接设备",
   "dashboard_no_device_is_connected_connect_a": "未连接设备。请先连接设备再开始。",
   "dashboard_not_supported": "不支持的设备",

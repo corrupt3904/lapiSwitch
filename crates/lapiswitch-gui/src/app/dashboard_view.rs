@@ -94,11 +94,9 @@ pub(super) fn device_name(app: &App) -> &str {
         &d.name
     } else if !d.model.is_empty() {
         &d.model
-    } else if d.mode != Mode::None {
-        // Connected, as in EDL, without a known model.
-        "—"
     } else {
-        app.tr("dashboard_no_device")
+        // Disconnected, or connected without a known model as in EDL.
+        "—"
     }
 }
 /// The connected device at the top of the navigation, like the account

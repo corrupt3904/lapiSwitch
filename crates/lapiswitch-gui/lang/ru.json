@@ -163,7 +163,6 @@
   "dashboard_in_edl_model_and_slot_are": "В EDL модель и слот проверяются при запуске операции.",
   "dashboard_installing_drivers_check_the_permission_prompt": "Установка драйверов… Подтвердите запрос разрешения.",
   "dashboard_log": "Журнал",
-  "dashboard_no_device": "Нет устройства",
   "dashboard_no_device_connected": "Устройство не подключено",
   "dashboard_no_device_is_connected_connect_a": "Устройство не подключено. Подключите устройство перед началом.",
   "dashboard_not_supported": "Не поддерживается",

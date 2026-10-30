@@ -163,7 +163,6 @@
   "dashboard_in_edl_model_and_slot_are": "EDL では作業開始時にモデルとスロットを確認します。",
   "dashboard_installing_drivers_check_the_permission_prompt": "ドライバーをインストール中… 権限の確認画面をご確認ください。",
   "dashboard_log": "ログ",
-  "dashboard_no_device": "デバイスなし",
   "dashboard_no_device_connected": "デバイス未接続",
   "dashboard_no_device_is_connected_connect_a": "デバイスが接続されていません。デバイスを接続してから開始してください。",
   "dashboard_not_supported": "非対応のデバイス",

@@ -163,7 +163,6 @@
   "dashboard_in_edl_model_and_slot_are": "In EDL, model and slot are verified when the operation starts.",
   "dashboard_installing_drivers_check_the_permission_prompt": "Installing drivers… Check the permission prompt.",
   "dashboard_log": "Log",
-  "dashboard_no_device": "No device",
   "dashboard_no_device_connected": "No device connected",
   "dashboard_no_device_is_connected_connect_a": "No device is connected. Connect a device before starting.",
   "dashboard_not_supported": "Not supported",

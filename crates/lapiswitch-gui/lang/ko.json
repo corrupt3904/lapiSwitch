@@ -163,7 +163,6 @@
   "dashboard_in_edl_model_and_slot_are": "EDL에서는 작업 준비 단계에서 모델과 슬롯을 확인합니다.",
   "dashboard_installing_drivers_check_the_permission_prompt": "드라이버 설치 중… 권한 요청 창을 확인해 주세요.",
   "dashboard_log": "로그",
-  "dashboard_no_device": "연결된 기기 없음",
   "dashboard_no_device_connected": "기기 연결 안 됨",
   "dashboard_no_device_is_connected_connect_a": "기기가 연결되어 있지 않습니다. 기기를 연결해야 작업을 시작할 수 있습니다.",
   "dashboard_not_supported": "지원하지 않는 기기",
