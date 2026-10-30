@@ -1033,7 +1033,7 @@ fn firmware(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             .push(group(vec![
                 group_row(
                     app.tr("view_region_vendor_boot_dtb"),
-                    label(report.region.token()).size(18).color(accent()).into(),
+                    label(report.region.token()).size(14).color(accent()).into(),
                     None,
                 ),
                 group_row(
@@ -1174,7 +1174,7 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
                 app.tr("view_target_region"),
                 row![
                     label(app.region.map_or("—", Region::token))
-                        .size(18)
+                        .size(14)
                         .color(accent()),
                     label(app.tr("view_from_the_firmware_s_vendor_boot"))
                         .size(13)
@@ -1193,7 +1193,7 @@ fn confirm(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             ),
             group_row(
                 app.tr("view_user_data"),
-                label(app.tr("view_erased")).size(18).color(danger()).into(),
+                label(app.tr("view_erased")).size(14).color(danger()).into(),
                 None,
             ),
             link_row(
@@ -1923,7 +1923,7 @@ fn bootloader_summary(app: &App, unlock: bool) -> Element<'_, Message> {
         group_row(
             name,
             label(if unlock { "1" } else { "0" })
-                .size(18)
+                .size(14)
                 .color(accent())
                 .into(),
             Some(small(if unlock { "Unlocked" } else { "Locked" }).into()),
@@ -1933,7 +1933,7 @@ fn bootloader_summary(app: &App, unlock: bool) -> Element<'_, Message> {
         model_row(app),
         group_row(
             app.tr("view_user_data"),
-            label(app.tr("view_erased")).size(18).color(danger()).into(),
+            label(app.tr("view_erased")).size(14).color(danger()).into(),
             None,
         ),
         flag(app.tr("view_bootloader_unlock_flag")),
