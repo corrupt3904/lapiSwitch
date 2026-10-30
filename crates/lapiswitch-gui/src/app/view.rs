@@ -1817,8 +1817,8 @@ fn edit(app: &App) -> (Element<'_, Message>, Element<'_, Message>) {
             group_row(
                 app.tr("view_user_data"),
                 label(app.tr("view_depends_on_the_changed_fields"))
-                    .size(18)
-                    .color(fluent::p().warning)
+                    .size(14)
+                    .color(fluent::p().caution)
                     .into(),
                 None,
             ),
