@@ -51,8 +51,8 @@ Interface languages: 한국어, English, 简体中文, 日本語 and Русск�
 |---|---|
 | Host OS | **Windows x64 only** |
 | Tablet | **Lenovo TB520FU (`lapis`)** and **TB522FU (`mojito`, not yet validated on hardware)**; other models are blocked |
-| Installed PRC firmware | TB520FU: `ZUXOS_1.5.10.186` or earlier; preceding PRC ZUI builds are also allowed · TB522FU: build date 2026-09-24 (`…260924C`) or earlier |
-| Installed ROW firmware | TB520FU: `ZUI_18.5.10.037` or earlier · TB522FU: build date 2026-09-04 (`…260904W`) or earlier |
+| Installed PRC firmware | TB520FU: `ZUXOS_1.5.10.186` or earlier; preceding PRC ZUI builds are also allowed · TB522FU: build date 2026-10-26 (`…261026C`) or earlier |
+| Installed ROW firmware | TB520FU: `ZUI_18.5.10.037` or earlier · TB522FU: build date 2026-10-20 (`…261020W`) or earlier |
 | Installation package | Unpacked official firmware matching the **target region** |
 | Connection | Reliable USB cable, adequate battery charge and internet access for required downloads |
 

@@ -246,10 +246,20 @@ mod tests {
             "99.999.260924C",
             "11.055.260904W",
             "10.999.260903W",
+            "10.067.261026C",
+            "11.104.261020W",
         ] {
             assert!(check(device, &mojito(s)).is_ok(), "{s}");
         }
-        for s in ["1.001.260925C", "11.055.260905W", "1.000.270101C"] {
+        // A ROW build ID can carry a second ID after a dash.
+        assert!(
+            check(
+                device,
+                "qti/TB522FU/TB522FU:17/CQ2A.260712.001-CP2A.260605.016/11.104.261020W:user/release-keys"
+            )
+            .is_ok()
+        );
+        for s in ["1.001.261027C", "11.104.261021W", "1.000.270101C"] {
             assert!(
                 matches!(
                     check(device, &mojito(s)),

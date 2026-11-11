@@ -282,8 +282,8 @@ fn tb522fu_country_partition_size_and_build_date_ceiling_are_enforced_before_bac
     let tb522fu = lapiswitch_core::device::Device::find("TB522FU").unwrap();
     for (sectors, build, expected) in [
         (255, "10.028.260924C", "oemowninfo"),
-        (256, "10.028.260925C", "2026-09-24"),
-        (256, "11.055.260905W", "2026-09-04"),
+        (256, "10.067.261027C", "2026-10-26"),
+        (256, "11.104.261021W", "2026-10-20"),
     ] {
         let out = tempfile::tempdir().unwrap();
         let mut device = tb522fu_fake(sectors, build);

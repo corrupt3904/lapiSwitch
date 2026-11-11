@@ -24,14 +24,14 @@ scheme = "build_date"
 [[installed.allow]]
 region = "PRC"
 suffix = "C"
-max = "2026-09-24"
-label = "2026-09-24 (10.028.260924C)"
+max = "2026-10-26"
+label = "2026-10-26 (10.067.261026C)"
 
 [[installed.allow]]
 region = "ROW"
 suffix = "W"
-max = "2026-09-04"
-label = "2026-09-04 (11.055.260904W)"
+max = "2026-10-20"
+label = "2026-10-20 (11.104.261020W)"
 
 # Official TWRP release to use. Its size and SHA-256 are checked on every use.
 [twrp]
