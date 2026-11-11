@@ -68,7 +68,7 @@ TWRP에서 DeviceInfo를 백업·변경·검증한 뒤 원본 GPT·Recovery를 �
 
 전체 흐름은 **검사·원본 백업 → TWRP / DeviceInfo 변경·검증 → 원본 구성 복원 → (리전 변경 시) 펌웨어 설치 → 재부팅**입니다. 편집 창에서 취소하면 DeviceInfo를 바꾸지 않고 원본 구성을 자동으로 복구합니다.
 
-TWRP는 지정된 [lapis용 릴리즈 `v3.7.1_16-20261014`](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014)에서 별도로 내려받으며, 사용할 때마다 파일 크기와 SHA-256을 확인합니다.
+TWRP는 지정된 [TB520FU용 릴리즈 `v3.7.1_16-20261107`](https://github.com/lenovo-sm8650/android_device_lenovo_TB520FU-twrp/releases/tag/v3.7.1_16-20261107)에서 별도로 내려받으며, 사용할 때마다 파일 크기와 SHA-256을 확인합니다.
 
 ## 백업과 원본 복구
 
@@ -114,7 +114,7 @@ Android helper와 해당 검증 범위는 [`tools/deviceinfo/README.md`](tools/d
 ## 크레딧
 
 - **[LTBox](https://github.com/miner7222/LTBox) · [avbtool-rs](https://github.com/miner7222/avbtool-rs)** — [@miner7222](https://github.com/miner7222)
-- **[TWRP](https://twrp.me/)** — TeamWin · [TB520FU 빌드](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014) [@wnduddld0513](https://github.com/wnduddld0513) · [TB522FU 빌드](https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16) lanweikayu
+- **[TWRP](https://twrp.me/)** — TeamWin · [TB520FU 빌드](https://github.com/lenovo-sm8650/android_device_lenovo_TB520FU-twrp/releases/tag/v3.7.1_16-20261107) [@wnduddld0513](https://github.com/wnduddld0513) · [TB522FU 빌드](https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16) lanweikayu
 - **기타** — [qdlrs](https://github.com/qualcomm/qdlrs), [flag-icons](https://github.com/lipis/flag-icons), [Noto Sans KR](https://github.com/notofonts/noto-cjk), [iced](https://github.com/iced-rs/iced), [Rust 의존성](Cargo.lock)
 
 ## 라이선스

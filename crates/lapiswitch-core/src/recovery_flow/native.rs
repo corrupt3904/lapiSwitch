@@ -234,7 +234,7 @@ impl Recovery {
         let product = self.shell("getprop ro.product.device", false)?;
         if !crate::prepare::supported_model(&model)
             || Device::identify(&model) != Some(self.device)
-            || !product.eq_ignore_ascii_case(self.device.codename())
+            || !self.device.recovery_product(&product)
         {
             return Err(crate::msg!(
                 "core_twrp_device_unconfirmed",

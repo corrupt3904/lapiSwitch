@@ -40,11 +40,11 @@ label = "ZUI_18.5.10.037"
 
 # Official TWRP release to use. Its size and SHA-256 are checked on every use.
 [twrp]
-tag = "v3.7.1_16-20261014"
-name = "TWRP-3.7.1_16-lapis-20261014-landscape.img"
+tag = "v3.7.1_16-20261107"
+name = "TWRP-3.7.1_16-TB520FU-20261107-landscape.img"
 size = 104857600
-sha256 = "310ff2ecfc4c52060f9b6a0ad6f6e466a63a36d8ae87bc39f0c5408d2dcf24a4"
-url = "https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/download/v3.7.1_16-20261014/TWRP-3.7.1_16-lapis-20261014-landscape.img"
+sha256 = "0e2926feb4200c3ebca0d6c9df64fc0adf0e193ef2c6b2760d188e8c7caef2bc"
+url = "https://github.com/lenovo-sm8650/android_device_lenovo_TB520FU-twrp/releases/download/v3.7.1_16-20261107/TWRP-3.7.1_16-TB520FU-20261107-landscape.img"
 
 # Country code method: devinfo_persist (devinfo and persist patching) or oemowninfo (a fixed field of a partition).
 [country]

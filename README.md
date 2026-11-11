@@ -68,7 +68,7 @@ Per-device values (model, version limits, TWRP, country-code location and Device
 
 The workflow is **checks and backups → TWRP / DeviceInfo update and verification → original configuration restore → firmware installation (region changes only) → reboot**. Cancelling in the editor leaves DeviceInfo unchanged and restores the original configuration automatically.
 
-TWRP is downloaded separately from the pinned [lapis release `v3.7.1_16-20261014`](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014). Its size and SHA-256 are checked on every use.
+TWRP is downloaded separately from the pinned [TB520FU release `v3.7.1_16-20261107`](https://github.com/lenovo-sm8650/android_device_lenovo_TB520FU-twrp/releases/tag/v3.7.1_16-20261107). Its size and SHA-256 are checked on every use.
 
 ## Backups and recovery
 
@@ -114,7 +114,7 @@ Supported-device data (model names, firmware checks, accepted installed firmware
 ## Credits
 
 - **[LTBox](https://github.com/miner7222/LTBox) · [avbtool-rs](https://github.com/miner7222/avbtool-rs)** — [@miner7222](https://github.com/miner7222)
-- **[TWRP](https://twrp.me/)** — TeamWin · [TB520FU build](https://github.com/lenovo-sm8650/android_device_lenovo_lapis-twrp/releases/tag/v3.7.1_16-20261014) by [@wnduddld0513](https://github.com/wnduddld0513) · [TB522FU build](https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16) by lanweikayu
+- **[TWRP](https://twrp.me/)** — TeamWin · [TB520FU build](https://github.com/lenovo-sm8650/android_device_lenovo_TB520FU-twrp/releases/tag/v3.7.1_16-20261107) by [@wnduddld0513](https://github.com/wnduddld0513) · [TB522FU build](https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16) by lanweikayu
 - **Others** — [qdlrs](https://github.com/qualcomm/qdlrs), [flag-icons](https://github.com/lipis/flag-icons), [Noto Sans KR](https://github.com/notofonts/noto-cjk), [iced](https://github.com/iced-rs/iced), [Rust dependencies](Cargo.lock)
 
 ## License

@@ -72,6 +72,12 @@ impl Device {
     pub fn codename(self) -> &'static str {
         self.0.codename.expect("flow devices have a codename")
     }
+    /// A TWRP build names the device by its codename or, like the stock
+    /// firmware, by its model.
+    pub fn recovery_product(self, product: &str) -> bool {
+        let product = product.trim();
+        product.eq_ignore_ascii_case(self.codename()) || product.eq_ignore_ascii_case(self.model())
+    }
     pub fn image(self) -> Option<&'static [u8]> {
         self.0.image
     }
@@ -166,6 +172,21 @@ mod tests {
             assert_eq!(Device::identify(&format!("{}X", device.model())), None);
         }
         assert_eq!(Device::identify("TB520FU/TB522FU"), None);
+        for (device, product) in [
+            (tb520fu(), "lapis"),
+            (tb520fu(), "TB520FU"),
+            (tb522fu(), "TB522FU"),
+            (tb522fu(), "mojito"),
+        ] {
+            assert!(device.recovery_product(product), "{product}");
+        }
+        for (device, product) in [
+            (tb520fu(), "TB522FU"),
+            (tb522fu(), "lapis"),
+            (tb520fu(), ""),
+        ] {
+            assert!(!device.recovery_product(product), "{product}");
+        }
         assert_eq!(Device::identify("TB321FU"), None);
         let json = serde_json::to_string(&tb522fu()).unwrap();
         assert_eq!(json, "\"TB522FU\"");
