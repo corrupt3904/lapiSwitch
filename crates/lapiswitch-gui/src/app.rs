@@ -210,6 +210,8 @@ struct App {
     driver_checking: bool,
     driver_error: Option<String>,
     driver_restart: bool,
+    /// A newer driver release than the installed one, from the last check.
+    driver_update: Option<ltbox_device::driver::DriverUpdate>,
     device: crate::device::Monitor,
     deferred: Option<Message>,
     queued: Vec<Task<Message>>,
@@ -315,6 +317,7 @@ impl App {
             driver_checking: false,
             driver_error: None,
             driver_restart: false,
+            driver_update: None,
             device: crate::device::Monitor::default(),
             deferred: None,
             queued: vec![],
@@ -416,6 +419,15 @@ impl App {
                     ltbox_device::driver::DriverStatus::Present
                         | ltbox_device::driver::DriverStatus::NotWindows
                 )
+            )
+    }
+    /// The installed driver works, and a newer release can replace it.
+    fn driver_updatable(&self) -> bool {
+        self.drivers_ready()
+            && self.driver_update.is_some()
+            && matches!(
+                self.driver_status,
+                Some(ltbox_device::driver::DriverStatus::Present)
             )
     }
     fn drivers_installable(&self) -> bool {
@@ -1153,6 +1165,7 @@ impl App {
                 self.save_preferences();
                 self.driver_status = None;
                 self.driver_error = None;
+                self.driver_update = None;
                 self.device.snapshot = crate::device::Snapshot::default();
                 self.device.checked = None;
                 self.device.next = std::time::Instant::now();
@@ -1161,10 +1174,11 @@ impl App {
                     worker::drivers(self.tx.clone());
                 }
             }
-            Message::InstallDrivers if self.drivers_installable() => {
+            Message::InstallDrivers if self.drivers_installable() || self.driver_updatable() => {
                 self.activity = Some(Activity::Install);
                 self.driver_restart = false;
                 self.driver_error = None;
+                self.driver_update = None;
                 self.notice = None;
                 self.error = None;
                 if self.demo {
@@ -1380,6 +1394,7 @@ impl App {
             }
             Event::Drivers(result) => {
                 self.driver_checking = false;
+                self.driver_update = None;
                 match result {
                     Ok(status) => {
                         self.driver_status = Some(status);
@@ -1389,6 +1404,18 @@ impl App {
                         self.driver_status = None;
                         self.driver_error = Some(error);
                     }
+                }
+            }
+            Event::DriverUpdate(mode, update) => {
+                // A result from another mode or an older check is dropped.
+                if !self.driver_checking
+                    && mode == ltbox_device::driver::qcom_driver_mode()
+                    && matches!(
+                        self.driver_status,
+                        Some(ltbox_device::driver::DriverStatus::Present)
+                    )
+                {
+                    self.driver_update = update;
                 }
             }
             Event::DriverInstalled(result) => {
@@ -1642,6 +1669,17 @@ impl App {
             "drivers" => {
                 self.page = Page::Dashboard;
                 self.driver_status = Some(ltbox_device::driver::DriverStatus::KernelDriverMissing);
+            }
+            "driver-update" | "settings-driver-update" => {
+                self.page = if screen == "driver-update" {
+                    Page::Dashboard
+                } else {
+                    Page::Settings
+                };
+                self.driver_update = Some(ltbox_device::driver::DriverUpdate {
+                    current: "1.0.2.0".into(),
+                    latest: "1.0.3.1".into(),
+                });
             }
             "disconnected" => {
                 self.page = Page::Confirm;
@@ -2516,6 +2554,45 @@ mod tests {
         assert!(app.driver_error.is_some());
     }
     #[test]
+    fn a_driver_update_is_optional_and_dropped_when_stale() {
+        let mut app = App::base(true);
+        app.seed_preview("dashboard");
+        let mode = ltbox_device::driver::qcom_driver_mode();
+        let update = ltbox_device::driver::DriverUpdate {
+            current: "1.0.2.0".into(),
+            latest: "1.0.3.1".into(),
+        };
+        app.event(Event::DriverUpdate(mode, Some(update.clone())));
+        // Work is not blocked, and the installer may run as an update.
+        assert!(app.drivers_ready());
+        assert!(app.driver_updatable());
+        assert!(!app.drivers_installable());
+        // A new check clears the old result.
+        app.event(Event::Drivers(Ok(
+            ltbox_device::driver::DriverStatus::Present,
+        )));
+        assert!(!app.driver_updatable());
+        // A result for another mode, or while a check runs, is ignored.
+        let other = match mode {
+            ltbox_device::driver::QcomDriverMode::Kernel => {
+                ltbox_device::driver::QcomDriverMode::Userspace
+            }
+            ltbox_device::driver::QcomDriverMode::Userspace => {
+                ltbox_device::driver::QcomDriverMode::Kernel
+            }
+        };
+        app.event(Event::DriverUpdate(other, Some(update.clone())));
+        assert!(!app.driver_updatable());
+        app.driver_checking = true;
+        app.event(Event::DriverUpdate(mode, Some(update.clone())));
+        app.driver_checking = false;
+        assert!(!app.driver_updatable());
+        // A missing driver is an install, not an update.
+        app.driver_status = Some(ltbox_device::driver::DriverStatus::KernelDriverMissing);
+        app.event(Event::DriverUpdate(mode, Some(update)));
+        assert!(!app.driver_updatable());
+    }
+    #[test]
     fn country_popup_cancel_keeps_committed_choice_and_apply_invalidates_consent() {
         let mut app = App::base(true);
         app.seed_preview("options");
@@ -3119,6 +3196,8 @@ mod tests {
                 "dump",
                 "dump-only",
                 "dashboard-dump-only",
+                "driver-update",
+                "settings-driver-update",
                 "dashboard-twrp",
                 "dashboard-unsupported",
                 "dump-result",

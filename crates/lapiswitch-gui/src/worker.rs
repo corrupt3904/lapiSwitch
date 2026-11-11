@@ -94,6 +94,12 @@ pub enum Event {
     Device(u64, Result<crate::device::Snapshot, String>),
     Drivers(Result<ltbox_device::driver::DriverStatus, String>),
     DriverInstalled(Result<bool, String>),
+    /// A newer signed driver release than the installed one, for the mode it
+    /// was checked in; `None` when up to date or the check failed.
+    DriverUpdate(
+        ltbox_device::driver::QcomDriverMode,
+        Option<ltbox_device::driver::DriverUpdate>,
+    ),
     Log(String),
     Transfer(Option<String>),
     LogPath(PathBuf),
@@ -151,7 +157,16 @@ pub fn drivers(tx: Sender<Event>) {
     std::thread::spawn(move || {
         let result = std::panic::catch_unwind(ltbox_device::driver::check_required_drivers)
             .map_err(|_| lapiswitch_core::msg!("run_drivers_crashed"));
+        let present = matches!(result, Ok(ltbox_device::driver::DriverStatus::Present));
         let _ = tx.send(Event::Drivers(result));
+        // Only an installed driver can be out of date. Offline or GitHub
+        // failures come back as `None`, so no notice is shown.
+        if present {
+            let mode = ltbox_device::driver::qcom_driver_mode();
+            let update =
+                std::panic::catch_unwind(ltbox_device::driver::check_driver_update).unwrap_or(None);
+            let _ = tx.send(Event::DriverUpdate(mode, update));
+        }
     });
 }
 

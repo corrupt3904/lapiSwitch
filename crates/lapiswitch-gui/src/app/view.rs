@@ -2112,6 +2112,15 @@ pub(super) fn driver_status(app: &App) -> String {
         return app.tr("view_checking_drivers").into();
     }
     match &app.driver_status {
+        Some(Present) if app.driver_updatable() => {
+            let update = app
+                .driver_update
+                .as_ref()
+                .expect("checked by driver_updatable");
+            app.tr("view_driver_update_available")
+                .replace("{current}", &update.current)
+                .replace("{latest}", &update.latest)
+        }
         Some(Present) => app.tr("view_required_drivers_are_present").into(),
         Some(NotWindows) => app.tr("view_no_additional_driver_is_required_on").into(),
         Some(Missing(files)) => format!("{}: {}", app.tr("view_missing_drivers"), files.join(", ")),

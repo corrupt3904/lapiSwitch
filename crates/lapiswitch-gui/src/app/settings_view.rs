@@ -210,7 +210,7 @@ pub(super) fn settings(app: &App) -> (Element<'_, Message>, Element<'_, Message>
                 action(
                     app.tr("dashboard_download_install"),
                     Message::InstallDrivers,
-                    app.drivers_installable() && !app.busy(),
+                    (app.drivers_installable() || app.driver_updatable()) && !app.busy(),
                 ),
             ]
             .spacing(12)

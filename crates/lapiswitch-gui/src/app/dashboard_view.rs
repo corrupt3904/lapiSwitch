@@ -166,6 +166,20 @@ pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
     )
 }
 pub(super) fn driver_banner(app: &App) -> Option<Element<'_, Message>> {
+    if app.driver_updatable() && app.activity != Some(Activity::Install) {
+        // Optional: work goes on with the installed driver.
+        let content = row![
+            label(driver_status(app)).size(14).width(Fill),
+            action(
+                app.tr("dashboard_update_driver"),
+                Message::InstallDrivers,
+                !app.busy() && app.deferred.is_none(),
+            ),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+        return Some(notification(content).into());
+    }
     if app.drivers_ready() && app.activity != Some(Activity::Install) {
         return app.driver_restart.then(|| {
             notification_note(app.tr("dashboard_reconnect_usb_after_driver_installation_restart"))
