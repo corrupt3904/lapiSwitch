@@ -278,6 +278,22 @@ fn part(backup: &VerifiedBackup, name: &str, lun: u8) -> Result<Partition, Strin
 }
 /// The fixed DeviceInfo evidence folder inside the backup's Partition folder.
 pub const ATTEMPT_DIR: &str = "DeviceInfo";
+/// DeviceInfo evidence files: the current name, then the one older runs used.
+pub const ORIGINAL: (&str, &str) = ("DeviceInfo_original.bin", "before_shared_1.bin");
+pub const WRITTEN: (&str, &str) = ("DeviceInfo_written.bin", "after_independent.bin");
+pub const RESTORE_BEFORE: (&str, &str) = ("DeviceInfo_before_restore.bin", "deviceinfo_before.bin");
+pub const RESTORE_AFTER: (&str, &str) = ("DeviceInfo_after_restore.bin", "deviceinfo_after.bin");
+/// An evidence file in `dir`. A backup from an older run keeps its own name,
+/// so it can still be resumed or restored; new files get the current name.
+pub fn evidence(dir: &Path, (current, legacy): (&str, &str)) -> PathBuf {
+    let new = dir.join(current);
+    let old = dir.join(legacy);
+    if !new.exists() && old.exists() {
+        old
+    } else {
+        new
+    }
+}
 pub fn recovery_name(slot: crate::slot::Slot) -> String {
     format!("recovery{}", slot.suffix())
 }
@@ -289,7 +305,7 @@ fn saved_plan(
     dir: &Path,
     record: &Attempt,
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
-    let original = dir.join("before_shared_1.bin");
+    let original = evidence(dir, ORIGINAL);
     if backup::hash_file(&original, None)?
         != (deviceinfo::SHARED_SIZE as u64, record.before_sha256.clone())
     {
@@ -312,7 +328,7 @@ fn verify_evidence(backup: &VerifiedBackup, state: &RunState) -> Result<(), Stri
         .ok_or(crate::msg!("core_deviceinfo_no_evidence"))?;
     let dir = attempt_dir(backup, &record.directory)?;
     let (before, planned) = saved_plan(backup.device().field_map()?, &dir, record)?;
-    let final_read = dir.join("after_independent.bin");
+    let final_read = evidence(&dir, WRITTEN);
     if backup::hash_file(&final_read, None)?
         != (
             deviceinfo::SHARED_SIZE as u64,
@@ -881,7 +897,7 @@ pub fn transact(
         }
         deviceinfo::verify(&planned, &a, &b)
             .map_err(|_| crate::msg!("core_previous_write_unknown").to_owned())?;
-        let evidence = dir.join("after_independent.bin");
+        let evidence = evidence(&dir, WRITTEN);
         if evidence.exists() {
             if std::fs::read(&evidence).map_err(|e| e.to_string())? != planned {
                 return Err(crate::msg!("core_independent_evidence_changed"));
@@ -907,7 +923,7 @@ pub fn transact(
     let before = device.read(&scratch.path().join("read1"), log)?;
     let layout = backup.device().write_layout()?;
     layout.check_buffer(&before)?;
-    let original = attempt.join("before_shared_1.bin");
+    let original = evidence(&attempt, ORIGINAL);
     if original.try_exists().map_err(|e| e.to_string())? {
         // A retry after a failed read must keep the very first original.
         if backup::hash_file(&original, None)?
@@ -965,7 +981,7 @@ pub fn transact(
         edits,
         unlocked,
     });
-    if backup::hash_file(&attempt.join("before_shared_1.bin"), None)?
+    if backup::hash_file(&evidence(&attempt, ORIGINAL), None)?
         != (before.len() as u64, backup::digest_bytes(&before))
     {
         return Err(crate::msg!("core_pc_backup_verify_failed"));
@@ -998,14 +1014,14 @@ pub fn transact(
     // Independent helper process, freshly opened TA session, compared on PC too.
     let independent = device.read(&scratch.path().join("independent"), log)?;
     deviceinfo::verify(&planned, &independent, &independent)?;
-    backup::write_new(&attempt.join("after_independent.bin"), &independent)?;
+    backup::write_new(&evidence(&attempt, WRITTEN), &independent)?;
     checkpoint(state, store, Phase::RegionVerified)?;
     live!(log, "{}", crate::msg!("core_write_verified"));
     Ok(Outcome::Verified)
 }
 
 /// DeviceInfo dump: two independent reads must match. The 4096 bytes are
-/// saved as `Deviceinfo_dump_<MODEL>_<unix time>/deviceinfo.bin` with an
+/// saved as `DeviceInfo_Dump_<MODEL>_<unix time>/DeviceInfo.bin` with an
 /// `info.json` under the chosen folder. Nothing is written to the device and
 /// no field map is needed.
 pub fn dump(
@@ -1038,9 +1054,9 @@ pub fn dump(
     let model = backup.device();
     let now = chrono::Utc::now();
     std::fs::create_dir_all(root).map_err(|e| format!("{}: {e}", root.display()))?;
-    let folder = root.join(format!("Deviceinfo_dump_{model}_{}", now.timestamp()));
+    let folder = root.join(format!("DeviceInfo_Dump_{model}_{}", now.timestamp()));
     std::fs::create_dir(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
-    let bin = folder.join("deviceinfo.bin");
+    let bin = folder.join("DeviceInfo.bin");
     backup::write_new(&bin, &first)?;
     let info = serde_json::json!({
         "model": model.model(),

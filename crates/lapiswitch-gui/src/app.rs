@@ -1605,7 +1605,7 @@ impl App {
                     .expect("demo device map");
                 let opened = lapiswitch_core::deviceinfo::parse::from_bytes(
                     std::path::Path::new(
-                        r"Demo\dumps\Deviceinfo_dump_TB520FU_1792800000\deviceinfo.bin",
+                        r"Demo\dumps\DeviceInfo_Dump_TB520FU_1792800000\DeviceInfo.bin",
                     ),
                     demo_deviceinfo(layout),
                 );
@@ -1862,7 +1862,7 @@ impl App {
                 // picked.
                 self.preferences.recent_deviceinfo = std::env::args()
                     .filter_map(|arg| arg.strip_prefix("--demo-deviceinfo=").map(PathBuf::from))
-                    .chain([r"Demo\dumps\Deviceinfo_dump_TB520FU_1790000000\deviceinfo.bin".into()])
+                    .chain([r"Demo\dumps\DeviceInfo_Dump_TB520FU_1790000000\DeviceInfo.bin".into()])
                     .collect();
                 self.demo_pick(Picker::DeviceInfoFile);
                 if screen != "parse" {
@@ -1919,7 +1919,7 @@ impl App {
             "dump-result" => {
                 self.reset_progress(RunKind::Dump);
                 self.dump_folder = Some(
-                    r"C:\TB520FU_Flashing Tool\TEST\DeviceInfo dumps\Deviceinfo_dump_TB520FU_1792000000"
+                    r"C:\TB520FU_Flashing Tool\TEST\DeviceInfo dumps\DeviceInfo_Dump_TB520FU_1792000000"
                         .into(),
                 );
                 self.backup_path = Some(

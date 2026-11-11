@@ -62,7 +62,7 @@ fn proof(backup: &VerifiedBackup, p: &Progress) -> Result<(Vec<u8>, Vec<u8>), St
         .as_ref()
         .ok_or(crate::msg!("core_write_intent_missing"))?;
     let dir = attempt_dir(backup, &a.directory)?;
-    let before_path = dir.join("before_shared_1.bin");
+    let before_path = evidence(&dir, ORIGINAL);
     if backup::hash_file(&before_path, None)?
         != (deviceinfo::SHARED_SIZE as u64, a.before_sha256.clone())
     {
@@ -108,8 +108,7 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
         }
         if let Some(a) = &p.attempt {
             proof(backup, p)?;
-            if attempt_dir(backup, &a.directory)?
-                .join("after_independent.bin")
+            if evidence(&attempt_dir(backup, &a.directory)?, WRITTEN)
                 .try_exists()
                 .map_err(|e| e.to_string())?
             {
@@ -121,9 +120,7 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
             let name = file.file_name();
             let name = name.to_string_lossy();
             if name == ATTEMPT_DIR
-                && file
-                    .path()
-                    .join("after_independent.bin")
+                && evidence(&file.path(), WRITTEN)
                     .try_exists()
                     .map_err(|e| e.to_string())?
             {
@@ -134,7 +131,7 @@ fn classify(backup: &VerifiedBackup, p: Option<&Progress>) -> Result<Assessment,
     }
     let (before, planned) = proof(backup, p)?;
     let a = p.attempt.as_ref().unwrap();
-    let final_path = attempt_dir(backup, &a.directory)?.join("after_independent.bin");
+    let final_path = evidence(&attempt_dir(backup, &a.directory)?, WRITTEN);
     if backup::hash_file(&final_path, None)?
         != (deviceinfo::SHARED_SIZE as u64, a.planned_sha256.clone())
     {
@@ -254,7 +251,7 @@ fn restore_proof(backup: &VerifiedBackup, j: &Journal) -> Result<bool, String> {
     if j.before_sha256.is_none() && j.planned_sha256.is_none() {
         return Ok(false);
     }
-    let before_path = dir.join("deviceinfo_before.bin");
+    let before_path = evidence(&dir, RESTORE_BEFORE);
     let before_hash = j
         .before_sha256
         .as_ref()
@@ -276,7 +273,7 @@ fn restore_proof(backup: &VerifiedBackup, j: &Journal) -> Result<bool, String> {
     if backup::digest_bytes(&planned) != *expected {
         return Err(crate::msg!("core_restore_plan_mismatch"));
     }
-    let after_path = dir.join("deviceinfo_after.bin");
+    let after_path = evidence(&dir, RESTORE_AFTER);
     if !after_path.try_exists().map_err(|e| e.to_string())? {
         return Ok(false);
     }
@@ -486,7 +483,7 @@ pub fn run(
         let (planned, expected) = proof(backup, &p)?;
         let unlocked = p.attempt.as_ref().is_some_and(|a| a.unlocked);
         deviceinfo::verify(&expected, &before, &second)?;
-        preserve(&dir.join("deviceinfo_before.bin"), &before)?;
+        preserve(&evidence(&dir, RESTORE_BEFORE), &before)?;
         j.before_sha256 = Some(backup::digest_bytes(&before));
         j.planned_sha256 = Some(backup::digest_bytes(&planned));
         // Transfers and the dry-run precede the durable write intent.
@@ -499,7 +496,7 @@ pub fn run(
         deviceinfo::verify(&planned, &same, &fresh)?;
         let independent = recovery.read(&scratch.path().join("independent"), log)?;
         deviceinfo::verify(&planned, &independent, &independent)?;
-        preserve(&dir.join("deviceinfo_after.bin"), &independent)?;
+        preserve(&evidence(&dir, RESTORE_AFTER), &independent)?;
         save(&dir, &mut j, RestorePhase::RegionVerified)?;
         recovery.verify_identity(backup)?;
         if let Err(e) = recovery.reboot_edl() {
@@ -590,7 +587,7 @@ pub fn run_from_twrp(
                 live!(log, "{}", crate::msg!("core_restore_twrp_original"));
             } else if first == planned {
                 live!(log, "{}", crate::msg!("core_restore_twrp_revert"));
-                preserve(&dir.join("deviceinfo_before.bin"), &first)?;
+                preserve(&evidence(&dir, RESTORE_BEFORE), &first)?;
                 j.before_sha256 = Some(backup::digest_bytes(&first));
                 j.planned_sha256 = Some(backup::digest_bytes(&original));
                 // Transfers and the dry-run precede the durable write intent.
@@ -602,7 +599,7 @@ pub fn run_from_twrp(
                 deviceinfo::verify(&original, &same, &fresh)?;
                 let independent = recovery.read(&scratch.path().join("independent"), log)?;
                 deviceinfo::verify(&original, &independent, &independent)?;
-                preserve(&dir.join("deviceinfo_after.bin"), &independent)?;
+                preserve(&evidence(&dir, RESTORE_AFTER), &independent)?;
                 save(&dir, &mut j, RestorePhase::RegionVerified)?;
             } else {
                 live!(log, "{}", twrp_other_message());

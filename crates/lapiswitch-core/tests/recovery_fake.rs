@@ -272,7 +272,7 @@ impl DeviceInfoIo for Info {
             .backup_dir
             .join("Partition")
             .join(record.directory)
-            .join("before_shared_1.bin");
+            .join("DeviceInfo_original.bin");
         assert_eq!(std::fs::read(original).unwrap(), before);
         assert_eq!(
             record.planned_sha256,
@@ -1063,13 +1063,13 @@ fn success_and_resume_keep_only_first_original_and_verified_final_read() {
         .map(|e| e.unwrap().file_name())
         .collect();
     names.sort();
-    assert_eq!(names, ["after_independent.bin", "before_shared_1.bin"]);
+    assert_eq!(names, ["DeviceInfo_original.bin", "DeviceInfo_written.bin"]);
     assert_eq!(
-        std::fs::read(dir.join("before_shared_1.bin")).unwrap(),
+        std::fs::read(dir.join("DeviceInfo_original.bin")).unwrap(),
         original
     );
     assert_eq!(
-        std::fs::read(dir.join("after_independent.bin")).unwrap(),
+        std::fs::read(dir.join("DeviceInfo_written.bin")).unwrap(),
         s.info.bytes
     );
     assert_eq!(s.info.reads, 3);
@@ -1100,7 +1100,7 @@ fn compact_final_readback_tampering_blocks_original_restore_and_firmware() {
         .path()
         .join("Partition")
         .join(&record.directory)
-        .join("after_independent.bin");
+        .join("DeviceInfo_written.bin");
     let mut bytes = std::fs::read(&path).unwrap();
     bytes[0xFFF] ^= 1;
     std::fs::write(path, bytes).unwrap();
@@ -1137,7 +1137,7 @@ fn fixed_deviceinfo_directory_preserves_original_across_a_failed_read_retry() {
     assert!(s.transact().is_err());
     let folder = s.backup.path().join("Partition/DeviceInfo");
     assert_eq!(
-        std::fs::read(folder.join("before_shared_1.bin")).unwrap(),
+        std::fs::read(folder.join("DeviceInfo_original.bin")).unwrap(),
         original
     );
     s.info.unstable = false;
@@ -1147,7 +1147,7 @@ fn fixed_deviceinfo_directory_preserves_original_across_a_failed_read_retry() {
         "DeviceInfo"
     );
     assert_eq!(
-        std::fs::read(folder.join("before_shared_1.bin")).unwrap(),
+        std::fs::read(folder.join("DeviceInfo_original.bin")).unwrap(),
         original
     );
     assert_eq!(std::fs::read_dir(folder).unwrap().count(), 2);
@@ -1168,7 +1168,7 @@ fn changed_deviceinfo_after_failed_read_never_overwrites_the_fixed_original() {
         std::fs::read(
             s.backup
                 .path()
-                .join("Partition/DeviceInfo/before_shared_1.bin")
+                .join("Partition/DeviceInfo/DeviceInfo_original.bin")
         )
         .unwrap(),
         original
@@ -1361,10 +1361,27 @@ fn restoration_classifies_durable_intent_and_real_final_dumps_not_file_presence(
             changed: true,
         }
     );
+    // A backup from an older version names its files differently; it is
+    // still recognised, and goes back to the current names afterwards.
+    let evidence = s.backup.path().join("Partition/DeviceInfo");
+    let renames = [
+        ("DeviceInfo_original.bin", "before_shared_1.bin"),
+        ("DeviceInfo_written.bin", "after_independent.bin"),
+    ];
+    for (new, old) in renames {
+        std::fs::rename(evidence.join(new), evidence.join(old)).unwrap();
+    }
+    assert!(matches!(
+        restore::preflight(&s.backup).unwrap(),
+        Assessment::Verified { changed: true, .. }
+    ));
+    for (new, old) in renames {
+        std::fs::rename(evidence.join(old), evidence.join(new)).unwrap();
+    }
     let final_path = s
         .backup
         .path()
-        .join("Partition/DeviceInfo/after_independent.bin");
+        .join("Partition/DeviceInfo/DeviceInfo_written.bin");
     let good = std::fs::read(&final_path).unwrap();
     let mut corrupt = good.clone();
     corrupt[123] ^= 1;
@@ -1430,7 +1447,7 @@ impl DeviceInfoIo for RestoreInfo {
             serde_json::from_slice(&std::fs::read(&self.journal).unwrap()).unwrap();
         assert_eq!(j["phase"], "RegionWritePending");
         assert_eq!(
-            std::fs::read(self.journal.with_file_name("deviceinfo_before.bin")).unwrap(),
+            std::fs::read(self.journal.with_file_name("DeviceInfo_before_restore.bin")).unwrap(),
             b
         );
         self.shared.borrow_mut().0 = p.to_vec();
@@ -1780,8 +1797,8 @@ fn reverse_proof_resumes_only_partition_restoration_and_corruption_blocks_all_io
         let before = s.info.bytes.clone();
         let dir = s.backup.path().join("Partition/OriginalRestore");
         std::fs::create_dir(&dir).unwrap();
-        let before_path = dir.join("deviceinfo_before.bin");
-        let after_path = dir.join("deviceinfo_after.bin");
+        let before_path = dir.join("DeviceInfo_before_restore.bin");
+        let after_path = dir.join("DeviceInfo_after_restore.bin");
         std::fs::write(&before_path, &before).unwrap();
         std::fs::write(&after_path, &after).unwrap();
         let j = serde_json::json!({"version":1,
@@ -1845,7 +1862,7 @@ fn missing_reverse_journal_or_conversion_journal_is_never_a_clean_prewrite_state
     s.transact().unwrap();
     let dir = s.backup.path().join("Partition/OriginalRestore");
     std::fs::create_dir(&dir).unwrap();
-    std::fs::write(dir.join("deviceinfo_before.bin"), &s.info.bytes).unwrap();
+    std::fs::write(dir.join("DeviceInfo_before_restore.bin"), &s.info.bytes).unwrap();
     assert!(
         restore::preflight(&s.backup)
             .unwrap_err()
@@ -2365,7 +2382,7 @@ fn reverse_restore_of_an_edit_targets_the_complete_original() {
         .path()
         .join("Partition")
         .join(&record.directory)
-        .join("before_shared_1.bin");
+        .join("DeviceInfo_original.bin");
     assert_eq!(std::fs::read(&path).unwrap(), original);
     assert_eq!(
         record.before_sha256,
@@ -2397,10 +2414,10 @@ fn a_dump_saves_two_matching_reads_and_never_writes() {
         .unwrap();
         assert_eq!(folder.parent(), Some(root.as_path()));
         let name = folder.file_name().unwrap().to_str().unwrap();
-        let prefix = format!("Deviceinfo_dump_{}_", device.model());
+        let prefix = format!("DeviceInfo_Dump_{}_", device.model());
         assert!(name[prefix.len()..].parse::<i64>().is_ok(), "{name}");
         assert_eq!(
-            std::fs::read(folder.join("deviceinfo.bin")).unwrap(),
+            std::fs::read(folder.join("DeviceInfo.bin")).unwrap(),
             s.info.bytes
         );
         let info: serde_json::Value =

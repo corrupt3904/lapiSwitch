@@ -238,7 +238,7 @@ pub struct RunState {
     pub slot: Option<Slot>,
     pub persist_fingerprint: Option<String>,
     pub warnings: Vec<String>,
-    /// Folder a dump is saved under, in its own `Deviceinfo_dump_*` folder.
+    /// Folder a dump is saved under, in its own `DeviceInfo_Dump_*` folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dump_root: Option<PathBuf>,
 }

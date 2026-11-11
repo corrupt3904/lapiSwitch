@@ -107,7 +107,7 @@ mod tests {
     fn each_sample_is_detected_as_its_own_device() {
         for layout in layouts() {
             let dir = temp(layout.model());
-            let path = dir.join("deviceinfo.bin");
+            let path = dir.join("DeviceInfo.bin");
             std::fs::write(&path, sample(layout)).unwrap();
             let opened = open(&path).unwrap();
             assert_eq!(opened.layout, Some((layout, Source::Detected)));
@@ -119,7 +119,7 @@ mod tests {
     fn a_matching_dump_record_names_the_device_and_a_stale_one_is_ignored() {
         let layout = Layout::find("TB520FU").unwrap();
         let dir = temp("record");
-        let path = dir.join("deviceinfo.bin");
+        let path = dir.join("DeviceInfo.bin");
         let bytes = sample(layout);
         std::fs::write(&path, &bytes).unwrap();
         let record = |sha: &str| {
