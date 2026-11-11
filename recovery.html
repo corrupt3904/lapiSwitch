@@ -44,6 +44,11 @@
         <ol>
           <li><a href="#resume">이어하기</a></li>
           <li><a href="#recovery">원본 복구</a></li>
+          <li><a href="#recovery-scope">원본 복구가 되돌리는 것</a></li>
+          <li><a href="#recovery-ok">복구할 수 있는 상황</a></li>
+          <li><a href="#recovery-no">복구할 수 없는 상황</a></li>
+          <li><a href="#recovery-steps">복구 순서</a></li>
+          <li><a href="#recovery-twrp">TWRP에서 시작할 때와 EDL에서 시작할 때</a></li>
         </ol></li>
       <li class="page"><a href="reference.html">설정과 문제 해결</a></li>
     </ol>
@@ -71,23 +76,93 @@
 
 <section id="recovery">
   <h2><span class="no">2</span>원본 복구</h2>
-  <p>왼쪽 메뉴의 <span class="ui danger">원본 복구</span>는 앱이 만든 백업으로 <b>GPT·Recovery·vendor_boot 구성</b>과, DeviceInfo가 바뀐 경우 <b>작업 전 DeviceInfo 전체</b>를 되돌립니다.</p>
-  <div class="note warn">
-    <span class="title">원본 복구로 되돌아가지 않는 것</span>
-    설치된 펌웨어 전체를 이전 버전으로 되돌리는 기능이 아닙니다. 쓰기 결과가 불명확하면 자동 복구를 진행하지 않습니다.
+  <p>왼쪽 메뉴의 <span class="ui danger">원본 복구</span>는 <b>작업이 중간에 멈춰 기기가 어중간한 상태로 남았을 때</b>, 그 작업이 시작할 때 만든 백업으로 기기를 작업 전 구성으로 되돌리는 기능입니다. 완료된 작업을 취소하는 기능이 아니라, 끝나지 못한 작업을 안전하게 거두는 기능입니다.</p>
+
+  <h3 id="recovery-scope">원본 복구가 되돌리는 것</h3>
+  <ul>
+    <li><b>원본 vendor_boot·Recovery·GPT</b> — 작업은 TWRP로 부팅하려고 이 파티션들을 잠시 바꿉니다. STEP 03에서 백업한 원본으로 되돌리고 다시 읽어 검증합니다.</li>
+    <li><b>작업 전 DeviceInfo 전체(4096바이트)</b> — 작업이 DeviceInfo를 이미 썼다면 TWRP에서 작업 전 값으로 되돌리고 검증합니다. 리전, 부트로더 플래그, 롤백 인덱스, 그 밖에 바꾼 필드가 모두 원래대로 돌아갑니다.</li>
+  </ul>
+  <p>삭제된 사용자 데이터나 설치된 펌웨어 버전처럼 위 두 가지가 아닌 것은 되돌리지 않습니다.</p>
+
+  <h3 id="recovery-ok">복구할 수 있는 상황</h3>
+  <p>공통 조건은 <b>STEP 09 펌웨어 설치가 시작되기 전에 멈춘 작업</b>이라는 것입니다. 펌웨어 플래싱, 부트로더 언락/리락, DeviceInfo 덤프·수정 모두 해당합니다.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>작업이 멈춘 시점</th><th>기기 상태</th><th>원본 복구가 하는 일</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="k">STEP 03 원본 백업 후<br>~ STEP 05 TWRP 연결</td>
+          <td>GPT·Recovery가 TWRP용으로 바뀐 상태입니다. 켜면 TWRP로 부팅되거나 정상 부팅이 되지 않을 수 있습니다. DeviceInfo는 그대로입니다.</td>
+          <td>DeviceInfo는 건드리지 않고, EDL에서 원본 vendor_boot·Recovery·GPT만 복구합니다. <b>TWRP 연결이 필요 없습니다.</b></td>
+        </tr>
+        <tr>
+          <td class="k">STEP 06 DeviceInfo를 읽은 뒤,<br>쓰기 전</td>
+          <td>편집 창이나 롤백 인덱스 경고가 떠 있는 동안 앱이 꺼졌거나 연결이 끊긴 경우입니다. DeviceInfo는 아직 그대로입니다.</td>
+          <td>위와 같습니다. DeviceInfo에는 쓰지 않고 원본 파티션만 복구합니다.</td>
+        </tr>
+        <tr>
+          <td class="k">STEP 06 쓰기·검증 후<br>~ STEP 07 EDL 연결</td>
+          <td>DeviceInfo가 이미 바뀌었고, 파티션은 아직 TWRP용입니다. 리전이 바뀌었다면 기존 펌웨어와 리전이 맞지 않아 부팅되지 않을 수 있습니다.</td>
+          <td>TWRP에서 작업 전 DeviceInfo를 되돌려 검증한 뒤, EDL에서 원본 파티션을 복구합니다.</td>
+        </tr>
+        <tr>
+          <td class="k">STEP 08 원본 복구 후<br>~ STEP 09 시작 전</td>
+          <td>파티션은 원래대로지만 DeviceInfo는 바뀐 상태입니다. 펌웨어 플래싱이라면 리전만 바뀌고 펌웨어는 예전 것이라 부팅되지 않을 수 있습니다.</td>
+          <td>위와 같습니다. DeviceInfo를 작업 전 값으로 되돌리고 원본 파티션을 다시 확인·복구합니다.</td>
+        </tr>
+        <tr>
+          <td class="k">원본 복구가 중간에 멈춤</td>
+          <td>원본 복구 도중 연결이 끊겼거나 대기를 중지한 경우입니다.</td>
+          <td>같은 백업으로 다시 시작하면 복구 기록을 이어받습니다. 이미 되돌리고 검증한 DeviceInfo는 다시 쓰지 않습니다.</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
+  <p>편집 창에서 <span class="ui">작업 취소 · 원본 복구</span>를 누르거나, 롤백 인덱스 경고에서 작업을 취소하면 앱이 이 과정을 자동으로 진행합니다. 자동 복구가 중간에 멈췄다면 여기서 같은 백업으로 다시 시작하세요.</p>
+
+  <h3 id="recovery-no">복구할 수 없는 상황</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>상황</th><th>이유와 대신 할 일</th></tr></thead>
+      <tbody>
+        <tr><td class="k">STEP 09 펌웨어 설치가 시작된 뒤</td><td>새 펌웨어가 일부라도 기록되면 예전 GPT·Recovery로 되돌리는 것이 오히려 위험해서 차단합니다. <b>이어하기</b>(<a href="#resume">이어하기</a>)로 펌웨어 설치를 끝까지 진행하세요.</td></tr>
+        <tr><td class="k">정상적으로 끝난 작업</td><td>완료된 작업은 복구 대상이 아닙니다. 부트로더는 반대 작업(언락 ↔ 리락)으로, DeviceInfo 값은 <b>DeviceInfo 수정</b>으로, 리전은 원래 리전 펌웨어로 다시 플래싱해 되돌립니다.</td></tr>
+        <tr><td class="k">DeviceInfo 쓰기 결과를 알 수 없음</td><td>쓰는 도중 연결이 끊겨 검증 자료가 없으면, 원본으로 되돌려도 되는지 판단할 수 없어 자동 복구를 거부합니다. 먼저 <b>이어하기</b>로 앱이 기기 값을 다시 읽어 결과를 확인하게 하세요.</td></tr>
+        <tr><td class="k">TWRP에서 읽은 DeviceInfo가 예상과 다름</td><td>원본도, 이번 작업이 쓴 값도 아니면 다른 도구나 작업이 값을 바꾼 것일 수 있어 아무것도 쓰지 않고 중단합니다.</td></tr>
+        <tr><td class="k">백업이 손상되었거나 다른 기기</td><td>백업 파일이 바뀌었거나 빠졌거나(해시 불일치), 연결한 기기가 백업한 기기와 다르면 거부합니다. 백업 폴더는 폴더째로 보관하세요.</td></tr>
+        <tr><td class="k">이전 버전 앱의 백업</td><td>이 버전에서 열 수 없습니다. 그 백업을 만든 버전으로 복구하세요.</td></tr>
+        <tr><td class="k">EDL에도 TWRP에도 연결되지 않음</td><td>원본 복구는 기기와 통신할 수 있어야 합니다. 하드웨어 문제로 9008(EDL) 장치가 잡히지 않으면 쓸 수 없습니다.</td></tr>
+        <tr><td class="k">예전 펌웨어로 되돌리기</td><td>설치된 펌웨어 전체를 이전 버전으로 되돌리는 기능은 없습니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 id="recovery-steps">복구 순서</h3>
   <figure class="shot">
     <div class="frame"><img src="img/recovery.png" loading="lazy" alt="원본 복구 화면"></div>
     <figcaption>원본 복구 화면. 백업과 로더를 고르고 체크하면 <span class="ui">원본 복구 시작</span>이 활성화됩니다.</figcaption>
   </figure>
   <ol class="steps">
-    <li><b>백업한 그 기기 한 대</b>를 <b>TWRP(ADB Recovery) 또는 EDL</b>로 연결합니다.</li>
-    <li><span class="ui primary">폴더 선택</span>으로 이 기기의 백업 폴더(예: <code>backup\firmware_flashing\TB520FU_…</code>)를 고릅니다. 앱이 백업 파일과 해시를 확인하고 모델·슬롯·리전·파일 수를 보여 줍니다.</li>
+    <li><b>백업한 그 기기 한 대</b>를 <b>TWRP(ADB Recovery) 또는 EDL</b>로 연결합니다. 기기가 TWRP로 부팅되면 그대로 연결하고, 부팅이 안 되면 EDL(9008)로 진입시킵니다.</li>
+    <li><span class="ui primary">폴더 선택</span>으로 멈춘 작업의 백업 폴더(예: <code>backup\firmware_flashing\TB520FU_…</code>)를 고릅니다. 앱이 백업 파일과 해시를 확인하고 모델·슬롯·리전·파일 수와 DeviceInfo 상태(쓰기 전 / 변경 검증 완료 / 결과 불명)를 보여 줍니다.</li>
     <li><span class="ui primary">파일 선택</span>으로 기기에 맞는 <b>EDL 로더</b>를 고릅니다.</li>
     <li>빨간 안내를 읽고 “이 백업을 만든 기기임을 확인했으며, 원래 리전과 구성을 복구하겠습니다”를 체크합니다.</li>
-    <li><span class="ui primary">원본 복구 시작</span>을 누릅니다.</li>
+    <li><span class="ui primary">원본 복구 시작</span>을 누릅니다. 진행은 파일 검사 → EDL 연결 → 원본 복구·검증 → 마무리 순서입니다.</li>
   </ol>
-  <p>TWRP에서 시작하면 먼저 DeviceInfo를 읽습니다. 원본과 같으면 그대로 두고, 이번 작업에서 쓴 값과 같으면 작업 전 DeviceInfo 전체를 복원합니다. 둘 다 아니면 아무것도 쓰지 않고 중단합니다. 확인을 마치면 EDL에서 원본 vendor_boot·Recovery·GPT를 복구합니다.</p>
+
+  <h3 id="recovery-twrp">TWRP에서 시작할 때와 EDL에서 시작할 때</h3>
+  <ul>
+    <li><b>TWRP에서 시작</b> — 먼저 DeviceInfo를 읽어 비교합니다.
+      <ul>
+        <li>원본과 같으면 DeviceInfo에는 쓰지 않습니다.</li>
+        <li>이번 작업이 쓴 값과 같으면 작업 전 DeviceInfo 전체를 쓰고 검증합니다.</li>
+        <li>둘 다 아니면 아무것도 쓰지 않고 중단합니다.</li>
+      </ul>
+      확인을 마치면 EDL로 전환해 원본 vendor_boot·Recovery·GPT를 복구합니다.</li>
+    <li><b>EDL에서 시작</b> — DeviceInfo를 쓰기 전에 멈춘 작업이면 바로 원본 파티션을 복구합니다. DeviceInfo가 바뀐 작업이면 앱이 현재 리전에 맞춘 vendor_boot와 공식 TWRP를 준비해 TWRP로 재부팅한 뒤, 위와 같이 DeviceInfo를 되돌리고 EDL에서 파티션을 복구합니다.</li>
+  </ul>
+  <p>복구가 끝나면 해당 작업 기록은 보관 처리되어 이어하기 목록에서 사라집니다. 원본 복구를 시작한 백업으로는 그 작업을 다시 이어갈 수 없으니, 다시 하려면 새로 시작하세요.</p>
 </section>
 
 <nav class="pager" aria-label="이전·다음 페이지">
