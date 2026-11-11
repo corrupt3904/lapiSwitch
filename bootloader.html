@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>부트로더 언락/리락 · lapiSwitch 사용 설명서</title>
+<link rel="icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner gutter">
+    <a class="home" href="index.html"><img src="img/icon.png" alt="lapiSwitch 아이콘"></a>
+    <div>
+      <p class="crumb"><a class="home" href="index.html">lapiSwitch 사용 설명서</a></p>
+      <h1>부트로더 언락/리락</h1>
+      <p>DeviceInfo의 부트로더 잠금 플래그를 바꿉니다.</p>
+      <div class="meta">
+        <span class="chip">v0.1.0 화면 기준</span>
+        <span class="chip">2026-11-11 업데이트</span>
+        <span class="chip">Windows x64</span>
+        <span class="chip">한국어</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="layout gutter">
+  <details class="toc" id="toc">
+    <summary>목차</summary>
+    <ol>
+      <li class="page"><a href="index.html">시작하기</a></li>
+      <li class="page"><a href="flash.html">펌웨어 플래싱</a></li>
+      <li class="page current"><a href="bootloader.html" aria-current="page">부트로더 언락/리락</a></li>
+      <li class="page"><a href="dump.html">DeviceInfo 덤프</a></li>
+      <li class="page"><a href="parse.html">DeviceInfo 파싱</a></li>
+      <li class="page"><a href="edit.html">DeviceInfo 수정</a></li>
+      <li class="page"><a href="progress.html">진행 화면과 결과</a></li>
+      <li class="page"><a href="recovery.html">이어하기와 원본 복구</a></li>
+      <li class="page"><a href="reference.html">설정과 문제 해결</a></li>
+    </ol>
+  </details>
+
+<main>
+
+<section id="bootloader">
+  <p>TWRP에서 DeviceInfo의 부트로더 잠금 플래그 두 개(<code>is_unlocked</code>, <code>is_unlock_critical</code>)만 바꿔 부트로더를 언락하거나 리락합니다. 나머지 DeviceInfo 값은 그대로 두고, 작업이 끝나면 원본 구성을 자동으로 되돌립니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/bootloader.png" loading="lazy" alt="부트로더 언락/리락 화면"></div>
+    <figcaption>부트로더 언락/리락 화면. 언락을 고른 상태입니다.</figcaption>
+  </figure>
+  <ol class="steps">
+    <li>메뉴를 누르면 먼저 <b>주의사항 창</b>이 나옵니다. 내용을 읽고 동의를 체크한 뒤 <span class="ui primary">확인</span>을 누릅니다.</li>
+    <li><span class="ui primary">파일 선택</span>으로 <b>EDL 로더</b>를 고릅니다.</li>
+    <li><b>언락</b>(두 플래그를 1로) 또는 <b>리락</b>(두 플래그를 0으로)을 고릅니다.</li>
+    <li>모델, 사용자 데이터(초기화), 바뀔 플래그 값, 백업 위치(<code>backup\Bootloader_Unlock</code> 또는 <code>Bootloader_Relock</code>)를 확인하고 <span class="ui primary">부트로더 언락 시작</span>(또는 리락 시작)을 누릅니다.</li>
+  </ol>
+  <figure class="shot">
+    <div class="frame"><img src="img/bootloader-notice.png" loading="lazy" alt="부트로더 언락/리락 전 주의사항"></div>
+    <figcaption>부트로더 언락/리락 전 주의사항</figcaption>
+  </figure>
+  <div class="note warn">
+    <span class="title">언락·리락 전에 알아 둘 것</span>
+    <ul>
+      <li>언락이나 리락을 하면 부트로더가 사용자 데이터 초기화를 요구하므로 <b>데이터가 모두 삭제</b>됩니다.</li>
+      <li>언락하면 <code>verifiedbootstate</code>가 Orange가 되어 Play Integrity·Widevine DRM 등의 보안 신뢰 수준이 낮아질 수 있습니다.</li>
+      <li>TWRP나 루팅된 Boot 이미지처럼 수정된 이미지가 있는 상태에서 <b>리락하면 AVB 검증에 실패해 부팅되지 않을 수 있습니다.</b> 리락 전에 순정 이미지로 되돌리세요.</li>
+      <li>두 플래그가 이미 고른 상태와 같으면 DeviceInfo에 쓰지 않습니다.</li>
+    </ul>
+  </div>
+  <p>진행은 펌웨어 설치를 뺀 9단계입니다(<a href="progress.html#progress">진행 화면</a>).</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/bootloader-progress.png" loading="lazy" alt="부트로더 언락 진행 화면"></div>
+    <figcaption>부트로더 언락 진행 화면 (9단계)</figcaption>
+  </figure>
+</section>
+
+<nav class="pager" aria-label="이전·다음 페이지">
+  <a class="prev" href="flash.html"><small>← 이전</small>펌웨어 플래싱</a>
+  <a class="next" href="dump.html"><small>다음 →</small>DeviceInfo 덤프</a>
+</nav>
+
+</main>
+</div>
+
+<footer>
+  <div class="inner gutter">lapiSwitch 사용 설명서 · v0.1.0 화면 기준 (2026-11-11). 화면 예시의 기기 정보와 경로는 미리보기 값입니다.</div>
+</footer>
+
+<a class="top" href="#" aria-label="맨 위로">↑</a>
+
+<dialog id="zoom" aria-label="확대한 화면">
+  <img alt="">
+  <p></p>
+</dialog>
+
+<script src="guide.js"></script>
+</body>
+</html>

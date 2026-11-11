@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>이어하기와 원본 복구 · lapiSwitch 사용 설명서</title>
+<link rel="icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner gutter">
+    <a class="home" href="index.html"><img src="img/icon.png" alt="lapiSwitch 아이콘"></a>
+    <div>
+      <p class="crumb"><a class="home" href="index.html">lapiSwitch 사용 설명서</a></p>
+      <h1>이어하기와 원본 복구</h1>
+      <p>중단된 작업을 잇거나 원래 구성으로 되돌립니다.</p>
+      <div class="meta">
+        <span class="chip">v0.1.0 화면 기준</span>
+        <span class="chip">2026-11-11 업데이트</span>
+        <span class="chip">Windows x64</span>
+        <span class="chip">한국어</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="layout gutter">
+  <details class="toc" id="toc">
+    <summary>목차</summary>
+    <ol>
+      <li class="page"><a href="index.html">시작하기</a></li>
+      <li class="page"><a href="flash.html">펌웨어 플래싱</a></li>
+      <li class="page"><a href="bootloader.html">부트로더 언락/리락</a></li>
+      <li class="page"><a href="dump.html">DeviceInfo 덤프</a></li>
+      <li class="page"><a href="parse.html">DeviceInfo 파싱</a></li>
+      <li class="page"><a href="edit.html">DeviceInfo 수정</a></li>
+      <li class="page"><a href="progress.html">진행 화면과 결과</a></li>
+      <li class="page current"><a href="recovery.html" aria-current="page">이어하기와 원본 복구</a>
+        <ol>
+          <li><a href="#resume">이어하기</a></li>
+          <li><a href="#recovery">원본 복구</a></li>
+        </ol></li>
+      <li class="page"><a href="reference.html">설정과 문제 해결</a></li>
+    </ol>
+  </details>
+
+<main>
+
+<section id="resume">
+  <h2><span class="no">1</span>이어하기</h2>
+  <p>작업 도중 앱이 꺼졌거나 대기를 중지했다면, 앱을 다시 열었을 때 위쪽에 <b>“완료되지 않은 작업이 있습니다”</b> 안내가 나옵니다. 아래 작은 글씨는 작업 종류, 목표 리전, 저장된 단계입니다(예: <code>펌웨어 플래싱 · ROW · S5</code>). <span class="ui primary">작업 확인</span>을 누르세요.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/resume.png" loading="lazy" alt="저장된 작업 확인 화면"></div>
+    <figcaption>저장된 작업 확인 화면</figcaption>
+  </figure>
+  <ol class="steps">
+    <li>저장된 작업, 목표 리전, 사용자 데이터, 국가 코드, 펌웨어 폴더, 백업 위치, 현재 단계를 확인합니다.</li>
+    <li>안내를 읽고 <span class="ui primary">이어하기</span>를 누릅니다. 이어가지 않고 원래대로 되돌리려면 <span class="ui danger">원본 복구</span>를 누릅니다.</li>
+  </ol>
+  <p>이어갈 작업이 남아 있는 상태에서 새 작업을 시작하면 <b>이전 작업 보관 후 새로 시작</b> 확인창이 나옵니다. <span class="ui primary">확인</span>을 누르면 이전 작업을 중단하고 새 작업을 준비하며, 기존 백업과 로그는 보존됩니다.</p>
+  <div class="note warn">
+    <span class="title">이어하기가 거부될 때</span>
+    이어하기와 원본 복구는 확인할 수 있는 기록을 기준으로만 진행됩니다. DeviceInfo 쓰기 결과를 확인할 수 없거나 백업 검증에 실패하면 안전을 위해 자동 진행이 거부될 수 있습니다.
+  </div>
+</section>
+
+<section id="recovery">
+  <h2><span class="no">2</span>원본 복구</h2>
+  <p>왼쪽 메뉴의 <span class="ui danger">원본 복구</span>는 앱이 만든 백업으로 <b>GPT·Recovery·vendor_boot 구성</b>과, DeviceInfo가 바뀐 경우 <b>작업 전 DeviceInfo 전체</b>를 되돌립니다.</p>
+  <div class="note warn">
+    <span class="title">원본 복구로 되돌아가지 않는 것</span>
+    설치된 펌웨어 전체를 이전 버전으로 되돌리는 기능이 아닙니다. 쓰기 결과가 불명확하면 자동 복구를 진행하지 않습니다.
+  </div>
+  <figure class="shot">
+    <div class="frame"><img src="img/recovery.png" loading="lazy" alt="원본 복구 화면"></div>
+    <figcaption>원본 복구 화면. 백업과 로더를 고르고 체크하면 <span class="ui">원본 복구 시작</span>이 활성화됩니다.</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><b>백업한 그 기기 한 대</b>를 <b>TWRP(ADB Recovery) 또는 EDL</b>로 연결합니다.</li>
+    <li><span class="ui primary">폴더 선택</span>으로 이 기기의 백업 폴더(예: <code>backup\firmware_flashing\TB520FU_…</code>)를 고릅니다. 앱이 백업 파일과 해시를 확인하고 모델·슬롯·리전·파일 수를 보여 줍니다.</li>
+    <li><span class="ui primary">파일 선택</span>으로 기기에 맞는 <b>EDL 로더</b>를 고릅니다.</li>
+    <li>빨간 안내를 읽고 “이 백업을 만든 기기임을 확인했으며, 원래 리전과 구성을 복구하겠습니다”를 체크합니다.</li>
+    <li><span class="ui primary">원본 복구 시작</span>을 누릅니다.</li>
+  </ol>
+  <p>TWRP에서 시작하면 먼저 DeviceInfo를 읽습니다. 원본과 같으면 그대로 두고, 이번 작업에서 쓴 값과 같으면 작업 전 DeviceInfo 전체를 복원합니다. 둘 다 아니면 아무것도 쓰지 않고 중단합니다. 확인을 마치면 EDL에서 원본 vendor_boot·Recovery·GPT를 복구합니다.</p>
+</section>
+
+<nav class="pager" aria-label="이전·다음 페이지">
+  <a class="prev" href="progress.html"><small>← 이전</small>진행 화면과 결과</a>
+  <a class="next" href="reference.html"><small>다음 →</small>설정과 문제 해결</a>
+</nav>
+
+</main>
+</div>
+
+<footer>
+  <div class="inner gutter">lapiSwitch 사용 설명서 · v0.1.0 화면 기준 (2026-11-11). 화면 예시의 기기 정보와 경로는 미리보기 값입니다.</div>
+</footer>
+
+<a class="top" href="#" aria-label="맨 위로">↑</a>
+
+<dialog id="zoom" aria-label="확대한 화면">
+  <img alt="">
+  <p></p>
+</dialog>
+
+<script src="guide.js"></script>
+</body>
+</html>

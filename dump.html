@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DeviceInfo 덤프 · lapiSwitch 사용 설명서</title>
+<link rel="icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner gutter">
+    <a class="home" href="index.html"><img src="img/icon.png" alt="lapiSwitch 아이콘"></a>
+    <div>
+      <p class="crumb"><a class="home" href="index.html">lapiSwitch 사용 설명서</a></p>
+      <h1>DeviceInfo 덤프</h1>
+      <p>DeviceInfo를 읽어 파일로 저장합니다.</p>
+      <div class="meta">
+        <span class="chip">v0.1.0 화면 기준</span>
+        <span class="chip">2026-11-11 업데이트</span>
+        <span class="chip">Windows x64</span>
+        <span class="chip">한국어</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="layout gutter">
+  <details class="toc" id="toc">
+    <summary>목차</summary>
+    <ol>
+      <li class="page"><a href="index.html">시작하기</a></li>
+      <li class="page"><a href="flash.html">펌웨어 플래싱</a></li>
+      <li class="page"><a href="bootloader.html">부트로더 언락/리락</a></li>
+      <li class="page current"><a href="dump.html" aria-current="page">DeviceInfo 덤프</a></li>
+      <li class="page"><a href="parse.html">DeviceInfo 파싱</a></li>
+      <li class="page"><a href="edit.html">DeviceInfo 수정</a></li>
+      <li class="page"><a href="progress.html">진행 화면과 결과</a></li>
+      <li class="page"><a href="recovery.html">이어하기와 원본 복구</a></li>
+      <li class="page"><a href="reference.html">설정과 문제 해결</a></li>
+    </ol>
+  </details>
+
+<main>
+
+<section id="dump">
+  <p>TWRP에서 DeviceInfo를 읽어 파일로 저장합니다. <b>기기의 DeviceInfo 값은 바꾸지 않고 사용자 데이터도 유지</b>하며, TWRP 실행을 위해 임시로 바꾼 구성은 작업 후 원래대로 복구합니다. 동의 체크 없이 바로 시작할 수 있습니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/dump.png" loading="lazy" alt="DeviceInfo 덤프 화면"></div>
+    <figcaption>DeviceInfo 덤프 화면</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><span class="ui primary">파일 선택</span>으로 <b>EDL 로더</b>를 고릅니다.</li>
+    <li><span class="ui primary">폴더 선택</span>으로 덤프를 저장할 위치를 고릅니다. 백업 위치와 따로 정합니다.</li>
+    <li><span class="ui primary">덤프 시작</span>을 누릅니다. 진행은 9단계입니다.</li>
+  </ol>
+  <p>DeviceInfo를 두 번 읽어 내용이 같을 때만 저장합니다. 저장 위치 아래에 <code>DeviceInfo_Dump_&lt;모델&gt;_&lt;유닉스 시간&gt;</code> 폴더가 생기고, 그 안에 4096바이트 원본 <code>DeviceInfo.bin</code>과 모델·시간·SHA-256을 적은 <code>info.json</code>이 저장됩니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/dump-result.png" loading="lazy" alt="DeviceInfo 덤프 완료 화면"></div>
+    <figcaption>덤프 완료 화면. 덤프 폴더, 백업, 로그를 바로 열 수 있습니다.</figcaption>
+  </figure>
+  <div class="note">
+    <span class="title">TB522FU</span>
+    TB522FU는 덤프만 지원합니다. 덤프 화면은 TB520FU와 같고, 모델이 TB522FU로 표시됩니다. 실기기 검증 전이므로 결과를 꼭 확인하세요.
+  </div>
+</section>
+
+<nav class="pager" aria-label="이전·다음 페이지">
+  <a class="prev" href="bootloader.html"><small>← 이전</small>부트로더 언락/리락</a>
+  <a class="next" href="parse.html"><small>다음 →</small>DeviceInfo 파싱</a>
+</nav>
+
+</main>
+</div>
+
+<footer>
+  <div class="inner gutter">lapiSwitch 사용 설명서 · v0.1.0 화면 기준 (2026-11-11). 화면 예시의 기기 정보와 경로는 미리보기 값입니다.</div>
+</footer>
+
+<a class="top" href="#" aria-label="맨 위로">↑</a>
+
+<dialog id="zoom" aria-label="확대한 화면">
+  <img alt="">
+  <p></p>
+</dialog>
+
+<script src="guide.js"></script>
+</body>
+</html>

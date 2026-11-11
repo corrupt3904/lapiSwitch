@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>펌웨어 플래싱 · lapiSwitch 사용 설명서</title>
+<link rel="icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner gutter">
+    <a class="home" href="index.html"><img src="img/icon.png" alt="lapiSwitch 아이콘"></a>
+    <div>
+      <p class="crumb"><a class="home" href="index.html">lapiSwitch 사용 설명서</a></p>
+      <h1>펌웨어 플래싱</h1>
+      <p>공식 펌웨어를 설치하면서 기기 리전을 바꿉니다.</p>
+      <div class="meta">
+        <span class="chip">v0.1.0 화면 기준</span>
+        <span class="chip">2026-11-11 업데이트</span>
+        <span class="chip">Windows x64</span>
+        <span class="chip">한국어</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="layout gutter">
+  <details class="toc" id="toc">
+    <summary>목차</summary>
+    <ol>
+      <li class="page"><a href="index.html">시작하기</a></li>
+      <li class="page current"><a href="flash.html" aria-current="page">펌웨어 플래싱</a>
+        <ol>
+          <li><a href="#flash-firmware">펌웨어 검사</a></li>
+          <li><a href="#flash-confirm">최종 확인</a></li>
+          <li><a href="#flash-3">국가 코드 고르기</a></li>
+        </ol></li>
+      <li class="page"><a href="bootloader.html">부트로더 언락/리락</a></li>
+      <li class="page"><a href="dump.html">DeviceInfo 덤프</a></li>
+      <li class="page"><a href="parse.html">DeviceInfo 파싱</a></li>
+      <li class="page"><a href="edit.html">DeviceInfo 수정</a></li>
+      <li class="page"><a href="progress.html">진행 화면과 결과</a></li>
+      <li class="page"><a href="recovery.html">이어하기와 원본 복구</a></li>
+      <li class="page"><a href="reference.html">설정과 문제 해결</a></li>
+    </ol>
+  </details>
+
+<main>
+
+<section id="flash">
+  <p>왼쪽 메뉴의 <b>펌웨어 플래싱</b>은 공식 펌웨어를 설치하면서 기기 리전을 그 펌웨어의 리전으로 바꿉니다. 위쪽에 <b>1 펌웨어 검사 → 2 최종 확인 → 3 진행 / 결과</b> 순서가 표시되고, 지난 단계는 눌러서 돌아갈 수 있습니다.</p>
+  <ol class="flow">
+    <li><span>펌웨어 검사</span></li>
+    <li><span>최종 확인</span></li>
+    <li><span>자동 진행 10단계</span></li>
+    <li><span>완료</span></li>
+  </ol>
+
+  <h2 id="flash-firmware"><span class="no">1</span>펌웨어 검사</h2>
+  <ol class="steps">
+    <li><span class="ui primary">폴더 선택</span>을 눌러 <b>압축을 푼 공식 펌웨어 폴더</b>를 고릅니다.</li>
+    <li>앱이 모델·필수 파일을 검사하고, <code>vendor_boot</code>의 DTB에서 펌웨어 리전을 확인합니다. 암호화된 <code>.x</code> 파일은 선택한 폴더 안에 XML로 복호화됩니다.</li>
+    <li>“펌웨어 검사를 통과했습니다”가 나오면 <span class="ui primary">다음</span>을 누릅니다.</li>
+  </ol>
+  <figure class="shot">
+    <div class="frame"><img src="img/firmware.png" loading="lazy" alt="펌웨어 검사 통과 화면"></div>
+    <figcaption>검사를 통과한 화면. 플래싱하면 기기 리전이 이 펌웨어의 리전으로 바뀝니다.</figcaption>
+  </figure>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>표시 항목</th><th>뜻</th></tr></thead>
+      <tbody>
+        <tr><td class="k">리전 (vendor_boot DTB)</td><td>펌웨어의 리전. 이 값이 <b>목표 리전</b>이 됩니다.</td></tr>
+        <tr><td class="k">모델</td><td>펌웨어가 어느 모델용인지. 연결된 기기와 같아야 합니다.</td></tr>
+        <tr><td class="k">Build fingerprint</td><td>펌웨어 빌드 식별 문자열</td></tr>
+        <tr><td class="k">서명 키</td><td>펌웨어 이미지 서명 키 종류</td></tr>
+        <tr><td class="k">롤백 인덱스</td><td>boot·vbmeta_system의 롤백 인덱스. 기기 값과 비교하는 데 쓰입니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="flash-confirm"><span class="no">2</span>최종 확인</h2>
+  <p>시작 전에 고른 내용을 마지막으로 확인하는 화면입니다. <b>화살표(›)가 있는 항목은 눌러서 바꿀 수 있습니다.</b> 동의 항목을 체크해야 <span class="ui primary">플래싱 시작</span>이 활성화됩니다.</p>
+  <figure class="shot">
+    <div class="frame">
+      <img src="img/confirm.png" loading="lazy" alt="최종 확인 화면">
+      <span class="pin" style="--x:27.0%;--y:26.9%">1</span>
+      <span class="pin" style="--x:27.0%;--y:45.8%">2</span>
+      <span class="pin" style="--x:27.0%;--y:59.0%">3</span>
+      <span class="pin" style="--x:27.0%;--y:64.9%">4</span>
+      <span class="pin" style="--x:27.0%;--y:70.9%">5</span>
+      <span class="pin" style="--x:27.0%;--y:77.1%">6</span>
+      <span class="pin" style="--x:27.0%;--y:83.0%">7</span>
+      <span class="pin" style="--x:85.7%;--y:95.2%">8</span>
+    </div>
+    <figcaption>2 최종 확인. 체크하기 전이라 <span class="ui">플래싱 시작</span>이 비활성 상태입니다.</figcaption>
+  </figure>
+  <ol class="legend">
+    <li><b class="n">1</b><span><b>데이터 초기화 안내</b> — 펌웨어 플래싱은 사용자 데이터를 반드시 초기화합니다.</span></li>
+    <li><b class="n">2</b><span><b>목표 리전</b> — 펌웨어 vendor_boot 기준. 아래 <b>사용자 데이터</b>는 항상 “초기화”입니다.</span></li>
+    <li><b class="n">3</b><span><b>국가 코드</b> — 눌러서 바꿉니다(아래 그림).</span></li>
+    <li><b class="n">4</b><span><b>펌웨어 폴더</b> — 누르면 펌웨어 검사로 돌아갑니다.</span></li>
+    <li><b class="n">5</b><span><b>롤백 인덱스</b> — <b>초기화 (기본값)</b>는 DeviceInfo의 롤백 인덱스 32개를 0으로 바꿔 낮은 인덱스의 펌웨어도 설치할 수 있게 합니다. <b>유지</b>는 기존 값을 그대로 둡니다.</span></li>
+    <li><b class="n">6</b><span><b>백업 위치</b> — 이번 작업의 원본 백업이 저장될 곳(<code>backup\firmware_flashing</code>). 설정에서 바꿀 수 있습니다.</span></li>
+    <li><b class="n">7</b><span><b>동의 체크</b> — “사용자 데이터가 모두 삭제된다는 점을 이해했으며, 위 안내를 확인했습니다.”</span></li>
+    <li><b class="n">8</b><span><span class="ui primary">플래싱 시작</span> — 누르는 즉시 작업이 시작됩니다. 시작할 수 없는 이유가 있으면 왼쪽에 회색 글씨로 표시됩니다.</span></li>
+  </ol>
+
+  <h2 id="flash-3"><span class="no">3</span>국가 코드 고르기</h2>
+  <p><b>국가 코드</b> 항목을 누르면 국가 코드 창이 열립니다. 국가명(한국어·영어 등)이나 코드로 검색할 수 있습니다. 예를 들어 <code>ko</code>, <code>한국</code>, <code>Korea</code>, <code>KR</code> 모두 대한민국을 찾습니다. 원하는 항목을 고르고 <span class="ui primary">선택</span>을 누르세요. 기존 국가 코드를 그대로 두려면 목록 맨 위의 <b>변경 안 함</b>을 고릅니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/country-search.png" loading="lazy" alt="국가 코드 검색 결과"></div>
+    <figcaption><code>ko</code>로 검색한 결과. 아래 ‘선택한 코드’에서 현재 값을 확인할 수 있습니다.</figcaption>
+  </figure>
+</section>
+
+<nav class="pager" aria-label="이전·다음 페이지">
+  <a class="prev" href="index.html"><small>← 이전</small>시작하기</a>
+  <a class="next" href="bootloader.html"><small>다음 →</small>부트로더 언락/리락</a>
+</nav>
+
+</main>
+</div>
+
+<footer>
+  <div class="inner gutter">lapiSwitch 사용 설명서 · v0.1.0 화면 기준 (2026-11-11). 화면 예시의 기기 정보와 경로는 미리보기 값입니다.</div>
+</footer>
+
+<a class="top" href="#" aria-label="맨 위로">↑</a>
+
+<dialog id="zoom" aria-label="확대한 화면">
+  <img alt="">
+  <p></p>
+</dialog>
+
+<script src="guide.js"></script>
+</body>
+</html>

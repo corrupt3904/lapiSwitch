@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>설정과 문제 해결 · lapiSwitch 사용 설명서</title>
+<link rel="icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner gutter">
+    <a class="home" href="index.html"><img src="img/icon.png" alt="lapiSwitch 아이콘"></a>
+    <div>
+      <p class="crumb"><a class="home" href="index.html">lapiSwitch 사용 설명서</a></p>
+      <h1>설정과 문제 해결</h1>
+      <p>설정, 백업과 로그 위치, 문제 해결, 크레딧</p>
+      <div class="meta">
+        <span class="chip">v0.1.0 화면 기준</span>
+        <span class="chip">2026-11-11 업데이트</span>
+        <span class="chip">Windows x64</span>
+        <span class="chip">한국어</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="layout gutter">
+  <details class="toc" id="toc">
+    <summary>목차</summary>
+    <ol>
+      <li class="page"><a href="index.html">시작하기</a></li>
+      <li class="page"><a href="flash.html">펌웨어 플래싱</a></li>
+      <li class="page"><a href="bootloader.html">부트로더 언락/리락</a></li>
+      <li class="page"><a href="dump.html">DeviceInfo 덤프</a></li>
+      <li class="page"><a href="parse.html">DeviceInfo 파싱</a></li>
+      <li class="page"><a href="edit.html">DeviceInfo 수정</a></li>
+      <li class="page"><a href="progress.html">진행 화면과 결과</a></li>
+      <li class="page"><a href="recovery.html">이어하기와 원본 복구</a></li>
+      <li class="page current"><a href="reference.html" aria-current="page">설정과 문제 해결</a>
+        <ol>
+          <li><a href="#settings">설정</a></li>
+          <li><a href="#files">백업과 로그 위치</a></li>
+          <li><a href="#faq">문제 해결</a></li>
+          <li><a href="#credits">크레딧과 라이선스</a></li>
+        </ol></li>
+    </ol>
+  </details>
+
+<main>
+
+<section id="settings">
+  <h2><span class="no">1</span>설정</h2>
+  <p>왼쪽 아래 <b>설정</b>을 누르면 앱 설정이 열립니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/settings.png" loading="lazy" alt="앱 설정 화면"></div>
+    <figcaption>앱 설정 화면 위쪽</figcaption>
+  </figure>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>항목</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Language</td><td>앱 화면 언어. 한국어, English, 简体中文, 日本語, Русский.</td></tr>
+        <tr><td class="k">테마</td><td>Windows 설정(기본값), 라이트, 다크.</td></tr>
+        <tr><td class="k">개인정보 보호</td><td><b>앱 로그에서 시리얼 번호 숨기기</b>. 시리얼 필드와 ADB 목록을 가립니다. 복구에 필요한 백업과 기기 확인 기록 원본은 바뀌지 않으며, 이미 저장된 로그에는 소급 적용되지 않습니다.</td></tr>
+        <tr><td class="k">로그 및 백업 위치</td><td>새 로그는 선택한 위치 아래 <code>logs</code>에, 새 백업은 <code>backup</code>의 작업별 폴더에 저장됩니다. <span class="ui">폴더 선택</span>으로 바꿀 수 있으며 기존 파일은 옮겨지지 않습니다.</td></tr>
+        <tr><td class="k">USB 드라이버</td><td>Kernel(Qualcomm 직렬, 기본값) 또는 Userspace(WinUSB / libusb). 상태 확인, 설치, 업데이트(<a href="index.html#install">설치와 드라이버</a> 참고).</td></tr>
+        <tr><td class="k">오픈소스 라이선스</td><td><span class="ui">라이선스 보기</span>로 포함된 고지와 라이선스 원문을 오프라인으로 읽을 수 있습니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="files">
+  <h2><span class="no">2</span>백업과 로그 위치</h2>
+  <p>기본 저장 위치는 <code>%LOCALAPPDATA%\lapiSwitch</code>입니다. 탐색기 주소창에 그대로 붙여 넣으면 열립니다.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>내용</th><th>하위 경로</th></tr></thead>
+      <tbody>
+        <tr><td class="k">작업 로그</td><td><code>logs</code></td></tr>
+        <tr><td class="k">펌웨어 플래싱 백업</td><td><code>backup\firmware_flashing</code></td></tr>
+        <tr><td class="k">DeviceInfo 수정 백업</td><td><code>backup\DeviceInfo_Write</code></td></tr>
+        <tr><td class="k">DeviceInfo 덤프 백업</td><td><code>backup\DeviceInfo_Dump</code></td></tr>
+        <tr><td class="k">부트로더 백업</td><td><code>backup\Bootloader_Unlock</code>, <code>backup\Bootloader_Relock</code></td></tr>
+        <tr><td class="k">앱 설정</td><td><code>preferences.json</code></td></tr>
+        <tr><td class="k">작업 기록 (이어하기·원본 복구)</td><td><code>state.json</code>, <code>history</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>각 작업 폴더 아래에는 작업마다 <code>&lt;모델&gt;_&lt;날짜&gt;_&lt;시간&gt;</code> 폴더(예: <code>TB520FU_2026-11-11_145301</code>)가 생깁니다. DeviceInfo 관련 파일은 그 안의 <code>Partition</code> 폴더에 저장됩니다.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>파일</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td class="k"><code>DeviceInfo\DeviceInfo_original.bin</code></td><td>쓰기 전에 읽은 원본 DeviceInfo</td></tr>
+        <tr><td class="k"><code>DeviceInfo\DeviceInfo_written.bin</code></td><td>쓴 뒤 다시 읽어 검증한 DeviceInfo</td></tr>
+        <tr><td class="k"><code>OriginalRestore\DeviceInfo_before_restore.bin</code></td><td>원본 복구 직전의 DeviceInfo</td></tr>
+        <tr><td class="k"><code>OriginalRestore\DeviceInfo_after_restore.bin</code></td><td>원본 복구 후 다시 읽은 DeviceInfo</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>로그와 백업 위치는 설정에서 바꿀 수 있지만, 앱 설정과 작업 기록은 항상 <code>%LOCALAPPDATA%\lapiSwitch</code>에 남습니다. DeviceInfo 덤프 결과는 덤프 화면에서 고른 저장 위치에 따로 저장됩니다(<a href="dump.html">DeviceInfo 덤프</a>).</p>
+  <ul>
+    <li>백업 폴더는 <b>폴더째로</b> 보관하세요. 안의 파일 일부만 옮기면 해시 확인에 실패해 원본 복구가 거부될 수 있습니다.</li>
+    <li>이전 버전 앱으로 만든 백업과 작업 기록은 이 버전에서 열 수 없습니다. 중단된 작업이 있다면 업데이트 전에 그 작업을 만든 버전으로 마치거나 원본 복구를 완료하세요.</li>
+    <li>로그에는 기기 정보가 들어 있습니다. 공유하기 전에 설정의 시리얼 번호 숨기기를 켜 두면 이후 로그에서 시리얼이 가려집니다.</li>
+  </ul>
+</section>
+
+<section id="faq">
+  <h2><span class="no">3</span>문제 해결</h2>
+
+  <details class="faq">
+    <summary>기기가 인식되지 않아요 (이름이 “—”로 표시돼요)</summary>
+    <div>
+      <ul>
+        <li>충전 전용이 아닌 <b>데이터 케이블</b>인지, PC 본체 포트에 직접 연결했는지 확인합니다.</li>
+        <li>태블릿에서 USB 디버깅이 켜져 있는지, 허용 창을 승인했는지 확인합니다.</li>
+        <li>드라이버 안내가 보이면 설치하고, 설정 → USB 드라이버에서 <span class="ui">드라이버 다시 확인</span>을 누릅니다.</li>
+        <li>Software Fix나 다른 ADB 도구가 켜져 있으면 종료합니다.</li>
+        <li>EDL 모드에서는 원래 이름과 모델이 “—”로 표시됩니다. 연결 배지가 <code>EDL</code>이면 정상입니다.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>메뉴가 흐리게 표시되거나 시작 버튼이 눌리지 않아요</summary>
+    <div>
+      <ul>
+        <li>TB522FU처럼 덤프만 지원하는 기기에서는 쓰기 작업 메뉴가 흐리게 표시됩니다.</li>
+        <li>펌웨어 검사가 실패하면 <span class="ui">다음</span>이 비활성화됩니다. 위쪽 메시지를 확인하세요.</li>
+        <li>동의 항목을 체크하고 기기가 연결되어 있어야 시작 버튼이 활성화됩니다. 화면 아래 회색 글씨가 이유를 알려 줍니다.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>“롤백 인덱스 경고”가 나와요</summary>
+    <div><p>롤백 인덱스를 ‘유지’로 두고 더 낮은 인덱스의 펌웨어를 고른 경우입니다. <span class="ui danger">0으로 초기화 후 계속</span>을 고르거나, 작업을 취소해 원본 구성을 복구한 뒤 같거나 더 높은 인덱스의 펌웨어로 다시 시도하세요(<a href="progress.html#progress">진행 화면</a>).</p></div>
+  </details>
+
+  <details class="faq">
+    <summary>TWRP나 EDL 연결을 계속 기다려요</summary>
+    <div>
+      <ul>
+        <li>케이블을 건드리지 말고 잠시 더 기다립니다. 자동 EDL 재진입은 보통 1분 정도 걸립니다.</li>
+        <li>30초가 지나면 <span class="ui danger">작업 중지</span>를 쓸 수 있습니다. 3분 안에 연결되지 않으면 기록을 보존하고 오류로 중단합니다. 이후 이어하기나 원본 복구로 진행합니다(<a href="progress.html#progress">진행 화면</a>).</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>작업 중에 앱이 꺼졌어요</summary>
+    <div><p>케이블을 그대로 두고 앱을 다시 실행하세요. 위쪽에 “완료되지 않은 작업이 있습니다”가 나오면 <span class="ui primary">작업 확인</span>을 눌러 이어하기를 진행합니다(<a href="recovery.html#resume">이어하기</a>).</p></div>
+  </details>
+
+  <details class="faq">
+    <summary>원래 리전으로 되돌리고 싶어요</summary>
+    <div><p>원본 복구는 백업한 GPT·Recovery·vendor_boot와 작업 전 DeviceInfo를 되돌리는 기능이며, 설치된 펌웨어 전체를 예전 버전으로 되돌리지는 않습니다. 반대 방향으로 리전을 바꾸려면 해당 리전의 공식 펌웨어로 다시 펌웨어 플래싱을 진행하는 방법도 있습니다. 어느 쪽이든 지원 조건(<a href="index.html#prepare">준비물과 지원 조건</a>)을 먼저 확인하세요.</p></div>
+  </details>
+
+  <details class="faq">
+    <summary>문제를 문의하려면 무엇을 보내야 하나요?</summary>
+    <div><p>결과 화면의 <span class="ui">로그 다른 곳에 저장</span>으로 저장한 로그나 <code>logs</code> 폴더의 해당 로그를 첨부하세요. 백업 파일과 DeviceInfo 덤프에는 기기 고유 정보가 들어 있으니 공유하지 마세요.</p></div>
+  </details>
+</section>
+
+<section id="credits">
+  <h2><span class="no">4</span>크레딧과 라이선스</h2>
+  <ul>
+    <li><b><a href="https://github.com/miner7222/LTBox">LTBox</a> · <a href="https://github.com/miner7222/avbtool-rs">avbtool-rs</a> — <a href="https://github.com/miner7222">@miner7222</a></b>: lapiSwitch는 LTBox를 기반으로 만든 독립 도구입니다.</li>
+    <li><b><a href="https://twrp.me/">TWRP</a></b> — TeamWin · <a href="https://github.com/lenovo-sm8650/android_device_lenovo_TB520FU-twrp/releases/tag/v3.7.1_16-20261107">TB520FU 빌드</a> <a href="https://github.com/wnduddld0513">@wnduddld0513</a> · <a href="https://github.com/lanweikayu/android_device_lenovo_TB522FU/releases/tag/TWRP-3.7.1_16">TB522FU 빌드</a> lanweikayu</li>
+    <li><b>기타</b> — qdlrs, flag-icons, Noto Sans KR, iced 및 Rust 의존성.</li>
+  </ul>
+  <p>lapiSwitch는 <b>GPL-3.0-or-later</b>로 배포됩니다. 서드파티 구성요소에는 각각의 라이선스가 적용되며, 앱의 <b>설정 → 오픈소스 라이선스 → 라이선스 보기</b>에서 확인할 수 있습니다. 제품명과 상표의 권리는 각 소유자에게 있습니다.</p>
+  <p>소스 코드와 최신 릴리즈: <a href="https://github.com/corrupt3904/lapiSwitch">github.com/corrupt3904/lapiSwitch</a></p>
+</section>
+
+<nav class="pager" aria-label="이전·다음 페이지">
+  <a class="prev" href="recovery.html"><small>← 이전</small>이어하기와 원본 복구</a>
+</nav>
+
+</main>
+</div>
+
+<footer>
+  <div class="inner gutter">lapiSwitch 사용 설명서 · v0.1.0 화면 기준 (2026-11-11). 화면 예시의 기기 정보와 경로는 미리보기 값입니다.</div>
+</footer>
+
+<a class="top" href="#" aria-label="맨 위로">↑</a>
+
+<dialog id="zoom" aria-label="확대한 화면">
+  <img alt="">
+  <p></p>
+</dialog>
+
+<script src="guide.js"></script>
+</body>
+</html>

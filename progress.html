@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>진행 화면과 결과 · lapiSwitch 사용 설명서</title>
+<link rel="icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner gutter">
+    <a class="home" href="index.html"><img src="img/icon.png" alt="lapiSwitch 아이콘"></a>
+    <div>
+      <p class="crumb"><a class="home" href="index.html">lapiSwitch 사용 설명서</a></p>
+      <h1>진행 화면과 결과</h1>
+      <p>모든 작업이 함께 쓰는 진행 단계, 확인창, 완료와 중단</p>
+      <div class="meta">
+        <span class="chip">v0.1.0 화면 기준</span>
+        <span class="chip">2026-11-11 업데이트</span>
+        <span class="chip">Windows x64</span>
+        <span class="chip">한국어</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="layout gutter">
+  <details class="toc" id="toc">
+    <summary>목차</summary>
+    <ol>
+      <li class="page"><a href="index.html">시작하기</a></li>
+      <li class="page"><a href="flash.html">펌웨어 플래싱</a></li>
+      <li class="page"><a href="bootloader.html">부트로더 언락/리락</a></li>
+      <li class="page"><a href="dump.html">DeviceInfo 덤프</a></li>
+      <li class="page"><a href="parse.html">DeviceInfo 파싱</a></li>
+      <li class="page"><a href="edit.html">DeviceInfo 수정</a></li>
+      <li class="page current"><a href="progress.html" aria-current="page">진행 화면과 결과</a>
+        <ol>
+          <li><a href="#progress">진행 화면</a></li>
+          <li><a href="#result">완료와 중단</a></li>
+        </ol></li>
+      <li class="page"><a href="recovery.html">이어하기와 원본 복구</a></li>
+      <li class="page"><a href="reference.html">설정과 문제 해결</a></li>
+    </ol>
+  </details>
+
+<main>
+
+<section id="progress">
+  <h2><span class="no">1</span>진행 화면</h2>
+  <p>작업을 시작하면 단계가 자동으로 진행됩니다. 펌웨어 플래싱과 DeviceInfo 수정은 10단계, 부트로더 언락/리락과 DeviceInfo 덤프는 펌웨어 설치를 뺀 9단계입니다. 진행 중에는 왼쪽 메뉴가 잠깁니다.</p>
+
+  <div class="note danger">
+    <span class="title">진행 중에는 절대로</span>
+    USB 케이블을 뽑거나, 앱을 종료하거나, PC를 절전 모드로 두지 마세요. 실시간 로그는 자동 저장됩니다.
+  </div>
+
+  <figure class="shot">
+    <div class="frame">
+      <img src="img/progress.png" loading="lazy" alt="펌웨어 설치 중인 진행 화면">
+      <span class="pin" style="--x:26.5%;--y:29.1%">1</span>
+      <span class="pin" style="--x:26.5%;--y:35.4%">2</span>
+      <span class="pin" style="--x:26.5%;--y:42.7%">3</span>
+      <span class="pin" style="--x:69.1%;--y:50.5%">4</span>
+      <span class="pin" style="--x:26.5%;--y:62.7%">5</span>
+      <span class="pin" style="--x:26.5%;--y:73.5%">6</span>
+      <span class="pin" style="--x:26.5%;--y:80.0%">7</span>
+      <span class="pin" style="--x:26.5%;--y:96.4%">8</span>
+    </div>
+    <figcaption>STEP 09 펌웨어 설치 중인 진행 화면</figcaption>
+  </figure>
+  <ol class="legend">
+    <li><b class="n">1</b><span><b>전체 진행률</b> — 단계별 예상 소요 시간을 기준으로 계산하며, 펌웨어 설치 단계는 실제 전송량을 반영합니다.</span></li>
+    <li><b class="n">2</b><span>현재 단계 번호와 이름.</span></li>
+    <li><b class="n">3</b><span><b>단계 카드</b> — 끝난 단계에는 ✓ 표시가 붙습니다.</span></li>
+    <li><b class="n">4</b><span>지금 진행 중인 단계(파란 테두리).</span></li>
+    <li><b class="n">5</b><span>기기와 펌웨어의 롤백 인덱스 비교.</span></li>
+    <li><b class="n">6</b><span>펌웨어 설치 단계의 세부 진행률(파티션 이름과 전송 비율).</span></li>
+    <li><b class="n">7</b><span><b>실시간 로그</b> — 자세한 작업 기록. 같은 내용이 로그 파일에도 저장됩니다.</span></li>
+    <li><b class="n">8</b><span>주의 문구. 연결 대기가 30초를 넘기면 이 자리 오른쪽에 <span class="ui danger">작업 중지</span> 버튼이 나타납니다.</span></li>
+  </ol>
+
+  <h3>단계별 설명</h3>
+  <div class="stepgrid">
+    <div class="stepcard"><div class="s">STEP 01</div><div class="t">파일 검사</div><p>펌웨어(플래싱 시)와 기기별 공식 TWRP 파일을 검사합니다. TWRP는 지정된 릴리즈에서 내려받고, 쓸 때마다 크기와 SHA-256을 확인합니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 02</div><div class="t">기기·슬롯 확인</div><p>연결 모드, 모델, 활성 슬롯, 설치된 펌웨어 버전 상한을 확인하고 백업을 위해 EDL로 전환합니다. 태블릿이 재부팅됩니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 03</div><div class="t">원본 백업</div><p>원본 GPT·Recovery·vendor_boot·misc 및 고유 파티션을 백업하고, 다시 읽어 크기와 SHA-256을 확인합니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 04</div><div class="t">GPT·TWRP 준비</div><p>TWRP로 부팅할 수 있도록 GPT와 Recovery 구성을 준비합니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 05</div><div class="t">TWRP 연결</div><p>재부팅 확인 후 태블릿이 TWRP Recovery로 부팅되고, 앱이 TWRP의 ADB 연결을 기다린 뒤 기기를 다시 확인합니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 06</div><div class="t">DeviceInfo 변경·검증</div><p>DeviceInfo를 두 번 읽어 PC에 백업한 뒤 변경 내용을 적용하고, 4096바이트 전체를 다시 읽어 검증합니다. 덤프는 읽어서 저장만 합니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 07</div><div class="t">EDL 연결</div><p>재부팅 확인 후 EDL로 다시 진입합니다. 자동 EDL 재진입은 보통 1분 정도 걸립니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 08</div><div class="t">원본 복구·검증</div><p>STEP 03에서 백업한 원본 GPT·Recovery·vendor_boot를 되돌리고 검증합니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 09</div><div class="t">펌웨어 설치</div><p>펌웨어 플래싱(또는 리전을 바꾼 DeviceInfo 수정)에서만 진행합니다. 공식 펌웨어를 설치하고 사용자 데이터를 초기화합니다. 가장 오래 걸리는 단계입니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 10</div><div class="t">마무리·재부팅</div><p>GPT·국가 코드·활성 슬롯을 확인한 뒤 시스템 부팅을 요청합니다.</p></div>
+  </div>
+
+  <h3>EDL 상태에서 시작한 경우</h3>
+  <p>이미 EDL 모드로 연결된 채로 시작하면 아래 확인창이 나옵니다. 이 작업은 <b>기기가 정상 부팅이 가능한 상태일 때만</b> 진행할 수 있습니다. 정상 부팅이 되는 기기라면 <span class="ui primary">확인</span>, 부팅이 안 되는 기기라면 <span class="ui">취소</span>를 누르세요.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/edl-start-warning.png" loading="lazy" alt="EDL에서 작업 시작 확인창"></div>
+    <figcaption>EDL 상태에서 시작할 때의 확인창</figcaption>
+  </figure>
+
+  <h3>순정롬으로 확인할 수 없을 때</h3>
+  <p>기기에 설치된 펌웨어를 지원되는 순정롬 버전으로 확인하지 못하면 아래 창이 나옵니다. 커스텀롬·GSI·테스트 빌드일 수 있습니다. <span class="ui">취소</span>하면 기기를 바꾸지 않고 중단하며, <span class="ui primary">계속 진행</span>을 골라야 작업이 이어집니다. 모델 확인과 통신 오류 검사는 그대로 적용됩니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/custom-firmware-warning.png" loading="lazy" alt="순정롬 확인 불가 창"></div>
+    <figcaption>순정롬 확인 불가 창</figcaption>
+  </figure>
+
+  <h3>재부팅 전 확인 (STEP 05·07)</h3>
+  <p>TWRP나 EDL로 재부팅하기 전에 빨간 테두리의 <b>재부팅 전 확인</b> 창이 뜹니다. 내용을 읽고 <span class="ui primary">확인</span>을 누르세요. <b>누르지 않아도 10초 뒤 자동으로 확인</b>됩니다. 태블릿에 TWRP 화면이 나타나도 앱이 자동으로 진행하므로 태블릿에서 따로 조작할 필요는 없습니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/twrp-warning.png" loading="lazy" alt="TWRP 재부팅 전 확인창"></div>
+    <figcaption>TWRP 재부팅 전 확인창. 오른쪽 아래 숫자가 자동 확인까지 남은 초입니다.</figcaption>
+  </figure>
+
+  <h3>롤백 인덱스 경고</h3>
+  <p>최종 확인에서 롤백 인덱스를 <b>유지</b>로 골랐는데 설치할 펌웨어의 롤백 인덱스가 기기 DeviceInfo에 저장된 값보다 낮으면, TWRP 단계에서 아래 경고가 나옵니다. 그대로 설치하면 롤백 방지로 부팅되지 않습니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/rollback-confirm.png" loading="lazy" alt="롤백 인덱스 경고 창"></div>
+    <figcaption>롤백 인덱스 경고 창</figcaption>
+  </figure>
+  <ul>
+    <li><span class="ui danger">0으로 초기화 후 계속</span> — DeviceInfo의 32개 롤백 인덱스를 0으로 기록하고 작업을 계속합니다.</li>
+    <li><span class="ui">작업 취소 · 원본 복구</span> — DeviceInfo를 바꾸지 않고 EDL로 전환해 원본 GPT·Recovery·vendor_boot를 자동으로 복구합니다.</li>
+  </ul>
+
+  <h3>연결이 오래 걸릴 때: 작업 중지</h3>
+  <p>TWRP나 EDL 연결을 <b>30초 넘게</b> 기다리면 오른쪽 아래에 <span class="ui danger">작업 중지</span> 버튼이 나타납니다. 먼저 케이블과 태블릿 화면을 확인하고, 그래도 연결되지 않을 때만 사용하세요. 누르면 확인창이 나오고, 확인하면 대기를 멈춥니다.</p>
+  <p><b>3분(180초) 안에 연결되지 않으면</b> 오류로 중단하며 백업과 작업 기록은 보존됩니다. 연결을 확인한 뒤 이어하기를 선택하거나 원본 복구를 진행하세요.</p>
+  <div class="pair">
+    <figure class="shot">
+      <div class="frame"><img src="img/twrp-stop.png" loading="lazy" alt="작업 중지 버튼이 나타난 대기 화면"></div>
+      <figcaption>30초가 지나 <span class="ui danger">작업 중지</span> 버튼이 나타난 화면</figcaption>
+    </figure>
+    <figure class="shot">
+      <div class="frame"><img src="img/twrp-stop-confirm.png" loading="lazy" alt="작업 중지 확인창"></div>
+      <figcaption>작업 중지 확인창</figcaption>
+    </figure>
+  </div>
+  <p>중지한 뒤에는 두 가지 방법이 있습니다.</p>
+  <ul>
+    <li>나중에 TWRP의 ADB 연결이 되면 앱을 다시 열어 <b>이어하기</b>(<a href="recovery.html#resume">이어하기</a>)로 계속 진행합니다.</li>
+    <li>기기를 TWRP 또는 EDL로 연결한 뒤 <b>원본 복구</b>(<a href="recovery.html#recovery">원본 복구</a>)를 진행합니다.</li>
+  </ul>
+</section>
+
+<section id="result">
+  <h2><span class="no">2</span>완료와 중단</h2>
+  <h3>정상 완료</h3>
+  <p>100%와 완료 안내가 표시되면 끝입니다. 태블릿이 시스템으로 부팅됩니다. 초기화 직후의 첫 부팅은 평소보다 오래 걸릴 수 있으니 기다려 주세요. 부팅이 끝나면 <b>실제로 부팅되는지와 국가 코드가 맞는지</b> 확인하세요.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/flash-result.png" loading="lazy" alt="펌웨어 플래싱 완료 화면"></div>
+    <figcaption>펌웨어 플래싱 완료 화면. 백업과 로그 폴더를 바로 열 수 있습니다.</figcaption>
+  </figure>
+  <ul>
+    <li><span class="ui">폴더 열기</span> — 이번 작업의 백업 폴더나 로그가 있는 폴더를 엽니다.</li>
+    <li><span class="ui">로그 다른 곳에 저장</span> — 이번 작업 로그를 원하는 위치에 복사합니다. 문제를 문의할 때 첨부하세요.</li>
+    <li><span class="ui primary">처음으로</span> — 기기 화면으로 돌아갑니다.</li>
+  </ul>
+
+  <h3>작업이 중단된 경우</h3>
+  <p>문제가 생기면 “작업이 중단되었습니다”와 함께 <b>원인</b>, <b>백업 위치</b>, 로그가 표시됩니다. 원인을 읽고 해결한 뒤 다시 시도하거나, 필요하면 원본 복구를 진행하세요. 백업 폴더는 지우지 마세요.</p>
+</section>
+
+<nav class="pager" aria-label="이전·다음 페이지">
+  <a class="prev" href="edit.html"><small>← 이전</small>DeviceInfo 수정</a>
+  <a class="next" href="recovery.html"><small>다음 →</small>이어하기와 원본 복구</a>
+</nav>
+
+</main>
+</div>
+
+<footer>
+  <div class="inner gutter">lapiSwitch 사용 설명서 · v0.1.0 화면 기준 (2026-11-11). 화면 예시의 기기 정보와 경로는 미리보기 값입니다.</div>
+</footer>
+
+<a class="top" href="#" aria-label="맨 위로">↑</a>
+
+<dialog id="zoom" aria-label="확대한 화면">
+  <img alt="">
+  <p></p>
+</dialog>
+
+<script src="guide.js"></script>
+</body>
+</html>

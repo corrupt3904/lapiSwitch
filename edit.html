@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DeviceInfo 수정 · lapiSwitch 사용 설명서</title>
+<link rel="icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner gutter">
+    <a class="home" href="index.html"><img src="img/icon.png" alt="lapiSwitch 아이콘"></a>
+    <div>
+      <p class="crumb"><a class="home" href="index.html">lapiSwitch 사용 설명서</a></p>
+      <h1>DeviceInfo 수정</h1>
+      <p>DeviceInfo 필드를 직접 고칩니다.</p>
+      <div class="meta">
+        <span class="chip">v0.1.0 화면 기준</span>
+        <span class="chip">2026-11-11 업데이트</span>
+        <span class="chip">Windows x64</span>
+        <span class="chip">한국어</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="layout gutter">
+  <details class="toc" id="toc">
+    <summary>목차</summary>
+    <ol>
+      <li class="page"><a href="index.html">시작하기</a></li>
+      <li class="page"><a href="flash.html">펌웨어 플래싱</a></li>
+      <li class="page"><a href="bootloader.html">부트로더 언락/리락</a></li>
+      <li class="page"><a href="dump.html">DeviceInfo 덤프</a></li>
+      <li class="page"><a href="parse.html">DeviceInfo 파싱</a></li>
+      <li class="page current"><a href="edit.html" aria-current="page">DeviceInfo 수정</a>
+        <ol>
+          <li><a href="#edit-1">편집 창</a></li>
+          <li><a href="#edit-2">변경 내용 확인</a></li>
+        </ol></li>
+      <li class="page"><a href="progress.html">진행 화면과 결과</a></li>
+      <li class="page"><a href="recovery.html">이어하기와 원본 복구</a></li>
+      <li class="page"><a href="reference.html">설정과 문제 해결</a></li>
+    </ol>
+  </details>
+
+<main>
+
+<section id="edit">
+  <p>TWRP에서 기기의 DeviceInfo를 읽은 뒤 원하는 필드를 직접 고칩니다. 리전, 부트로더 플래그, 롤백 인덱스뿐 아니라 고급 탭에서 보안·구조 필드까지 바꿀 수 있는 <b>고급 기능</b>입니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/deviceinfo-edit.png" loading="lazy" alt="DeviceInfo 수정 시작 화면"></div>
+    <figcaption>DeviceInfo 수정 시작 화면. 사용자 데이터는 바뀌는 필드에 따라 다릅니다.</figcaption>
+  </figure>
+  <ol class="steps">
+    <li>메뉴를 누르면 먼저 <b>주의사항 창</b>이 나옵니다. 내용을 읽고 동의를 체크한 뒤 <span class="ui primary">확인</span>을 누릅니다. 시작 화면의 동의 문구 옆 <b>?</b>로 다시 볼 수 있습니다.</li>
+    <li><span class="ui primary">파일 선택</span>으로 <b>EDL 로더</b>를 고릅니다.</li>
+    <li>모델과 백업 위치(<code>backup\DeviceInfo_Write</code>)를 확인하고 <span class="ui primary">DeviceInfo 수정 시작</span>을 누릅니다.</li>
+    <li>STEP 06에서 DeviceInfo를 읽으면 편집 창이 열립니다.</li>
+  </ol>
+  <figure class="shot">
+    <div class="frame"><img src="img/deviceinfo-edit-notice.png" loading="lazy" alt="DeviceInfo 수정 전 주의사항"></div>
+    <figcaption>DeviceInfo 수정 전 주의사항</figcaption>
+  </figure>
+
+  <h2 id="edit-1"><span class="no">1</span>편집 창</h2>
+  <figure class="shot">
+    <div class="frame"><img src="img/deviceinfo-editor.png" loading="lazy" alt="DeviceInfo 편집 창"></div>
+    <figcaption>편집 창의 기본 탭. 현재 값이 파란색으로 선택되어 있습니다.</figcaption>
+  </figure>
+  <ul>
+    <li><b>기본</b> 탭 — 리전, 부트로더 Unlock·Critical Unlock 플래그, 롤백 인덱스 32개(현재값 / 0 / 사용자 지정).</li>
+    <li><b>고급</b> 탭 — DeviceInfo 구조 맵의 모든 필드를 검색해 고칩니다. 입력은 필드 형식과 크기에 맞아야 합니다.</li>
+    <li>필드 옆 <b>?</b>로 필드 설명을 볼 수 있습니다.</li>
+    <li><b>리전을 바꾸면</b> 그 리전의 공식 펌웨어 폴더를 편집 창에서 골라 검사해야 하며, 펌웨어 설치와 데이터 초기화가 함께 진행됩니다. 리전을 바꾸지 않으면 펌웨어를 설치하지 않고 데이터를 유지합니다.</li>
+    <li><span class="ui">모두 원래 값으로 되돌리기</span> — 바꾼 값을 모두 처음 값으로 되돌립니다.</li>
+    <li><span class="ui">작업 취소 · 원본 복구</span> — DeviceInfo를 바꾸지 않고 원본 구성을 자동으로 복구합니다.</li>
+  </ul>
+
+  <h2 id="edit-2"><span class="no">2</span>변경 내용 확인</h2>
+  <p><span class="ui primary">변경 내용 확인</span>을 누르면 바뀔 필드와 이전 → 새 값이 표시됩니다. 내용을 확인하고 <span class="ui danger">적용</span>을 누르면 DeviceInfo를 쓰고 4096바이트 전체를 다시 읽어 검증합니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/deviceinfo-editor-review.png" loading="lazy" alt="변경 내용 확인 창"></div>
+    <figcaption>리전을 PRC에서 ROW로 바꾸는 예. 이 경우 공식 펌웨어 설치와 데이터 초기화가 함께 진행됩니다.</figcaption>
+  </figure>
+</section>
+
+<nav class="pager" aria-label="이전·다음 페이지">
+  <a class="prev" href="parse.html"><small>← 이전</small>DeviceInfo 파싱</a>
+  <a class="next" href="progress.html"><small>다음 →</small>진행 화면과 결과</a>
+</nav>
+
+</main>
+</div>
+
+<footer>
+  <div class="inner gutter">lapiSwitch 사용 설명서 · v0.1.0 화면 기준 (2026-11-11). 화면 예시의 기기 정보와 경로는 미리보기 값입니다.</div>
+</footer>
+
+<a class="top" href="#" aria-label="맨 위로">↑</a>
+
+<dialog id="zoom" aria-label="확대한 화면">
+  <img alt="">
+  <p></p>
+</dialog>
+
+<script src="guide.js"></script>
+</body>
+</html>

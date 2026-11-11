@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DeviceInfo 파싱 · lapiSwitch 사용 설명서</title>
+<link rel="icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner gutter">
+    <a class="home" href="index.html"><img src="img/icon.png" alt="lapiSwitch 아이콘"></a>
+    <div>
+      <p class="crumb"><a class="home" href="index.html">lapiSwitch 사용 설명서</a></p>
+      <h1>DeviceInfo 파싱</h1>
+      <p>저장된 DeviceInfo 파일을 필드별로 봅니다.</p>
+      <div class="meta">
+        <span class="chip">v0.1.0 화면 기준</span>
+        <span class="chip">2026-11-11 업데이트</span>
+        <span class="chip">Windows x64</span>
+        <span class="chip">한국어</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="layout gutter">
+  <details class="toc" id="toc">
+    <summary>목차</summary>
+    <ol>
+      <li class="page"><a href="index.html">시작하기</a></li>
+      <li class="page"><a href="flash.html">펌웨어 플래싱</a></li>
+      <li class="page"><a href="bootloader.html">부트로더 언락/리락</a></li>
+      <li class="page"><a href="dump.html">DeviceInfo 덤프</a></li>
+      <li class="page current"><a href="parse.html" aria-current="page">DeviceInfo 파싱</a></li>
+      <li class="page"><a href="edit.html">DeviceInfo 수정</a></li>
+      <li class="page"><a href="progress.html">진행 화면과 결과</a></li>
+      <li class="page"><a href="recovery.html">이어하기와 원본 복구</a></li>
+      <li class="page"><a href="reference.html">설정과 문제 해결</a></li>
+    </ol>
+  </details>
+
+<main>
+
+<section id="parse">
+  <p>저장된 DeviceInfo 파일(<code>.bin</code>)을 기기 구조에 맞춰 필드별로 보여 줍니다. <b>파일과 기기는 바꾸지 않으며</b>, 기기를 연결하지 않아도 됩니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="img/parse.png" loading="lazy" alt="DeviceInfo 파싱 파일 선택 화면"></div>
+    <figcaption>파일을 고르면 모델과 SHA-256이 표시됩니다. 최근에 연 파일은 아래 목록에서 다시 열 수 있습니다.</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><span class="ui primary">파일 선택</span>으로 DeviceInfo 파일을 고르거나, <b>최근 파일</b>에서 고릅니다. 옮겨지거나 지워진 파일에는 “파일 없음”이 표시되며, ✕로 목록에서 지울 수 있습니다.</li>
+    <li>모델은 파일 내용으로 자동 판별합니다. 덤프 폴더의 <code>info.json</code>이 같은 파일을 가리키면 그 모델을 씁니다.</li>
+    <li><span class="ui primary">확인</span>을 누르면 필드 목록이 열립니다.</li>
+  </ol>
+  <figure class="shot">
+    <div class="frame"><img src="img/parse-view.png" loading="lazy" alt="DeviceInfo 필드 목록"></div>
+    <figcaption>필드 목록. 각 필드의 이름, 오프셋, 크기, 설명과 값이 표시됩니다.</figcaption>
+  </figure>
+  <ul>
+    <li>위쪽 <b>필드 검색</b>에 이름이나 설명 일부를 입력하면 해당 필드만 보입니다.</li>
+    <li>필드 옆 <b>?</b>를 누르면 그 필드가 하는 일에 대한 설명이 열립니다.</li>
+  </ul>
+</section>
+
+<nav class="pager" aria-label="이전·다음 페이지">
+  <a class="prev" href="dump.html"><small>← 이전</small>DeviceInfo 덤프</a>
+  <a class="next" href="edit.html"><small>다음 →</small>DeviceInfo 수정</a>
+</nav>
+
+</main>
+</div>
+
+<footer>
+  <div class="inner gutter">lapiSwitch 사용 설명서 · v0.1.0 화면 기준 (2026-11-11). 화면 예시의 기기 정보와 경로는 미리보기 값입니다.</div>
+</footer>
+
+<a class="top" href="#" aria-label="맨 위로">↑</a>
+
+<dialog id="zoom" aria-label="확대한 화면">
+  <img alt="">
+  <p></p>
+</dialog>
+
+<script src="guide.js"></script>
+</body>
+</html>
