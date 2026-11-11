@@ -103,7 +103,10 @@ pub(super) fn device_name(app: &App) -> &str {
 /// card of Windows Settings.
 pub(super) fn device_card(app: &App) -> Element<'_, Message> {
     let d = &app.device.snapshot;
-    let mut info = column![label(device_name(app)).size(14)]
+    let name = label(card_name(device_name(app)))
+        .size(14)
+        .wrapping(iced::widget::text::Wrapping::None);
+    let mut info = column![container(name).width(Fill).clip(true)]
         .spacing(4)
         .width(Fill);
     if app.device.dump_only() {
@@ -120,6 +123,22 @@ pub(super) fn device_card(app: &App) -> Element<'_, Message> {
         .padding([0, 6])
         .height(68)
         .into()
+}
+/// The device name on one line of the navigation card, cut with "…" when
+/// it is longer; the dashboard shows it in full.
+fn card_name(name: &str) -> String {
+    // Latin letters take about half the width of Hangul or Han.
+    const BUDGET: usize = 21;
+    let mut used = 0;
+    let mut short = String::new();
+    for c in name.chars() {
+        used += if c.is_ascii() { 1 } else { 2 };
+        if used > BUDGET {
+            return format!("{}…", short.trim_end());
+        }
+        short.push(c);
+    }
+    short
 }
 pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
     let s = &app.device.snapshot;
@@ -344,4 +363,18 @@ pub(super) fn dashboard(app: &App) -> (Element<'_, Message>, Element<'_, Message
         content.into(),
         small(app.tr("dashboard_connection_status_refreshes_about_every_3")).into(),
     )
+}
+#[cfg(test)]
+mod tests {
+    use super::card_name;
+
+    #[test]
+    fn a_long_device_name_is_cut_to_one_line() {
+        assert_eq!(card_name("Lenovo Legion Y700"), "Lenovo Legion Y700");
+        assert_eq!(
+            card_name("Lenovo Legion Yoga Tab Plus Gen 2"),
+            "Lenovo Legion Yoga Ta…"
+        );
+        assert_eq!(card_name("—"), "—");
+    }
 }
