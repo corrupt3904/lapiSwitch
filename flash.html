@@ -37,8 +37,8 @@
       <li class="page current"><a href="flash.html" aria-current="page">펌웨어 플래싱</a>
         <ol>
           <li><a href="#flash-firmware">펌웨어 검사</a></li>
+          <li><a href="#flash-country">국가 코드 선택</a></li>
           <li><a href="#flash-confirm">최종 확인</a></li>
-          <li><a href="#flash-3">국가 코드 고르기</a></li>
         </ol></li>
       <li class="page"><a href="bootloader.html">부트로더 언락/리락</a></li>
       <li class="page"><a href="dump.html">DeviceInfo 덤프</a></li>
@@ -53,9 +53,10 @@
 <main>
 
 <section id="flash">
-  <p>왼쪽 메뉴의 <b>펌웨어 플래싱</b>은 공식 펌웨어를 설치하면서 기기 리전을 그 펌웨어의 리전으로 바꿉니다. 위쪽에 <b>1 펌웨어 검사 → 2 최종 확인 → 3 진행 / 결과</b> 순서가 표시되고, 지난 단계는 눌러서 돌아갈 수 있습니다.</p>
+  <p>왼쪽 메뉴의 <b>펌웨어 플래싱</b>은 공식 펌웨어를 설치하면서 기기 리전을 그 펌웨어의 리전으로 바꿉니다. 위쪽에 <b>1 펌웨어 검사 → 2 최종 확인 → 3 진행 / 결과</b> 순서가 표시되고, 지난 단계는 눌러서 돌아갈 수 있습니다. 펌웨어 검사와 최종 확인 사이에 국가 코드 선택 창이 열립니다.</p>
   <ol class="flow">
     <li><span>펌웨어 검사</span></li>
+    <li><span>국가 코드 선택</span></li>
     <li><span>최종 확인</span></li>
     <li><span>자동 진행 10단계</span></li>
     <li><span>완료</span></li>
@@ -65,7 +66,7 @@
   <ol class="steps">
     <li><span class="ui primary">폴더 선택</span>을 눌러 <b>압축을 푼 공식 펌웨어 폴더</b>를 고릅니다.</li>
     <li>앱이 모델·필수 파일을 검사하고, <code>vendor_boot</code>의 DTB에서 펌웨어 리전을 확인합니다. 암호화된 <code>.x</code> 파일은 선택한 폴더 안에 XML로 복호화됩니다.</li>
-    <li>“펌웨어 검사를 통과했습니다”가 나오면 <span class="ui primary">다음</span>을 누릅니다.</li>
+    <li>“펌웨어 검사를 통과했습니다”가 나오면 <span class="ui primary">다음</span>을 누릅니다. 국가 코드 선택 창이 열립니다.</li>
   </ol>
   <figure class="shot">
     <div class="frame"><img src="img/firmware.png" loading="lazy" alt="펌웨어 검사 통과 화면"></div>
@@ -84,7 +85,20 @@
     </table>
   </div>
 
-  <h2 id="flash-confirm"><span class="no">2</span>최종 확인</h2>
+  <h2 id="flash-country"><span class="no">2</span>국가 코드 선택</h2>
+  <p>펌웨어 검사에서 <span class="ui primary">다음</span>을 누르면 <b>국가 코드 선택</b> 창이 바로 열립니다.</p>
+  <ol class="steps">
+    <li>국가명(한국어·영어 등)이나 코드로 검색합니다. 예를 들어 <code>ko</code>, <code>한국</code>, <code>Korea</code>, <code>KR</code> 모두 대한민국을 찾습니다.</li>
+    <li>원하는 국가를 고릅니다. 기기의 기존 국가 코드를 그대로 두려면 목록 맨 위의 <b>변경 안 함</b>(기존 국가 코드 유지)을 고릅니다.</li>
+    <li><span class="ui primary">선택</span>을 누르면 최종 확인으로 넘어갑니다. <span class="ui">취소</span>를 누르면 펌웨어 검사 화면에 그대로 남습니다.</li>
+  </ol>
+  <figure class="shot">
+    <div class="frame"><img src="img/country-search.png" loading="lazy" alt="국가 코드 선택 창"></div>
+    <figcaption>펌웨어 검사 다음에 열리는 국가 코드 선택 창. <code>ko</code>로 검색한 결과이며, 아래 ‘선택한 코드’에서 현재 값을 확인할 수 있습니다.</figcaption>
+  </figure>
+  <p>고른 국가 코드는 최종 확인의 <b>국가 코드</b> 항목을 눌러 다시 바꿀 수 있습니다.</p>
+
+  <h2 id="flash-confirm"><span class="no">3</span>최종 확인</h2>
   <p>시작 전에 고른 내용을 마지막으로 확인하는 화면입니다. <b>화살표(›)가 있는 항목은 눌러서 바꿀 수 있습니다.</b> 동의 항목을 체크해야 <span class="ui primary">플래싱 시작</span>이 활성화됩니다.</p>
   <figure class="shot">
     <div class="frame">
@@ -98,12 +112,12 @@
       <span class="pin" style="--x:27.0%;--y:83.0%">7</span>
       <span class="pin" style="--x:85.7%;--y:95.2%">8</span>
     </div>
-    <figcaption>2 최종 확인. 체크하기 전이라 <span class="ui">플래싱 시작</span>이 비활성 상태입니다.</figcaption>
+    <figcaption>최종 확인. 체크하기 전이라 <span class="ui">플래싱 시작</span>이 비활성 상태입니다.</figcaption>
   </figure>
   <ol class="legend">
     <li><b class="n">1</b><span><b>데이터 초기화 안내</b> — 펌웨어 플래싱은 사용자 데이터를 반드시 초기화합니다.</span></li>
     <li><b class="n">2</b><span><b>목표 리전</b> — 펌웨어 vendor_boot 기준. 아래 <b>사용자 데이터</b>는 항상 “초기화”입니다.</span></li>
-    <li><b class="n">3</b><span><b>국가 코드</b> — 눌러서 바꿉니다(아래 그림).</span></li>
+    <li><b class="n">3</b><span><b>국가 코드</b> — 앞에서 고른 값. 눌러서 다시 바꿀 수 있습니다.</span></li>
     <li><b class="n">4</b><span><b>펌웨어 폴더</b> — 누르면 펌웨어 검사로 돌아갑니다.</span></li>
     <li><b class="n">5</b><span><b>롤백 인덱스</b> — <b>초기화 (기본값)</b>는 DeviceInfo의 롤백 인덱스 32개를 0으로 바꿔 낮은 인덱스의 펌웨어도 설치할 수 있게 합니다. <b>유지</b>는 기존 값을 그대로 둡니다.</span></li>
     <li><b class="n">6</b><span><b>백업 위치</b> — 이번 작업의 원본 백업이 저장될 곳(<code>backup\firmware_flashing</code>). 설정에서 바꿀 수 있습니다.</span></li>
@@ -111,12 +125,6 @@
     <li><b class="n">8</b><span><span class="ui primary">플래싱 시작</span> — 누르는 즉시 작업이 시작됩니다. 시작할 수 없는 이유가 있으면 왼쪽에 회색 글씨로 표시됩니다.</span></li>
   </ol>
 
-  <h2 id="flash-3"><span class="no">3</span>국가 코드 고르기</h2>
-  <p><b>국가 코드</b> 항목을 누르면 국가 코드 창이 열립니다. 국가명(한국어·영어 등)이나 코드로 검색할 수 있습니다. 예를 들어 <code>ko</code>, <code>한국</code>, <code>Korea</code>, <code>KR</code> 모두 대한민국을 찾습니다. 원하는 항목을 고르고 <span class="ui primary">선택</span>을 누르세요. 기존 국가 코드를 그대로 두려면 목록 맨 위의 <b>변경 안 함</b>을 고릅니다.</p>
-  <figure class="shot">
-    <div class="frame"><img src="img/country-search.png" loading="lazy" alt="국가 코드 검색 결과"></div>
-    <figcaption><code>ko</code>로 검색한 결과. 아래 ‘선택한 코드’에서 현재 값을 확인할 수 있습니다.</figcaption>
-  </figure>
 </section>
 
 <nav class="pager" aria-label="이전·다음 페이지">
