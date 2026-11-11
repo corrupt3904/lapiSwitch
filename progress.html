@@ -88,8 +88,8 @@
   <h3>단계별 설명</h3>
   <div class="stepgrid">
     <div class="stepcard"><div class="s">STEP 01</div><div class="t">파일 검사</div><p>펌웨어(플래싱 시)와 기기별 공식 TWRP 파일을 검사합니다. TWRP는 지정된 릴리즈에서 내려받고, 쓸 때마다 크기와 SHA-256을 확인합니다.</p></div>
-    <div class="stepcard"><div class="s">STEP 02</div><div class="t">기기·슬롯 확인</div><p>연결 모드, 모델, 활성 슬롯, 설치된 펌웨어 버전 상한을 확인하고 백업을 위해 EDL로 전환합니다. 태블릿이 재부팅됩니다.</p></div>
-    <div class="stepcard"><div class="s">STEP 03</div><div class="t">원본 백업</div><p>원본 GPT·Recovery·vendor_boot·misc 및 고유 파티션을 백업하고, 다시 읽어 크기와 SHA-256을 확인합니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 02</div><div class="t">기기·슬롯 확인</div><p>연결 모드, 모델, 활성 슬롯을 확인하고 백업을 위해 EDL로 전환합니다. 태블릿이 재부팅됩니다.</p></div>
+    <div class="stepcard"><div class="s">STEP 03</div><div class="t">원본 백업</div><p>먼저 기기 파티션에서 설치된 펌웨어 버전을 읽어 상한을 확인합니다. 그다음 원본 GPT·Recovery·vendor_boot·misc 및 고유 파티션을 백업하고, 다시 읽어 크기와 SHA-256을 확인합니다.</p></div>
     <div class="stepcard"><div class="s">STEP 04</div><div class="t">GPT·TWRP 준비</div><p>TWRP로 부팅할 수 있도록 GPT와 Recovery 구성을 준비합니다.</p></div>
     <div class="stepcard"><div class="s">STEP 05</div><div class="t">TWRP 연결</div><p>재부팅 확인 후 태블릿이 TWRP Recovery로 부팅되고, 앱이 TWRP의 ADB 연결을 기다린 뒤 기기를 다시 확인합니다.</p></div>
     <div class="stepcard"><div class="s">STEP 06</div><div class="t">DeviceInfo 변경·검증</div><p>DeviceInfo를 두 번 읽어 PC에 백업한 뒤 변경 내용을 적용하고, 4096바이트 전체를 다시 읽어 검증합니다. 덤프는 읽어서 저장만 합니다.</p></div>
@@ -107,7 +107,7 @@
   </figure>
 
   <h3>순정롬으로 확인할 수 없을 때</h3>
-  <p>기기에 설치된 펌웨어를 지원되는 순정롬 버전으로 확인하지 못하면 아래 창이 나옵니다. 커스텀롬·GSI·테스트 빌드일 수 있습니다. <span class="ui">취소</span>하면 기기를 바꾸지 않고 중단하며, <span class="ui primary">계속 진행</span>을 골라야 작업이 이어집니다. 모델 확인과 통신 오류 검사는 그대로 적용됩니다.</p>
+  <p>STEP 03 시작 때 기기에 설치된 펌웨어를 지원되는 순정롬 버전으로 확인하지 못하면 아래 창이 나옵니다. 커스텀롬·GSI·테스트 빌드일 수 있습니다. <span class="ui">취소</span>하면 기기를 바꾸지 않고 중단하며, <span class="ui primary">계속 진행</span>을 골라야 작업이 이어집니다. 모델 확인과 통신 오류 검사는 그대로 적용됩니다.</p>
   <figure class="shot">
     <div class="frame"><img src="img/custom-firmware-warning.png" loading="lazy" alt="순정롬 확인 불가 창"></div>
     <figcaption>순정롬 확인 불가 창</figcaption>
