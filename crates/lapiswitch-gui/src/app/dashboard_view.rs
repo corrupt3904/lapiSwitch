@@ -1,3 +1,4 @@
+use super::fluent::{Severity, icon};
 use super::view::*;
 use super::*;
 use crate::device::Mode;
@@ -166,19 +167,35 @@ pub(super) fn connection_note(app: &App) -> Element<'_, Message> {
     )
 }
 pub(super) fn driver_banner(app: &App) -> Option<Element<'_, Message>> {
-    if app.driver_updatable() && app.activity != Some(Activity::Install) {
+    if app.driver_update_notice().is_some() && app.activity != Some(Activity::Install) {
         // Optional: work goes on with the installed driver.
         let content = row![
-            label(driver_status(app)).size(14).width(Fill),
+            icon(fluent::glyph::WARNING).color(Severity::Warning.icon_color()),
+            column![
+                label(app.tr("dashboard_driver_update_available")).size(15),
+                label(driver_status(app)).size(13),
+            ]
+            .spacing(4)
+            .width(Fill),
             action(
                 app.tr("dashboard_update_driver"),
                 Message::InstallDrivers,
                 !app.busy() && app.deferred.is_none(),
             ),
+            iced::widget::button(label(app.tr("dashboard_dont_show_again")).size(14))
+                .padding([6, 12])
+                .style(fluent::subtle_style)
+                .on_press(Message::SkipDriverUpdate),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
-        return Some(notification(content).into());
+        return Some(
+            container(content)
+                .padding([12, 16])
+                .width(Fill)
+                .style(Severity::Warning.style())
+                .into(),
+        );
     }
     if app.drivers_ready() && app.activity != Some(Activity::Install) {
         return app.driver_restart.then(|| {

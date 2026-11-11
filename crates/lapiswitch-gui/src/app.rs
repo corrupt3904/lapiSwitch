@@ -140,6 +140,8 @@ enum Message {
     Mask(bool),
     Kernel(bool),
     CheckDrivers,
+    /// Hide the update notice for the offered driver release.
+    SkipDriverUpdate,
     InstallDrivers,
     KillAdb,
     AdbKilled(Result<(), String>),
@@ -429,6 +431,13 @@ impl App {
                 self.driver_status,
                 Some(ltbox_device::driver::DriverStatus::Present)
             )
+    }
+    /// The update notice, unless the user skipped this release.
+    fn driver_update_notice(&self) -> Option<&ltbox_device::driver::DriverUpdate> {
+        self.driver_update
+            .as_ref()
+            .filter(|_| self.driver_updatable())
+            .filter(|u| self.preferences.skipped_driver.as_deref() != Some(u.latest.as_str()))
     }
     fn drivers_installable(&self) -> bool {
         use ltbox_device::driver::DriverStatus::*;
@@ -1192,6 +1201,12 @@ impl App {
                         self.output.clone(),
                         self.preferences.mask_serial,
                     );
+                }
+            }
+            Message::SkipDriverUpdate => {
+                if let Some(update) = &self.driver_update {
+                    self.preferences.skipped_driver = Some(update.latest.clone());
+                    self.save_preferences();
                 }
             }
             Message::CheckDrivers if !self.driver_checking => {
@@ -2567,6 +2582,17 @@ mod tests {
         assert!(app.drivers_ready());
         assert!(app.driver_updatable());
         assert!(!app.drivers_installable());
+        // Skipping hides only that release's notice; Settings can still update.
+        assert!(app.driver_update_notice().is_some());
+        let _ = app.update(Message::SkipDriverUpdate);
+        assert!(app.driver_update_notice().is_none());
+        assert!(app.driver_updatable());
+        let newer = ltbox_device::driver::DriverUpdate {
+            current: "1.0.2.0".into(),
+            latest: "1.0.4.0".into(),
+        };
+        app.event(Event::DriverUpdate(mode, Some(newer)));
+        assert!(app.driver_update_notice().is_some());
         // A new check clears the old result.
         app.event(Event::Drivers(Ok(
             ltbox_device::driver::DriverStatus::Present,

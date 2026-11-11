@@ -373,6 +373,8 @@ pub struct Preferences {
     pub dump_root: Option<PathBuf>,
     /// DeviceInfo files parsed with a determined model, latest first.
     pub recent_deviceinfo: Vec<PathBuf>,
+    /// The driver release whose update notice the user chose not to see again.
+    pub skipped_driver: Option<String>,
 }
 
 /// How many recent DeviceInfo files are kept.
@@ -387,6 +389,7 @@ impl Default for Preferences {
             storage_root: None,
             dump_root: None,
             recent_deviceinfo: Vec::new(),
+            skipped_driver: None,
         }
     }
 }
